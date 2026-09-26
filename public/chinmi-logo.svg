@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <!-- Liquid Gradient -->
+    <linearGradient id="cocktailLiquid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f06595" />
+      <stop offset="50%" stop-color="#e64980" />
+      <stop offset="100%" stop-color="#d6336c" />
+    </linearGradient>
+    
+    <!-- Wine Burgundy Gradient -->
+    <linearGradient id="wineStem" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#721c47" />
+      <stop offset="100%" stop-color="#541535" />
+    </linearGradient>
+
+    <!-- Ring Gradient -->
+    <linearGradient id="outerRing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4a4e57" />
+      <stop offset="100%" stop-color="#34373d" />
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Double Circle Ring -->
+  <circle cx="200" cy="200" r="172" fill="none" stroke="url(#outerRing)" stroke-width="7" stroke-linecap="round" />
+  <circle cx="200" cy="200" r="154" fill="none" stroke="url(#outerRing)" stroke-width="4.5" stroke-linecap="round" opacity="0.9" />
+
+  <!-- Atomic Orbital Rings at the Base -->
+  <g transform="translate(200, 275)">
+    <!-- Ellipse 1 (Horizontal tilted) -->
+    <ellipse cx="0" cy="0" rx="56" ry="24" fill="none" stroke="#681841" stroke-width="4" transform="rotate(-20)" />
+    <!-- Ellipse 2 (Horizontal tilted opposite) -->
+    <ellipse cx="0" cy="0" rx="56" ry="24" fill="none" stroke="#681841" stroke-width="4" transform="rotate(25)" />
+    
+    <!-- Orbital Nodes (Small spheres) -->
+    <circle cx="-48" cy="-17" r="7.5" fill="#681841" />
+    <circle cx="48" cy="17" r="7.5" fill="#681841" />
+    <circle cx="-46" cy="21" r="7.5" fill="#681841" />
+    <circle cx="46" cy="-21" r="7.5" fill="#681841" />
+
+    <!-- Center Core Sphere -->
+    <circle cx="0" cy="0" r="14" fill="url(#wineStem)" stroke="#ffffff" stroke-width="1.5" />
+  </g>
+
+  <!-- Martini Glass Structure -->
+  <!-- Glass Stem -->
+  <path d="M 196, 175 L 196, 265 C 196, 268 204, 268 204, 265 L 204, 175 Z" fill="url(#wineStem)" />
+
+  <!-- Glass Bowl Outline (Wine Burgundy) -->
+  <path d="M 125, 110 L 275, 110 L 204, 185 C 202, 187 198, 187 196, 185 Z" fill="none" stroke="#681841" stroke-width="6.5" stroke-linejoin="round" stroke-linecap="round" />
+
+  <!-- Cocktail Liquid (Vibrant Rose Pink) -->
+  <path d="M 144, 125 Q 200, 140 256, 125 L 200, 182 Z" fill="url(#cocktailLiquid)" />
+
+  <!-- Twist / Spiral Peel Garnish at Rim -->
+  <path d="M 262, 110 C 265, 96 280, 94 285, 102 C 290, 110 274, 118 266, 114" fill="none" stroke="#681841" stroke-width="4.5" stroke-linecap="round" />
+</svg>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es" class="h-full w-full overflow-x-hidden">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Chinmi App - Gestión Inteligente para Restaurantes y Bares</title>
+    <meta name="description" content="Gestión inteligente para restaurantes y bares. Control de mesas, inventario y comandas en tiempo real." />
+    <meta property="og:title" content="Chinmi App - Gestión Inteligente para Restaurantes y Bares" />
+    <meta property="og:description" content="Gestión inteligente para restaurantes y bares. Control de mesas, inventario y comandas en tiempo real." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/chinmi-logo.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('appgenerica_theme');
+          var isDark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="h-full w-full overflow-x-hidden font-sans antialiased bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <div id="root" class="h-full w-full overflow-x-hidden"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

@@ -1,0 +1,7 @@
+{
+  "name": "Chinmi App",
+  "description": "Gestión inteligente para restaurantes y bares. Control de mesas, inventario y comandas en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

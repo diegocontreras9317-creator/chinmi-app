@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem } from '../types';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
-import { loadStoredData, saveStoredData, subscribeToSyncChannel } from '../services/storage';
+import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState } from '../services/storage';
 import { useAuth } from './AuthContext';
 import { playServiceBell } from '../utils/audioAlert';
 
@@ -133,16 +133,69 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
   }, []);
 
-  // Load initial data
+  // Ref to track active waiter calls across cloud polling to play chime alert for staff
+  const prevWaiterCallsRef = React.useRef<Record<string, string>>({});
+
+  // Function to pull latest state from cloud (Customer QR scan <-> Staff POS)
+  const syncWithCloud = useCallback(async () => {
+    setCloudStatus('syncing');
+    const remoteData = await fetchCloudState();
+    if (remoteData && remoteData.tables && Array.isArray(remoteData.tables)) {
+      // Detect new waiter calls or bill requests to trigger audible chime
+      remoteData.tables.forEach(t => {
+        if (t.waiterCall) {
+          const callKey = `${t.id}_${t.waiterCall.type}_${t.waiterCall.message || ''}`;
+          if (!prevWaiterCallsRef.current[t.id] || prevWaiterCallsRef.current[t.id] !== callKey) {
+            playServiceBell(t.waiterCall.type === 'bill' ? 'bill' : 'waiter');
+            prevWaiterCallsRef.current[t.id] = callKey;
+          }
+        } else {
+          delete prevWaiterCallsRef.current[t.id];
+        }
+      });
+
+      setTables(remoteData.tables);
+      if (Array.isArray(remoteData.products) && remoteData.products.length > 0) setProducts(remoteData.products);
+      if (Array.isArray(remoteData.sales)) setSales(remoteData.sales);
+      if (Array.isArray(remoteData.perishables) && remoteData.perishables.length > 0) setPerishables(remoteData.perishables);
+      
+      saveStoredData(remoteData, false);
+    }
+    setTimeout(() => {
+      setCloudStatus('synced');
+    }, 400);
+  }, []);
+
+  // Load initial data and start cloud sync loop
   useEffect(() => {
     const data = loadStoredData();
     setTables(data.tables);
     setProducts(data.products);
     setSales(data.sales || []);
     setPerishables(data.perishables || []);
-  }, []);
 
-  // Listen for broadcast sync messages from other tabs/devices
+    // Initial fetch from cloud
+    syncWithCloud();
+
+    // Poll cloud every 2.5s for real-time synchronization between scanned QR mobile phones and POS
+    const interval = setInterval(() => {
+      syncWithCloud();
+    }, 2500);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncWithCloud();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [syncWithCloud]);
+
+  // Listen for broadcast sync messages from other tabs
   useEffect(() => {
     const unsubscribe = subscribeToSyncChannel((remoteData) => {
       setCloudStatus('syncing');
@@ -681,10 +734,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const syncNow = () => {
     setCloudStatus('syncing');
-    setTimeout(() => {
-      persistChanges(tables, products, sales);
-      setCloudStatus('synced');
-    }, 600);
+    syncWithCloud();
+    persistChanges(tables, products, sales, perishables);
   };
 
   const resetToDemoData = () => {

@@ -43,6 +43,39 @@ const transactionStore: Record<string, {
   updatedAt: string;
 }> = {};
 
+// Almacén global en memoria para sincronización en tiempo real entre la carta digital del cliente y el POS
+let globalAppStateStore: any = null;
+
+// =========================================================================
+// API ENDPOINTS DE SINCRONIZACIÓN EN TIEMPO REAL (CLIENTE <-> POS)
+// =========================================================================
+
+app.get('/api/sync/state', (_req: Request, res: Response) => {
+  if (!globalAppStateStore) {
+    return res.status(404).json({ message: 'Sin estado previo registrado en servidor' });
+  }
+  return res.json(globalAppStateStore);
+});
+
+app.post('/api/sync/state', (req: Request, res: Response) => {
+  try {
+    const payload = req.body;
+    if (!payload || !Array.isArray(payload.tables)) {
+      return res.status(400).json({ error: 'Formato de estado de aplicación inválido' });
+    }
+
+    globalAppStateStore = {
+      ...payload,
+      lastModified: new Date().toISOString()
+    };
+
+    return res.json({ success: true, state: globalAppStateStore });
+  } catch (err) {
+    console.error('[SYNC SERVER] Error actualizando estado:', err);
+    return res.status(500).json({ error: 'Error sincronizando estado de restaurante' });
+  }
+});
+
 // =========================================================================
 // API ENDPOINTS DE WOMPI (BACKEND)
 // =========================================================================

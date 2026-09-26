@@ -496,6 +496,11 @@ export function saveStoredData(data: AppStateData, broadcast = true): void {
     if (broadcast && syncChannel) {
       syncChannel.postMessage({ type: 'DATA_UPDATED', payload: updated });
     }
+
+    // Async push to cloud for cross-device real-time synchronization (Customer QR scan <-> Staff POS)
+    if (broadcast) {
+      pushCloudState(updated).catch(() => {});
+    }
   } catch (err) {
     console.error('Error saving to localStorage:', err);
   }
@@ -514,4 +519,74 @@ export function subscribeToSyncChannel(onUpdate: (data: AppStateData) => void): 
   return () => {
     syncChannel?.removeEventListener('message', handler);
   };
+}
+
+// =========================================================================
+// CLOUD STATE SYNC ENGINE (MULTIDEVICE / VERCEL / SCAN QR)
+// =========================================================================
+const CLOUD_SYNC_ENDPOINT = '/api/sync/state';
+const PUBLIC_KV_FALLBACK = 'https://kvdb.io/A9S7vR2Kz1X8n4M3pL0qW/gastrobar_cop_sync';
+
+export async function fetchCloudState(): Promise<AppStateData | null> {
+  // 1. Intentar Backend Express Local
+  try {
+    const res = await fetch(CLOUD_SYNC_ENDPOINT, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.tables)) return data;
+    }
+  } catch (err) {
+    // Servidor local no disponible en hosting estático -> usar KV
+  }
+
+  // 2. Fallback a Almacén KV en la nube para Vercel
+  try {
+    const res = await fetch(PUBLIC_KV_FALLBACK, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.tables)) return data;
+    }
+  } catch (err) {
+    console.debug('Error consultando estado en nube:', err);
+  }
+
+  return null;
+}
+
+export async function pushCloudState(data: AppStateData): Promise<boolean> {
+  let success = false;
+
+  // 1. Post a Backend Express
+  try {
+    const res = await fetch(CLOUD_SYNC_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) success = true;
+  } catch (err) {
+    // ignore
+  }
+
+  // 2. Post a Almacén KV en la nube para Vercel
+  try {
+    const res = await fetch(PUBLIC_KV_FALLBACK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (res.ok) success = true;
+  } catch (err) {
+    console.debug('Error enviando estado a la nube:', err);
+  }
+
+  return success;
 }

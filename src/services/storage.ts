@@ -525,11 +525,106 @@ export function subscribeToSyncChannel(onUpdate: (data: AppStateData) => void): 
 // CLOUD STATE SYNC ENGINE (MULTIDEVICE / VERCEL / SCAN QR)
 // =========================================================================
 const CLOUD_SYNC_ENDPOINT = '/api/sync/state';
-const PUBLIC_REST_OBJECT_ID = 'ff808181a09d98f701a0db367523178e';
-const PUBLIC_REST_ENDPOINT = `https://api.restful-api.dev/objects/${PUBLIC_REST_OBJECT_ID}`;
+const KV_FALLBACK_ENDPOINT = 'https://kvdb.io/A9z3x7L9m2K8Q4V1/gastrobar_pos_cop_sync_v2';
+
+export function mergeAppState(local: AppStateData, remote: AppStateData): AppStateData {
+  if (!remote || !Array.isArray(remote.tables)) return local;
+  if (!local || !Array.isArray(local.tables)) return remote;
+
+  const mergedTablesMap = new Map<string, Table>();
+
+  local.tables.forEach(tbl => {
+    mergedTablesMap.set(tbl.id, { ...tbl });
+  });
+
+  remote.tables.forEach(remoteTbl => {
+    const localTbl = mergedTablesMap.get(remoteTbl.id);
+    if (!localTbl) {
+      mergedTablesMap.set(remoteTbl.id, { ...remoteTbl });
+      return;
+    }
+
+    // Merge waiter call
+    let mergedWaiterCall = localTbl.waiterCall;
+    if (remoteTbl.waiterCall) {
+      if (!localTbl.waiterCall) {
+        mergedWaiterCall = remoteTbl.waiterCall;
+      } else {
+        const localTime = new Date(localTbl.waiterCall.requestedAt).getTime() || 0;
+        const remoteTime = new Date(remoteTbl.waiterCall.requestedAt).getTime() || 0;
+        mergedWaiterCall = remoteTime >= localTime ? remoteTbl.waiterCall : localTbl.waiterCall;
+      }
+    }
+
+    // Merge order
+    let mergedOrder = localTbl.order;
+    if (remoteTbl.order && localTbl.order) {
+      const mergedItemsMap = new Map<string, any>();
+      (localTbl.order.items || []).forEach(it => mergedItemsMap.set(it.id, it));
+      (remoteTbl.order.items || []).forEach(it => {
+        if (!mergedItemsMap.has(it.id)) {
+          mergedItemsMap.set(it.id, it);
+        }
+      });
+
+      mergedOrder = {
+        ...localTbl.order,
+        ...remoteTbl.order,
+        items: Array.from(mergedItemsMap.values()),
+        lastUpdatedAt: new Date().toISOString()
+      };
+    } else if (remoteTbl.order) {
+      mergedOrder = remoteTbl.order;
+    }
+
+    // Determine table status
+    let status = remoteTbl.status;
+    if (mergedOrder && mergedOrder.items && mergedOrder.items.length > 0) {
+      status = (remoteTbl.status === 'cuenta' || localTbl.status === 'cuenta') ? 'cuenta' : 'ocupada';
+    } else if (!mergedOrder && !remoteTbl.order) {
+      status = 'libre';
+    }
+
+    mergedTablesMap.set(remoteTbl.id, {
+      ...localTbl,
+      ...remoteTbl,
+      waiterCall: mergedWaiterCall,
+      order: mergedOrder,
+      status
+    });
+  });
+
+  // Merge products
+  const productsMap = new Map<string, Product>();
+  (local.products || []).forEach(p => productsMap.set(p.id, p));
+  (remote.products || []).forEach(p => {
+    if (!productsMap.has(p.id)) productsMap.set(p.id, p);
+  });
+
+  // Merge sales
+  const salesMap = new Map<string, SaleReceipt>();
+  (local.sales || []).forEach(s => salesMap.set(s.id, s));
+  (remote.sales || []).forEach(s => salesMap.set(s.id, s));
+
+  // Merge perishables
+  const perishablesMap = new Map<string, PerishableItem>();
+  (local.perishables || []).forEach(p => perishablesMap.set(p.id, p));
+  (remote.perishables || []).forEach(p => {
+    if (!perishablesMap.has(p.id)) perishablesMap.set(p.id, p);
+  });
+
+  return {
+    version: 2,
+    lastModified: new Date().toISOString(),
+    tables: Array.from(mergedTablesMap.values()),
+    products: Array.from(productsMap.values()),
+    sales: Array.from(salesMap.values()),
+    perishables: Array.from(perishablesMap.values())
+  };
+}
 
 export async function fetchCloudState(): Promise<AppStateData | null> {
-  // 1. Intentar Backend Express / Serverless
+  // 1. Backend Serverless / Express
   try {
     const res = await fetch(CLOUD_SYNC_ENDPOINT, {
       method: 'GET',
@@ -541,24 +636,24 @@ export async function fetchCloudState(): Promise<AppStateData | null> {
       if (data && Array.isArray(data.tables)) return data;
     }
   } catch (err) {
-    // Servidor local no disponible en hosting estático -> usar REST cloud
+    // ignore
   }
 
-  // 2. Fallback a Almacén REST en la nube (Vercel / Multi-Dispositivo)
+  // 2. Fallback KVDB
   try {
-    const res = await fetch(PUBLIC_REST_ENDPOINT, {
+    const res = await fetch(KV_FALLBACK_ENDPOINT, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
     });
     if (res.ok) {
       const json = await res.json();
-      if (json && json.data && Array.isArray(json.data.tables)) {
-        return json.data as AppStateData;
+      if (json && Array.isArray(json.tables)) {
+        return json as AppStateData;
       }
     }
   } catch (err) {
-    console.debug('Error consultando estado en nube:', err);
+    // ignore
   }
 
   return null;
@@ -579,19 +674,16 @@ export async function pushCloudState(data: AppStateData): Promise<boolean> {
     // ignore
   }
 
-  // 2. PUT a Almacén REST en la nube para Vercel
+  // 2. Post a KVDB Store
   try {
-    const res = await fetch(PUBLIC_REST_ENDPOINT, {
-      method: 'PUT',
+    const res = await fetch(KV_FALLBACK_ENDPOINT, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'gastrobar_restaurant_sync_cop_v1',
-        data: data
-      })
+      body: JSON.stringify(data)
     });
     if (res.ok) success = true;
   } catch (err) {
-    console.debug('Error enviando estado a la nube:', err);
+    // ignore
   }
 
   return success;

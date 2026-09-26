@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem } from '../types';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
-import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState } from '../services/storage';
+import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
 import { useAuth } from './AuthContext';
 import { playServiceBell } from '../utils/audioAlert';
 
@@ -133,37 +133,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
   }, []);
 
+  // Refs to track state for background sync merging
+  const tablesRef = React.useRef(tables);
+  const productsRef = React.useRef(products);
+  const salesRef = React.useRef(sales);
+  const perishablesRef = React.useRef(perishables);
+
+  useEffect(() => { tablesRef.current = tables; }, [tables]);
+  useEffect(() => { productsRef.current = products; }, [products]);
+  useEffect(() => { salesRef.current = sales; }, [sales]);
+  useEffect(() => { perishablesRef.current = perishables; }, [perishables]);
+
   // Ref to track active waiter calls across cloud polling to play chime alert for staff
   const prevWaiterCallsRef = React.useRef<Record<string, string>>({});
 
   // Function to pull latest state from cloud (Customer QR scan <-> Staff POS)
   const syncWithCloud = useCallback(async () => {
     setCloudStatus('syncing');
-    const remoteData = await fetchCloudState();
-    if (remoteData && remoteData.tables && Array.isArray(remoteData.tables)) {
-      // Detect new waiter calls or bill requests to trigger audible chime
-      remoteData.tables.forEach(t => {
-        if (t.waiterCall) {
-          const callKey = `${t.id}_${t.waiterCall.type}_${t.waiterCall.message || ''}`;
-          if (!prevWaiterCallsRef.current[t.id] || prevWaiterCallsRef.current[t.id] !== callKey) {
-            playServiceBell(t.waiterCall.type === 'bill' ? 'bill' : 'waiter');
-            prevWaiterCallsRef.current[t.id] = callKey;
-          }
-        } else {
-          delete prevWaiterCallsRef.current[t.id];
-        }
-      });
+    try {
+      const remoteData = await fetchCloudState();
+      if (remoteData && remoteData.tables && Array.isArray(remoteData.tables)) {
+        const localData = {
+          tables: tablesRef.current,
+          products: productsRef.current,
+          sales: salesRef.current,
+          perishables: perishablesRef.current,
+          version: 2,
+          lastModified: new Date().toISOString()
+        };
 
-      setTables(remoteData.tables);
-      if (Array.isArray(remoteData.products) && remoteData.products.length > 0) setProducts(remoteData.products);
-      if (Array.isArray(remoteData.sales)) setSales(remoteData.sales);
-      if (Array.isArray(remoteData.perishables) && remoteData.perishables.length > 0) setPerishables(remoteData.perishables);
-      
-      saveStoredData(remoteData, false);
+        const merged = mergeAppState(localData, remoteData);
+
+        // Detect new waiter calls or bill requests to trigger audible chime
+        merged.tables.forEach(t => {
+          if (t && t.waiterCall) {
+            const callKey = `${t.id}_${t.waiterCall.type}_${t.waiterCall.message || ''}`;
+            if (!prevWaiterCallsRef.current[t.id] || prevWaiterCallsRef.current[t.id] !== callKey) {
+              playServiceBell(t.waiterCall.type === 'bill' ? 'bill' : 'waiter');
+              prevWaiterCallsRef.current[t.id] = callKey;
+            }
+          } else if (t && t.id) {
+            delete prevWaiterCallsRef.current[t.id];
+          }
+        });
+
+        setTables(merged.tables);
+        if (Array.isArray(merged.products) && merged.products.length > 0) setProducts(merged.products);
+        if (Array.isArray(merged.sales)) setSales(merged.sales);
+        if (Array.isArray(merged.perishables) && merged.perishables.length > 0) setPerishables(merged.perishables);
+
+        saveStoredData(merged, false);
+      }
+    } catch (err) {
+      console.debug('Cloud sync handled silently:', err);
+    } finally {
+      setTimeout(() => {
+        setCloudStatus('synced');
+      }, 400);
     }
-    setTimeout(() => {
-      setCloudStatus('synced');
-    }, 400);
   }, []);
 
   // Load initial data and start cloud sync loop

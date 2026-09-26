@@ -43,18 +43,38 @@ const transactionStore: Record<string, {
   updatedAt: string;
 }> = {};
 
+import fs from 'fs';
+
 // Almacén global en memoria para sincronización en tiempo real entre la carta digital del cliente y el POS
 let globalAppStateStore: any = null;
+const TMP_SYNC_FILE = '/tmp/gastrobar_state.json';
+
+function loadStateFromDisk() {
+  if (globalAppStateStore) return globalAppStateStore;
+  try {
+    if (fs.existsSync(TMP_SYNC_FILE)) {
+      const data = fs.readFileSync(TMP_SYNC_FILE, 'utf8');
+      if (data) {
+        globalAppStateStore = JSON.parse(data);
+        return globalAppStateStore;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
 
 // =========================================================================
 // API ENDPOINTS DE SINCRONIZACIÓN EN TIEMPO REAL (CLIENTE <-> POS)
 // =========================================================================
 
 app.get('/api/sync/state', (_req: Request, res: Response) => {
-  if (!globalAppStateStore) {
-    return res.status(404).json({ message: 'Sin estado previo registrado en servidor' });
+  const current = loadStateFromDisk();
+  if (!current) {
+    return res.status(200).json({ empty: true });
   }
-  return res.json(globalAppStateStore);
+  return res.json(current);
 });
 
 app.post('/api/sync/state', (req: Request, res: Response) => {
@@ -68,6 +88,12 @@ app.post('/api/sync/state', (req: Request, res: Response) => {
       ...payload,
       lastModified: new Date().toISOString()
     };
+
+    try {
+      fs.writeFileSync(TMP_SYNC_FILE, JSON.stringify(globalAppStateStore), 'utf8');
+    } catch (e) {
+      // ignore
+    }
 
     return res.json({ success: true, state: globalAppStateStore });
   } catch (err) {

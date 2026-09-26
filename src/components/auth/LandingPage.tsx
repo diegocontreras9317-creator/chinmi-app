@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { PAID_PLANS, BillingFrequency } from '../../config/pricingPlans';
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
+import { GoogleAuthModal } from './GoogleAuthModal';
 import {
   Lock,
   Mail,
@@ -20,7 +21,8 @@ import {
   Zap,
   HelpCircle,
   PlayCircle,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react';
 import { PlanComparisonTable } from '../pricing/PlanComparisonTable';
 
@@ -34,7 +36,7 @@ export const LandingPage: React.FC = () => {
     promptManagerPin,
     isPinProtectionEnabled
   } = useAuth();
-  const { theme, toggleTheme, config } = useApp();
+  const { theme, toggleTheme, config, updateConfig } = useApp();
 
   // Active view tab: 'demo' | 'register' | 'login' | 'pricing'
   const [activeTab, setActiveTab] = useState<'demo' | 'register' | 'login' | 'pricing'>('demo');
@@ -49,25 +51,73 @@ export const LandingPage: React.FC = () => {
   const [name, setName] = useState('');
   const [businessName, setBusinessName] = useState('');
 
+  // Form error & success states
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+  // Google Modal
+  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
+  const [googleModalMode, setGoogleModalMode] = useState<'login' | 'register'>('register');
+
   const selectedPaidPlan = PAID_PLANS[selectedCycle];
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !name.trim()) return;
-    await register(
-      name,
-      email,
+    setFormError(null);
+    setFormSuccess(null);
+
+    if (!name.trim()) {
+      setFormError('Por favor ingresa tu nombre completo.');
+      return;
+    }
+    if (!email.trim() || !email.includes('@')) {
+      setFormError('Por favor ingresa un correo electrónico válido.');
+      return;
+    }
+    if (password.length < 3) {
+      setFormError('La contraseña debe tener al menos 3 caracteres.');
+      return;
+    }
+
+    const res = await register(
+      name.trim(),
+      email.trim(),
+      password,
       'gerente',
-      businessName || 'Mi Negocio Gastro',
+      businessName.trim() || 'Mi Negocio Gastro',
       wantPro ? 'pro' : 'free',
       wantPro ? selectedCycle : undefined
     );
+
+    if (!res.success) {
+      setFormError(res.error || 'Error al registrar la cuenta.');
+    } else {
+      if (businessName.trim()) {
+        updateConfig({ businessName: businessName.trim() });
+      }
+    }
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return;
-    await loginWithEmail(email, password);
+    setFormError(null);
+    setFormSuccess(null);
+
+    if (!email.trim()) {
+      setFormError('Por favor ingresa tu correo.');
+      return;
+    }
+
+    const res = await loginWithEmail(email.trim(), password);
+    if (!res.success) {
+      setFormError(res.error || 'Error al iniciar sesión.');
+    }
+  };
+
+  const handleOpenGoogle = (mode: 'login' | 'register') => {
+    setFormError(null);
+    setGoogleModalMode(mode);
+    setIsGoogleModalOpen(true);
   };
 
   return (
@@ -358,6 +408,20 @@ export const LandingPage: React.FC = () => {
                 </p>
               </div>
 
+              {formError && (
+                <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
+              {formSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>{formSuccess}</span>
+                </div>
+              )}
+
               <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -489,8 +553,14 @@ export const LandingPage: React.FC = () => {
                   disabled={isLoading}
                   className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs sm:text-sm font-bold shadow-md shadow-pink-500/20 transition cursor-pointer flex items-center justify-center gap-2"
                 >
-                  <span>{wantPro ? 'Crear Cuenta y Probar PRO' : 'Crear Mi Cuenta Gratis ($0 COP)'}</span>
-                  <ArrowRight className="w-4 h-4" />
+                  {isLoading ? (
+                    <span className="inline-block animate-spin">⏳</span>
+                  ) : (
+                    <>
+                      <span>{wantPro ? 'Crear Cuenta y Probar PRO' : 'Crear Mi Cuenta Gratis ($0 COP)'}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </form>
 
@@ -498,7 +568,7 @@ export const LandingPage: React.FC = () => {
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
                 <button
                   type="button"
-                  onClick={loginWithGoogle}
+                  onClick={() => handleOpenGoogle('register')}
                   className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -507,14 +577,18 @@ export const LandingPage: React.FC = () => {
                     <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15.1s.7 5.4 1.9 7.8l3.7-2.9z" />
                     <path fill="#34A853" d="M12 23.5c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.2-6.4-5.2L1.9 16.5C3.7 20.2 7.5 23.5 12 23.5z" />
                   </svg>
-                  <span>Registrarme con Google</span>
+                  <span>Registrarme con mi Cuenta de Google</span>
                 </button>
               </div>
 
               <div className="text-center">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('login')}
+                  onClick={() => {
+                    setFormError(null);
+                    setFormSuccess(null);
+                    setActiveTab('login');
+                  }}
                   className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
                 >
                   ¿Ya tienes una cuenta? <strong className="text-[#681841] dark:text-pink-400">Inicia sesión aquí</strong>
@@ -536,6 +610,13 @@ export const LandingPage: React.FC = () => {
                   Ingresa tus datos para acceder a tu bar o terraza:
                 </p>
               </div>
+
+              {formError && (
+                <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
 
               <form onSubmit={handleLoginSubmit} className="space-y-4">
                 <div>
@@ -560,9 +641,6 @@ export const LandingPage: React.FC = () => {
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                       Contraseña
                     </label>
-                    <span className="text-[11px] text-[#681841] dark:text-pink-400 hover:underline cursor-pointer">
-                      ¿Olvidaste tu clave?
-                    </span>
                   </div>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -582,15 +660,21 @@ export const LandingPage: React.FC = () => {
                   disabled={isLoading}
                   className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs sm:text-sm font-bold shadow-md shadow-pink-500/20 transition cursor-pointer flex items-center justify-center gap-2"
                 >
-                  <span>Ingresar a Mi Negocio</span>
-                  <ArrowRight className="w-4 h-4" />
+                  {isLoading ? (
+                    <span className="inline-block animate-spin">⏳</span>
+                  ) : (
+                    <>
+                      <span>Ingresar a Mi Negocio</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </form>
 
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
                 <button
                   type="button"
-                  onClick={loginWithGoogle}
+                  onClick={() => handleOpenGoogle('login')}
                   className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -599,14 +683,18 @@ export const LandingPage: React.FC = () => {
                     <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15.1s.7 5.4 1.9 7.8l3.7-2.9z" />
                     <path fill="#34A853" d="M12 23.5c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.2-6.4-5.2L1.9 16.5C3.7 20.2 7.5 23.5 12 23.5z" />
                   </svg>
-                  <span>Ingresar con Google</span>
+                  <span>Ingresar con mi Cuenta de Google</span>
                 </button>
               </div>
 
               <div className="text-center">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('register')}
+                  onClick={() => {
+                    setFormError(null);
+                    setFormSuccess(null);
+                    setActiveTab('register');
+                  }}
                   className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
                 >
                   ¿No tienes cuenta todavía? <strong className="text-[#681841] dark:text-pink-400">Regístrate gratis aquí</strong>
@@ -801,6 +889,13 @@ export const LandingPage: React.FC = () => {
           <span>Chinmi App © 2026</span>
         </div>
       </footer>
+
+      {/* Modal de Autenticación con Google */}
+      <GoogleAuthModal
+        isOpen={isGoogleModalOpen}
+        onClose={() => setIsGoogleModalOpen(false)}
+        defaultMode={googleModalMode}
+      />
 
     </div>
   );

@@ -167,7 +167,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Detect new waiter calls or bill requests to trigger audible chime
         merged.tables.forEach(t => {
           if (t && t.waiterCall) {
-            const callKey = `${t.id}_${t.waiterCall.type}_${t.waiterCall.message || ''}`;
+            const callKey = `${t.id}_${t.waiterCall.type}_${t.waiterCall.requestedAt || ''}`;
             if (!prevWaiterCallsRef.current[t.id] || prevWaiterCallsRef.current[t.id] !== callKey) {
               playServiceBell(t.waiterCall.type === 'bill' ? 'bill' : 'waiter');
               prevWaiterCallsRef.current[t.id] = callKey;
@@ -322,7 +322,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (tbl.id !== tableId) return tbl;
       return {
         ...tbl,
-        status
+        status,
+        updatedAt: new Date().toISOString()
       };
     });
     setTables(nextTables);
@@ -333,14 +334,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Play audible service bell in the app
     playServiceBell(type);
 
+    const nowIso = new Date().toISOString();
+    const callKey = `${tableId}_${type}_${nowIso}`;
+    prevWaiterCallsRef.current[tableId] = callKey;
+
     const nextTables = tables.map(tbl => {
       if (tbl.id !== tableId) return tbl;
       return {
         ...tbl,
         status: type === 'bill' ? ('cuenta' as TableStatus) : tbl.status,
+        updatedAt: nowIso,
         waiterCall: {
           type,
-          requestedAt: new Date().toISOString(),
+          requestedAt: nowIso,
           message: message || (type === 'bill' ? 'Cliente solicita la cuenta' : 'Cliente solicita atención en mesa')
         }
       };
@@ -350,11 +356,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const dismissWaiterCall = (tableId: string) => {
+    delete prevWaiterCallsRef.current[tableId];
+
     const nextTables = tables.map(tbl => {
       if (tbl.id !== tableId) return tbl;
       return {
         ...tbl,
-        waiterCall: null
+        waiterCall: null,
+        updatedAt: new Date().toISOString()
       };
     });
     setTables(nextTables);
@@ -407,13 +416,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatedItems = [...existingOrder.items, newItem];
       }
 
+      const nowIso = new Date().toISOString();
       return {
         ...tbl,
         status: (tbl.status === 'libre' ? 'ocupada' : tbl.status) as TableStatus,
+        updatedAt: nowIso,
         order: {
           ...existingOrder,
           items: updatedItems,
-          lastUpdatedAt: new Date().toISOString()
+          lastUpdatedAt: nowIso
         }
       };
     });
@@ -472,13 +483,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
 
+      const nowIso = new Date().toISOString();
       return {
         ...tbl,
         status: (tbl.status === 'libre' ? 'ocupada' : tbl.status) as TableStatus,
+        updatedAt: nowIso,
         order: {
           ...existingOrder,
           items: currentItems,
-          lastUpdatedAt: new Date().toISOString()
+          lastUpdatedAt: nowIso
         }
       };
     });
@@ -488,6 +501,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateOrderItemQuantity = (tableId: string, itemId: string, delta: number) => {
+    const nowIso = new Date().toISOString();
     const nextTables = tables.map(tbl => {
       if (tbl.id !== tableId || !tbl.order) return tbl;
 
@@ -505,16 +519,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return {
           ...tbl,
           status: 'libre' as TableStatus,
-          order: undefined
+          order: undefined,
+          updatedAt: nowIso
         };
       }
 
       return {
         ...tbl,
+        updatedAt: nowIso,
         order: {
           ...tbl.order,
           items: updatedItems,
-          lastUpdatedAt: new Date().toISOString()
+          lastUpdatedAt: nowIso
         }
       };
     });
@@ -524,6 +540,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const removeOrderItem = (tableId: string, itemId: string) => {
+    const nowIso = new Date().toISOString();
     const nextTables = tables.map(tbl => {
       if (tbl.id !== tableId || !tbl.order) return tbl;
 
@@ -532,16 +549,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return {
           ...tbl,
           status: 'libre' as TableStatus,
-          order: undefined
+          order: undefined,
+          updatedAt: nowIso
         };
       }
 
       return {
         ...tbl,
+        updatedAt: nowIso,
         order: {
           ...tbl.order,
           items: updatedItems,
-          lastUpdatedAt: new Date().toISOString()
+          lastUpdatedAt: nowIso
         }
       };
     });
@@ -554,17 +573,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tableId: string,
     modifiers: { taxPercent?: number; discountPercent?: number; tipAmount?: number }
   ) => {
+    const nowIso = new Date().toISOString();
     const nextTables = tables.map(tbl => {
       if (tbl.id !== tableId || !tbl.order) return tbl;
 
       return {
         ...tbl,
+        updatedAt: nowIso,
         order: {
           ...tbl.order,
           ...(modifiers.taxPercent !== undefined && { taxPercent: modifiers.taxPercent }),
           ...(modifiers.discountPercent !== undefined && { discountPercent: modifiers.discountPercent }),
           ...(modifiers.tipAmount !== undefined && { tipAmount: modifiers.tipAmount }),
-          lastUpdatedAt: new Date().toISOString()
+          lastUpdatedAt: nowIso
         }
       };
     });
@@ -626,13 +647,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return prod;
     });
 
-    // 2. Free the table
+    // 2. Free the table and reset active order & waiter calls
+    const nowIso = new Date().toISOString();
+    delete prevWaiterCallsRef.current[tableId];
+
     const nextTables = tables.map(tbl => {
       if (tbl.id !== tableId) return tbl;
       return {
         ...tbl,
         status: 'libre' as TableStatus,
-        order: undefined
+        order: undefined,
+        waiterCall: null,
+        updatedAt: nowIso
       };
     });
 

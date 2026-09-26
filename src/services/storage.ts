@@ -544,21 +544,25 @@ export function mergeAppState(local: AppStateData, remote: AppStateData): AppSta
       return;
     }
 
-    // Merge waiter call
-    let mergedWaiterCall = localTbl.waiterCall;
-    if (remoteTbl.waiterCall) {
-      if (!localTbl.waiterCall) {
-        mergedWaiterCall = remoteTbl.waiterCall;
-      } else {
-        const localTime = new Date(localTbl.waiterCall.requestedAt).getTime() || 0;
-        const remoteTime = new Date(remoteTbl.waiterCall.requestedAt).getTime() || 0;
-        mergedWaiterCall = remoteTime >= localTime ? remoteTbl.waiterCall : localTbl.waiterCall;
-      }
+    const localTime = new Date(localTbl.updatedAt || localTbl.order?.lastUpdatedAt || 0).getTime();
+    const remoteTime = new Date(remoteTbl.updatedAt || remoteTbl.order?.lastUpdatedAt || 0).getTime();
+
+    // If remote state for this table is strictly newer than local state
+    if (remoteTime > localTime) {
+      mergedTablesMap.set(remoteTbl.id, { ...remoteTbl });
+      return;
     }
 
-    // Merge order
+    // If local state for this table is strictly newer than remote state
+    if (localTime > remoteTime) {
+      mergedTablesMap.set(localTbl.id, { ...localTbl });
+      return;
+    }
+
+    // Timestamps are equal or both missing: Merge fields intelligently
+    // Order merging
     let mergedOrder = localTbl.order;
-    if (remoteTbl.order && localTbl.order) {
+    if (localTbl.order && remoteTbl.order) {
       const mergedItemsMap = new Map<string, any>();
       (localTbl.order.items || []).forEach(it => mergedItemsMap.set(it.id, it));
       (remoteTbl.order.items || []).forEach(it => {
@@ -574,14 +578,32 @@ export function mergeAppState(local: AppStateData, remote: AppStateData): AppSta
         lastUpdatedAt: new Date().toISOString()
       };
     } else if (remoteTbl.order) {
-      mergedOrder = remoteTbl.order;
+      // If local is free and remote has order
+      mergedOrder = localTbl.status === 'libre' ? undefined : remoteTbl.order;
+    } else if (localTbl.order) {
+      // If remote is free and local has order
+      mergedOrder = remoteTbl.status === 'libre' ? undefined : localTbl.order;
     }
 
-    // Determine table status
-    let status = remoteTbl.status;
+    // Waiter call merging
+    let mergedWaiterCall = localTbl.waiterCall;
+    if (localTbl.waiterCall && remoteTbl.waiterCall) {
+      const localCallTime = new Date(localTbl.waiterCall.requestedAt).getTime() || 0;
+      const remoteCallTime = new Date(remoteTbl.waiterCall.requestedAt).getTime() || 0;
+      mergedWaiterCall = remoteCallTime >= localCallTime ? remoteTbl.waiterCall : localTbl.waiterCall;
+    } else if (remoteTbl.waiterCall) {
+      mergedWaiterCall = remoteTbl.waiterCall;
+    } else if (localTbl.waiterCall) {
+      mergedWaiterCall = localTbl.waiterCall;
+    } else {
+      mergedWaiterCall = null;
+    }
+
+    // Determine status
+    let status = localTbl.status;
     if (mergedOrder && mergedOrder.items && mergedOrder.items.length > 0) {
       status = (remoteTbl.status === 'cuenta' || localTbl.status === 'cuenta') ? 'cuenta' : 'ocupada';
-    } else if (!mergedOrder && !remoteTbl.order) {
+    } else {
       status = 'libre';
     }
 
@@ -590,7 +612,8 @@ export function mergeAppState(local: AppStateData, remote: AppStateData): AppSta
       ...remoteTbl,
       waiterCall: mergedWaiterCall,
       order: mergedOrder,
-      status
+      status,
+      updatedAt: localTbl.updatedAt || remoteTbl.updatedAt || new Date().toISOString()
     });
   });
 

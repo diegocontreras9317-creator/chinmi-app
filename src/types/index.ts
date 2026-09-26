@@ -110,6 +110,7 @@ export interface Table {
   status: TableStatus;
   order?: Order;
   waiterCall?: WaiterCallNotification | null;
+  updatedAt?: string;
 }
 
 export interface Product {

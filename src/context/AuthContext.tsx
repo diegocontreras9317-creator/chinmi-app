@@ -68,7 +68,7 @@ const DEMO_USERS: Record<UserRole, User> = {
     email: 'carlos.gerente@chinmi.co',
     role: 'gerente',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-    plan: 'pro',
+    plan: 'free',
     businessName: 'GastroBar Central Demo',
     createdAt: '2026-01-15T10:00:00.000Z'
   },
@@ -255,6 +255,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // Check if account already exists under this Google email
+    const isMasterAdmin = cleanEmail === 'diego.contreras9317@gmail.com';
+    const resolvedPlan: PlanType = isMasterAdmin ? 'pro' : 'free';
+
     const existing = accounts.find(a => a.email.toLowerCase() === cleanEmail);
     if (existing) {
       const existingUser: User = {
@@ -263,7 +266,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: existing.email,
         role: existing.role,
         avatar: existing.avatar,
-        plan: existing.plan,
+        plan: isMasterAdmin ? 'pro' : existing.plan,
         billingFrequency: existing.billingFrequency,
         businessName: existing.businessName,
         createdAt: existing.createdAt
@@ -280,7 +283,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: cleanEmail,
       role: 'gerente',
       avatar: cleanAvatar,
-      plan: 'free',
+      plan: resolvedPlan,
       businessName: cleanBusiness,
       createdAt: new Date().toISOString(),
       authProvider: 'google'
@@ -312,8 +315,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password?: string,
     role: UserRole = 'gerente',
     businessName: string = 'Mi Negocio Gastro',
-    plan: PlanType = 'free',
-    billingFrequency?: BillingFrequency
+    _plan: PlanType = 'free',
+    _billingFrequency?: BillingFrequency
   ): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
     await new Promise(res => setTimeout(res, 400));
@@ -321,6 +324,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
     const cleanBusiness = businessName.trim() || 'Mi Negocio Gastro';
+    const isMasterAdmin = cleanEmail === 'diego.contreras9317@gmail.com';
+    const assignedPlan: PlanType = isMasterAdmin ? 'pro' : 'free';
 
     if (!cleanEmail || !cleanEmail.includes('@')) {
       setIsLoading(false);
@@ -354,8 +359,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       password: password || '123456',
       role: role || 'gerente',
       avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail)}`,
-      plan: plan,
-      billingFrequency: plan === 'pro' ? (billingFrequency || 'monthly') : undefined,
+      plan: assignedPlan,
+      billingFrequency: undefined,
       businessName: cleanBusiness,
       createdAt: new Date().toISOString(),
       authProvider: 'email'

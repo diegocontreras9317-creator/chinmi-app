@@ -45,18 +45,23 @@ const transactionStore: Record<string, {
 
 import fs from 'fs';
 
-// Almacén global en memoria para sincronización en tiempo real entre la carta digital del cliente y el POS
-let globalAppStateStore: any = null;
-const TMP_SYNC_FILE = '/tmp/gastrobar_state.json';
+// Almacén multi-tienda en memoria para sincronización en tiempo real aislada por cuenta de restaurante
+const storeStateMap: Record<string, any> = {};
 
-function loadStateFromDisk() {
-  if (globalAppStateStore) return globalAppStateStore;
+function getStoreFilePath(storeId: string): string {
+  const safeId = (storeId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `/tmp/gastrobar_state_${safeId}.json`;
+}
+
+function loadStateFromDisk(storeId = 'default') {
+  if (storeStateMap[storeId]) return storeStateMap[storeId];
+  const filePath = getStoreFilePath(storeId);
   try {
-    if (fs.existsSync(TMP_SYNC_FILE)) {
-      const data = fs.readFileSync(TMP_SYNC_FILE, 'utf8');
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf8');
       if (data) {
-        globalAppStateStore = JSON.parse(data);
-        return globalAppStateStore;
+        storeStateMap[storeId] = JSON.parse(data);
+        return storeStateMap[storeId];
       }
     }
   } catch (e) {
@@ -219,8 +224,9 @@ function mergeServerState(local: any, remote: any): any {
 // API ENDPOINTS DE SINCRONIZACIÓN EN TIEMPO REAL (CLIENTE <-> POS)
 // =========================================================================
 
-app.get('/api/sync/state', (_req: Request, res: Response) => {
-  const current = loadStateFromDisk();
+app.get('/api/sync/state', (req: Request, res: Response) => {
+  const storeId = (req.query.storeId as string) || 'default';
+  const current = loadStateFromDisk(storeId);
   if (!current) {
     return res.status(200).json({ empty: true });
   }
@@ -234,24 +240,27 @@ app.post('/api/sync/state', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Formato de estado de aplicación inválido' });
     }
 
-    const current = loadStateFromDisk();
+    const storeId = (req.query.storeId as string) || payload.storeId || 'default';
+    const current = loadStateFromDisk(storeId);
     let merged = payload;
     if (current && Array.isArray(current.tables)) {
       merged = mergeServerState(current, payload);
     }
 
-    globalAppStateStore = {
+    storeStateMap[storeId] = {
       ...merged,
+      storeId,
       lastModified: new Date().toISOString()
     };
 
     try {
-      fs.writeFileSync(TMP_SYNC_FILE, JSON.stringify(globalAppStateStore), 'utf8');
+      const filePath = getStoreFilePath(storeId);
+      fs.writeFileSync(filePath, JSON.stringify(storeStateMap[storeId]), 'utf8');
     } catch (e) {
       // ignore
     }
 
-    return res.json({ success: true, state: globalAppStateStore });
+    return res.json({ success: true, state: storeStateMap[storeId] });
   } catch (err) {
     console.error('[SYNC SERVER] Error actualizando estado:', err);
     return res.status(500).json({ error: 'Error sincronizando estado de restaurante' });

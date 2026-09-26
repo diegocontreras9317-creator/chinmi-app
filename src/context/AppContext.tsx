@@ -144,6 +144,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => { salesRef.current = sales; }, [sales]);
   useEffect(() => { perishablesRef.current = perishables; }, [perishables]);
 
+  // Current isolated store ID per user/workspace
+  const storeId = user ? (user.id || user.email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_')) : (customerViewTableId ? 'default' : 'default');
+
   // Ref to track active waiter calls across cloud polling to play chime alert for staff
   const prevWaiterCallsRef = React.useRef<Record<string, string>>({});
 
@@ -151,7 +154,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const syncWithCloud = useCallback(async () => {
     setCloudStatus('syncing');
     try {
-      const remoteData = await fetchCloudState();
+      const remoteData = await fetchCloudState(storeId);
       if (remoteData && remoteData.tables && Array.isArray(remoteData.tables)) {
         const localData = {
           tables: tablesRef.current,
@@ -182,7 +185,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (Array.isArray(merged.sales)) setSales(merged.sales);
         if (Array.isArray(merged.perishables) && merged.perishables.length > 0) setPerishables(merged.perishables);
 
-        saveStoredData(merged, false);
+        saveStoredData(merged, false, storeId);
       }
     } catch (err) {
       console.debug('Cloud sync handled silently:', err);
@@ -191,7 +194,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCloudStatus('synced');
       }, 400);
     }
-  }, []);
+  }, [storeId]);
 
   // Load initial data and start cloud sync loop
   useEffect(() => {
@@ -220,7 +223,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [syncWithCloud]);
+  }, [syncWithCloud, user?.id]);
 
   // Listen for broadcast sync messages from other tabs
   useEffect(() => {
@@ -255,12 +258,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sales: newSales,
       version: 2,
       lastModified: new Date().toISOString()
-    }, true);
+    }, true, storeId);
 
     setTimeout(() => {
       setCloudStatus('synced');
     }, 400);
-  }, [perishables]);
+  }, [perishables, storeId]);
 
   const updateConfig = (partial: Partial<AppConfig>) => {
     setConfig(prev => {
@@ -270,8 +273,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Freemium limit verification
-  const isPro = user?.plan === 'pro';
+  // Freemium limit verification: ONLY diego.contreras9317@gmail.com has free lifetime PRO
+  const isPro = user?.email?.toLowerCase() === 'diego.contreras9317@gmail.com' || user?.plan === 'pro';
 
   const canAddTable = useCallback(() => {
     if (isPro) return true;

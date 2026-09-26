@@ -95,37 +95,39 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
 
-          {/* Banner Acceso Desarrollador / Admin */}
-          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-900/90 via-indigo-900/90 to-purple-950 text-white flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg border border-purple-500/30">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-400/40 flex items-center justify-center text-purple-300 shrink-0">
-                <Sparkles className="w-4 h-4 text-purple-300" />
+          {/* Banner Acceso Desarrollador / Admin (Visible ÚNICAMENTE para diego.contreras9317@gmail.com) */}
+          {user?.email?.toLowerCase() === 'diego.contreras9317@gmail.com' && (
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-900/90 via-indigo-900/90 to-purple-950 text-white flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg border border-purple-500/30">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-400/40 flex items-center justify-center text-purple-300 shrink-0">
+                  <Sparkles className="w-4 h-4 text-purple-300" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-purple-100">
+                    👑 CUENTA MASTER ADMIN (Diego Contreras)
+                  </p>
+                  <p className="text-[11px] text-purple-200/80">
+                    Acceso vitalicio ilimitado PRO activado para tu cuenta de creador / desarrollador.
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs font-bold text-purple-100">
-                  ⚡ MODO DESARROLLADOR / ADMIN ACTIVADO
-                </p>
-                <p className="text-[11px] text-purple-200/80">
-                  Acceso directo a todas las funciones PRO (mesas y productos ilimitados, perecederos, reportes) sin pago.
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  enableDeveloperMode();
+                  setUpgradeSuccess(true);
+                  setTimeout(() => {
+                    setUpgradeSuccess(false);
+                    setShowCheckoutForm(false);
+                    onClose();
+                  }, 1200);
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-extrabold text-xs shadow-md transition whitespace-nowrap cursor-pointer shrink-0"
+              >
+                Reactivar Master PRO
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                enableDeveloperMode();
-                setUpgradeSuccess(true);
-                setTimeout(() => {
-                  setUpgradeSuccess(false);
-                  setShowCheckoutForm(false);
-                  onClose();
-                }, 1200);
-              }}
-              className="px-3.5 py-1.5 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-extrabold text-xs shadow-md transition whitespace-nowrap cursor-pointer shrink-0"
-            >
-              Activar Acceso PRO Gratis
-            </button>
-          </div>
+          )}
           
           {upgradeSuccess ? (
             <div className="py-12 text-center space-y-3">

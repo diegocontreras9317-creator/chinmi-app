@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { X, Sparkles, Check, ArrowRight, ShieldCheck, Mail, User, Store } from 'lucide-react';
 
@@ -6,6 +6,12 @@ interface GoogleAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   defaultMode?: 'login' | 'register';
+}
+
+declare global {
+  interface Window {
+    google?: any;
+  }
 }
 
 export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
@@ -18,6 +24,47 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const [googleName, setGoogleName] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // Initialize GIS if available
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (typeof window !== 'undefined' && window.google?.accounts?.id) {
+      try {
+        window.google.accounts.id.initialize({
+          client_id: '109304714195-placeholder.apps.googleusercontent.com',
+          callback: (response: any) => {
+            if (response.credential) {
+              try {
+                const base64Url = response.credential.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(
+                  atob(base64)
+                    .split('')
+                    .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                    .join('')
+                );
+                const decoded = JSON.parse(jsonPayload);
+                if (decoded.email) {
+                  loginWithGoogle({
+                    name: decoded.name || decoded.email.split('@')[0],
+                    email: decoded.email,
+                    avatar: decoded.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(decoded.email)}`
+                  }).then((res) => {
+                    if (res.success) onClose();
+                  });
+                }
+              } catch (e) {
+                console.error('Error decoding Google JWT:', e);
+              }
+            }
+          }
+        });
+      } catch (err) {
+        // Fallback gracefully
+      }
+    }
+  }, [isOpen, loginWithGoogle, onClose]);
 
   if (!isOpen) return null;
 
@@ -84,7 +131,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             {defaultMode === 'register' ? 'Vincular tu cuenta de Google' : 'Iniciar sesión con Google'}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
-            Ingresa los datos de tu cuenta personal o de tu negocio para acceder a tu propio espacio:
+            Acceso seguro con tu correo Google personal o de tu empresa. Cada restaurante mantiene su información independiente.
           </p>
         </div>
 
@@ -116,7 +163,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Nombre de la cuenta
+              Nombre completo
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />

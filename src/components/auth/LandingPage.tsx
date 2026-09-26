@@ -491,61 +491,15 @@ export const LandingPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Opción Simple y Clara de Activar Plan PRO (Opcional) */}
-                <div className="p-3.5 rounded-2xl bg-pink-50/60 dark:bg-slate-800/60 border border-pink-200/80 dark:border-slate-700">
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={wantPro}
-                      onChange={(e) => setWantPro(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 text-[#681841] rounded border-slate-300 focus:ring-[#e64980]"
-                    />
-                    <div className="text-xs">
-                      <span className="font-bold text-slate-900 dark:text-white">
-                        ¿Tu negocio necesita mesas ilimitadas? Activar Plan PRO
-                      </span>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        Desde <strong>$89.000 COP/mes</strong> (con 10% dto trimestral y 20% anual).
-                      </p>
-                    </div>
-                  </label>
-
-                  {/* Frecuencia si el usuario marca Pro */}
-                  {wantPro && (
-                    <div className="mt-3 pt-3 border-t border-pink-200 dark:border-slate-700 space-y-2">
-                      <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                        Elige cómo prefieres pagar:
-                      </p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(Object.keys(PAID_PLANS) as BillingFrequency[]).map((key) => {
-                          const plan = PAID_PLANS[key];
-                          const isSel = selectedCycle === key;
-                          return (
-                            <button
-                              key={key}
-                              type="button"
-                              onClick={() => setSelectedCycle(key)}
-                              className={`p-2 rounded-xl border text-center transition cursor-pointer ${
-                                isSel
-                                  ? 'border-[#681841] bg-white dark:bg-slate-900 font-bold text-[#681841] dark:text-pink-300 shadow-xs'
-                                  : 'border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                              }`}
-                            >
-                              <span className="block text-[11px]">{plan.frequencyLabel}</span>
-                              <span className="block text-xs font-mono font-bold">
-                                {formatCOP(plan.monthlyEquivalent)}
-                              </span>
-                              {plan.badge && (
-                                <span className="text-[8px] px-1 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 font-bold block mt-0.5">
-                                  {plan.badge}
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                {/* Beneficios del Plan Gratuito */}
+                <div className="p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/40 text-xs text-emerald-800 dark:text-emerald-300">
+                  <div className="flex items-center gap-2 font-bold">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Tu cuenta incluye Plan Gratuito ($0 COP para siempre)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 pl-6">
+                    Hasta 6 mesas activas, 15 productos y toma de comandas. Si tu local crece, puedes actualizar a PRO en cualquier momento.
+                  </p>
                 </div>
 
                 <button
@@ -557,7 +511,7 @@ export const LandingPage: React.FC = () => {
                     <span className="inline-block animate-spin">⏳</span>
                   ) : (
                     <>
-                      <span>{wantPro ? 'Crear Cuenta y Probar PRO' : 'Crear Mi Cuenta Gratis ($0 COP)'}</span>
+                      <span>Crear Mi Cuenta Gratis ($0 COP)</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}

@@ -485,12 +485,14 @@ export function loadStoredData(): AppStateData {
   return initialData;
 }
 
-export function saveStoredData(data: AppStateData, broadcast = true): void {
+export function saveStoredData(data: AppStateData, broadcast = true, storeId?: string): void {
   try {
     const updated = {
       ...data,
       lastModified: new Date().toISOString()
     };
+    const storageKey = storeId ? `${STORAGE_KEY}_${storeId}` : STORAGE_KEY;
+    localStorage.setItem(storageKey, JSON.stringify(updated));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     
     if (broadcast && syncChannel) {
@@ -499,7 +501,7 @@ export function saveStoredData(data: AppStateData, broadcast = true): void {
 
     // Async push to cloud for cross-device real-time synchronization (Customer QR scan <-> Staff POS)
     if (broadcast) {
-      pushCloudState(updated).catch(() => {});
+      pushCloudState(updated, storeId).catch(() => {});
     }
   } catch (err) {
     console.error('Error saving to localStorage:', err);
@@ -683,10 +685,11 @@ export function mergeAppState(local: AppStateData, remote: AppStateData): AppSta
   };
 }
 
-export async function fetchCloudState(): Promise<AppStateData | null> {
+export async function fetchCloudState(storeId = 'default'): Promise<AppStateData | null> {
   // 1. Backend Serverless / Express
   try {
-    const res = await fetch(CLOUD_SYNC_ENDPOINT, {
+    const url = storeId && storeId !== 'default' ? `${CLOUD_SYNC_ENDPOINT}?storeId=${encodeURIComponent(storeId)}` : CLOUD_SYNC_ENDPOINT;
+    const res = await fetch(url, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
@@ -701,7 +704,10 @@ export async function fetchCloudState(): Promise<AppStateData | null> {
 
   // 2. Fallback KVDB
   try {
-    const res = await fetch(KV_FALLBACK_ENDPOINT, {
+    const kvUrl = storeId && storeId !== 'default'
+      ? `${KV_FALLBACK_ENDPOINT}_${encodeURIComponent(storeId)}`
+      : KV_FALLBACK_ENDPOINT;
+    const res = await fetch(kvUrl, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
@@ -719,15 +725,16 @@ export async function fetchCloudState(): Promise<AppStateData | null> {
   return null;
 }
 
-export async function pushCloudState(data: AppStateData): Promise<boolean> {
+export async function pushCloudState(data: AppStateData, storeId = 'default'): Promise<boolean> {
   let success = false;
 
   // 1. Post a Backend Express / Serverless
   try {
-    const res = await fetch(CLOUD_SYNC_ENDPOINT, {
+    const url = storeId && storeId !== 'default' ? `${CLOUD_SYNC_ENDPOINT}?storeId=${encodeURIComponent(storeId)}` : CLOUD_SYNC_ENDPOINT;
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify({ ...data, storeId })
     });
     if (res.ok) success = true;
   } catch (err) {
@@ -736,10 +743,13 @@ export async function pushCloudState(data: AppStateData): Promise<boolean> {
 
   // 2. Post a KVDB Store
   try {
-    const res = await fetch(KV_FALLBACK_ENDPOINT, {
+    const kvUrl = storeId && storeId !== 'default'
+      ? `${KV_FALLBACK_ENDPOINT}_${encodeURIComponent(storeId)}`
+      : KV_FALLBACK_ENDPOINT;
+    const res = await fetch(kvUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify({ ...data, storeId })
     });
     if (res.ok) success = true;
   } catch (err) {

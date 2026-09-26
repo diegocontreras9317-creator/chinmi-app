@@ -65,6 +65,156 @@ function loadStateFromDisk() {
   return null;
 }
 
+function mergeServerState(local: any, remote: any): any {
+  if (!remote || !Array.isArray(remote.tables)) return local;
+  if (!local || !Array.isArray(local.tables)) return remote;
+
+  const mergedTablesMap = new Map<string, any>();
+
+  local.tables.forEach((tbl: any) => {
+    mergedTablesMap.set(tbl.id, { ...tbl });
+  });
+
+  remote.tables.forEach((remoteTbl: any) => {
+    const localTbl = mergedTablesMap.get(remoteTbl.id);
+    if (!localTbl) {
+      mergedTablesMap.set(remoteTbl.id, { ...remoteTbl });
+      return;
+    }
+
+    const localTblTime = new Date(localTbl.updatedAt || 0).getTime();
+    const remoteTblTime = new Date(remoteTbl.updatedAt || 0).getTime();
+
+    // 1. Waiter Call Merging
+    let mergedWaiterCall = localTbl.waiterCall;
+    const localCall = localTbl.waiterCall;
+    const remoteCall = remoteTbl.waiterCall;
+
+    if (localCall && remoteCall) {
+      const localCallTime = new Date(localCall.requestedAt).getTime() || 0;
+      const remoteCallTime = new Date(remoteCall.requestedAt).getTime() || 0;
+      mergedWaiterCall = remoteCallTime >= localCallTime ? remoteCall : localCall;
+    } else if (remoteCall) {
+      const remoteCallTime = new Date(remoteCall.requestedAt).getTime() || 0;
+      if (remoteCallTime >= localTblTime - 5000) {
+        mergedWaiterCall = remoteCall;
+      } else {
+        mergedWaiterCall = null;
+      }
+    } else if (localCall) {
+      const localCallTime = new Date(localCall.requestedAt).getTime() || 0;
+      if (localCallTime >= remoteTblTime - 5000) {
+        mergedWaiterCall = localCall;
+      } else {
+        mergedWaiterCall = null;
+      }
+    } else {
+      mergedWaiterCall = null;
+    }
+
+    // 2. Order Items Merging
+    const localCheckoutTime = (localTbl.status === 'libre' && !localTbl.order) ? localTblTime : 0;
+    const remoteCheckoutTime = (remoteTbl.status === 'libre' && !remoteTbl.order) ? remoteTblTime : 0;
+    const maxCheckoutTime = Math.max(localCheckoutTime, remoteCheckoutTime);
+
+    let mergedOrder: any = undefined;
+    const mergedItemsMap = new Map<string, any>();
+
+    if (localTbl.order && localTbl.order.items) {
+      localTbl.order.items.forEach((it: any) => {
+        const itemTime = new Date(it.addedAt || localTbl.order?.openedAt || 0).getTime();
+        if (itemTime >= maxCheckoutTime) {
+          mergedItemsMap.set(it.id, it);
+        }
+      });
+    }
+
+    if (remoteTbl.order && remoteTbl.order.items) {
+      remoteTbl.order.items.forEach((it: any) => {
+        const itemTime = new Date(it.addedAt || remoteTbl.order?.openedAt || 0).getTime();
+        if (itemTime >= maxCheckoutTime) {
+          if (!mergedItemsMap.has(it.id)) {
+            mergedItemsMap.set(it.id, it);
+          } else {
+            const existing = mergedItemsMap.get(it.id);
+            mergedItemsMap.set(it.id, {
+              ...existing,
+              ...it,
+              quantity: Math.max(existing.quantity || 1, it.quantity || 1)
+            });
+          }
+        }
+      });
+    }
+
+    const items = Array.from(mergedItemsMap.values());
+    if (items.length > 0) {
+      const baseOrder = (localTbl.order && remoteTbl.order)
+        ? (new Date(remoteTbl.order.lastUpdatedAt || 0).getTime() > new Date(localTbl.order.lastUpdatedAt || 0).getTime() ? remoteTbl.order : localTbl.order)
+        : (localTbl.order || remoteTbl.order!);
+
+      mergedOrder = {
+        ...baseOrder,
+        items,
+        lastUpdatedAt: new Date().toISOString()
+      };
+    } else {
+      mergedOrder = undefined;
+    }
+
+    // 3. Status Determination
+    let status = localTbl.status;
+    if (mergedWaiterCall?.type === 'bill' || localTbl.status === 'cuenta' || remoteTbl.status === 'cuenta') {
+      status = 'cuenta';
+    } else if (mergedOrder && mergedOrder.items && mergedOrder.items.length > 0) {
+      status = 'ocupada';
+    } else {
+      status = 'libre';
+    }
+
+    const newestUpdatedAt = [
+      localTbl.updatedAt,
+      remoteTbl.updatedAt,
+      mergedWaiterCall?.requestedAt,
+      mergedOrder?.lastUpdatedAt
+    ].filter(Boolean).sort().pop() || new Date().toISOString();
+
+    mergedTablesMap.set(remoteTbl.id, {
+      ...localTbl,
+      ...remoteTbl,
+      waiterCall: mergedWaiterCall,
+      order: mergedOrder,
+      status,
+      updatedAt: newestUpdatedAt
+    });
+  });
+
+  const productsMap = new Map<string, any>();
+  (local.products || []).forEach((p: any) => productsMap.set(p.id, p));
+  (remote.products || []).forEach((p: any) => {
+    if (!productsMap.has(p.id)) productsMap.set(p.id, p);
+  });
+
+  const salesMap = new Map<string, any>();
+  (local.sales || []).forEach((s: any) => salesMap.set(s.id, s));
+  (remote.sales || []).forEach((s: any) => salesMap.set(s.id, s));
+
+  const perishablesMap = new Map<string, any>();
+  (local.perishables || []).forEach((p: any) => perishablesMap.set(p.id, p));
+  (remote.perishables || []).forEach((p: any) => {
+    if (!perishablesMap.has(p.id)) perishablesMap.set(p.id, p);
+  });
+
+  return {
+    version: 2,
+    lastModified: new Date().toISOString(),
+    tables: Array.from(mergedTablesMap.values()),
+    products: Array.from(productsMap.values()),
+    sales: Array.from(salesMap.values()),
+    perishables: Array.from(perishablesMap.values())
+  };
+}
+
 // =========================================================================
 // API ENDPOINTS DE SINCRONIZACIÓN EN TIEMPO REAL (CLIENTE <-> POS)
 // =========================================================================
@@ -84,8 +234,14 @@ app.post('/api/sync/state', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Formato de estado de aplicación inválido' });
     }
 
+    const current = loadStateFromDisk();
+    let merged = payload;
+    if (current && Array.isArray(current.tables)) {
+      merged = mergeServerState(current, payload);
+    }
+
     globalAppStateStore = {
-      ...payload,
+      ...merged,
       lastModified: new Date().toISOString()
     };
 

@@ -298,27 +298,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'libre'
     };
 
-    const nextTables = [...tables, newTable];
+    const nextTables = [...tablesRef.current, newTable];
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
     return { success: true };
   };
 
   const updateTable = (id: string, partial: Partial<Table>) => {
-    const nextTables = tables.map(tbl => tbl.id === id ? { ...tbl, ...partial } : tbl);
+    const nextTables = tablesRef.current.map(tbl => tbl.id === id ? { ...tbl, ...partial } : tbl);
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
 
   const deleteTable = (id: string) => {
-    const nextTables = tables.filter(tbl => tbl.id !== id);
+    const nextTables = tablesRef.current.filter(tbl => tbl.id !== id);
+    tablesRef.current = nextTables;
     setTables(nextTables);
     if (selectedTableId === id) setSelectedTableId(null);
     persistChanges(nextTables, products, sales);
   };
 
   const setTableStatus = (tableId: string, status: TableStatus) => {
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
       return {
         ...tbl,
@@ -326,6 +329,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatedAt: new Date().toISOString()
       };
     });
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -338,7 +342,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const callKey = `${tableId}_${type}_${nowIso}`;
     prevWaiterCallsRef.current[tableId] = callKey;
 
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
       return {
         ...tbl,
@@ -351,6 +355,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       };
     });
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -358,7 +363,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const dismissWaiterCall = (tableId: string) => {
     delete prevWaiterCallsRef.current[tableId];
 
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
       return {
         ...tbl,
@@ -366,13 +371,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatedAt: new Date().toISOString()
       };
     });
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
 
   // Order & POS operations
   const addItemToOrder = (tableId: string, product: Product, quantity = 1, notes?: string) => {
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
 
       const existingOrder: Order = tbl.order || {
@@ -429,6 +435,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -439,7 +446,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ) => {
     if (!itemsToAdd || itemsToAdd.length === 0) return;
 
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
 
       const existingOrder: Order = tbl.order || {
@@ -496,13 +503,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
 
   const updateOrderItemQuantity = (tableId: string, itemId: string, delta: number) => {
     const nowIso = new Date().toISOString();
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId || !tbl.order) return tbl;
 
       const updatedItems = tbl.order.items
@@ -535,13 +543,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
 
   const removeOrderItem = (tableId: string, itemId: string) => {
     const nowIso = new Date().toISOString();
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId || !tbl.order) return tbl;
 
       const updatedItems = tbl.order.items.filter(item => item.id !== itemId);
@@ -565,6 +574,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -574,7 +584,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     modifiers: { taxPercent?: number; discountPercent?: number; tipAmount?: number }
   ) => {
     const nowIso = new Date().toISOString();
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId || !tbl.order) return tbl;
 
       return {
@@ -590,6 +600,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
+    tablesRef.current = nextTables;
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -599,7 +610,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     paymentMethod: PaymentMethod,
     cashTendered?: number
   ): { success: boolean; receipt?: SaleReceipt } => {
-    const table = tables.find(t => t.id === tableId);
+    const table = tablesRef.current.find(t => t.id === tableId);
     if (!table || !table.order || table.order.items.length === 0) {
       return { success: false };
     }
@@ -651,7 +662,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const nowIso = new Date().toISOString();
     delete prevWaiterCallsRef.current[tableId];
 
-    const nextTables = tables.map(tbl => {
+    const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
       return {
         ...tbl,
@@ -665,6 +676,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 3. Record sales receipt
     const nextSales = [receipt, ...sales];
 
+    tablesRef.current = nextTables;
     setTables(nextTables);
     setProducts(nextProducts);
     setSales(nextSales);
@@ -787,8 +799,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const syncNow = () => {
     setCloudStatus('syncing');
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, perishablesRef.current);
     syncWithCloud();
-    persistChanges(tables, products, sales, perishables);
   };
 
   const resetToDemoData = () => {

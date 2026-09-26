@@ -525,10 +525,11 @@ export function subscribeToSyncChannel(onUpdate: (data: AppStateData) => void): 
 // CLOUD STATE SYNC ENGINE (MULTIDEVICE / VERCEL / SCAN QR)
 // =========================================================================
 const CLOUD_SYNC_ENDPOINT = '/api/sync/state';
-const PUBLIC_KV_FALLBACK = 'https://kvdb.io/A9S7vR2Kz1X8n4M3pL0qW/gastrobar_cop_sync';
+const PUBLIC_REST_OBJECT_ID = 'ff808181a09d98f701a0db367523178e';
+const PUBLIC_REST_ENDPOINT = `https://api.restful-api.dev/objects/${PUBLIC_REST_OBJECT_ID}`;
 
 export async function fetchCloudState(): Promise<AppStateData | null> {
-  // 1. Intentar Backend Express Local
+  // 1. Intentar Backend Express / Serverless
   try {
     const res = await fetch(CLOUD_SYNC_ENDPOINT, {
       method: 'GET',
@@ -540,19 +541,21 @@ export async function fetchCloudState(): Promise<AppStateData | null> {
       if (data && Array.isArray(data.tables)) return data;
     }
   } catch (err) {
-    // Servidor local no disponible en hosting estático -> usar KV
+    // Servidor local no disponible en hosting estático -> usar REST cloud
   }
 
-  // 2. Fallback a Almacén KV en la nube para Vercel
+  // 2. Fallback a Almacén REST en la nube (Vercel / Multi-Dispositivo)
   try {
-    const res = await fetch(PUBLIC_KV_FALLBACK, {
+    const res = await fetch(PUBLIC_REST_ENDPOINT, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
     });
     if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.tables)) return data;
+      const json = await res.json();
+      if (json && json.data && Array.isArray(json.data.tables)) {
+        return json.data as AppStateData;
+      }
     }
   } catch (err) {
     console.debug('Error consultando estado en nube:', err);
@@ -564,7 +567,7 @@ export async function fetchCloudState(): Promise<AppStateData | null> {
 export async function pushCloudState(data: AppStateData): Promise<boolean> {
   let success = false;
 
-  // 1. Post a Backend Express
+  // 1. Post a Backend Express / Serverless
   try {
     const res = await fetch(CLOUD_SYNC_ENDPOINT, {
       method: 'POST',
@@ -576,12 +579,15 @@ export async function pushCloudState(data: AppStateData): Promise<boolean> {
     // ignore
   }
 
-  // 2. Post a Almacén KV en la nube para Vercel
+  // 2. PUT a Almacén REST en la nube para Vercel
   try {
-    const res = await fetch(PUBLIC_KV_FALLBACK, {
-      method: 'POST',
+    const res = await fetch(PUBLIC_REST_ENDPOINT, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      body: JSON.stringify({
+        name: 'gastrobar_restaurant_sync_cop_v1',
+        data: data
+      })
     });
     if (res.ok) success = true;
   } catch (err) {

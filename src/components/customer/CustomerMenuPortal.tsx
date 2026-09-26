@@ -52,7 +52,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     setTableStatus,
     callWaiter,
     dismissWaiterCall,
-    setCustomerViewTableId
+    setCustomerViewTableId,
+    syncNow
   } = useApp();
 
   const table = tables.find(t => t.id === tableId) || null;
@@ -170,6 +171,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       }))
     );
 
+    syncNow();
     setCart([]);
     setIsCartOpen(false);
     setOrderSentSuccess(true);
@@ -181,6 +183,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     if (!table) return;
     const msg = `Mesa ${table.number} solicita atención: ${waiterCallReason}`;
     callWaiter(table.id, 'waiter', msg);
+    syncNow();
     setIsCallWaiterModalOpen(false);
     setWaiterCallSuccess(`¡Mesero avisado! Acudirá a tu mesa para "${waiterCallReason}".`);
     setTimeout(() => setWaiterCallSuccess(null), 8000);
@@ -197,6 +200,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
     const msg = `Mesa ${table.number} solicita la cuenta. Método: ${methodText}`;
     callWaiter(table.id, 'bill', msg);
+    syncNow();
     setIsRequestBillModalOpen(false);
     setBillRequestSuccess(`¡Cuenta solicitada! El mesero se dirige con la cuenta (${methodText}).`);
     setTimeout(() => setBillRequestSuccess(null), 8000);

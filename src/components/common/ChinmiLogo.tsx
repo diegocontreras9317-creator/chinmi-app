@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 interface ChinmiLogoProps {
   variant?: 'horizontal' | 'icon' | 'stacked';
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'hero';
   showSubtitle?: boolean;
   className?: string;
   lightText?: boolean;
@@ -19,29 +19,32 @@ export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
 }) => {
   const [imgFailed, setImgFailed] = useState(false);
 
-  // Default to our pug mascot cocktail logo
-  const effectiveLogoUrl = logoUrl || '/src/assets/images/regenerated_image_1790196085462.png';
+  // Default to our official pug mascot cocktail logo
+  const effectiveLogoUrl = logoUrl || '/pug_cocktail_logo.png';
 
   // Dimensions according to size - generously sized, clear and impactful
   const iconDimensions = {
     sm: 'w-8 h-8 sm:w-10 sm:h-10 md:w-11 md:h-11',
     md: 'w-9 h-9 sm:w-10 sm:h-10 md:w-11 md:h-11 lg:w-14 lg:h-14',
-    lg: 'w-20 h-20',
-    xl: 'w-28 h-28'
+    lg: 'w-20 h-20 sm:w-24 sm:h-24',
+    xl: 'w-28 h-28 sm:w-36 sm:h-36',
+    hero: 'w-40 h-40 sm:w-52 sm:h-52 md:w-60 md:h-60'
   }[size];
 
   const titleSizes = {
     sm: 'text-xs sm:text-sm md:text-base font-black tracking-tight',
     md: 'text-sm sm:text-base md:text-lg lg:text-2xl font-black tracking-tight',
     lg: 'text-2xl sm:text-3xl font-black tracking-tight',
-    xl: 'text-3xl sm:text-4xl font-black tracking-tight'
+    xl: 'text-3xl sm:text-4xl font-black tracking-tight',
+    hero: 'text-4xl sm:text-5xl md:text-6xl font-black tracking-tight'
   }[size];
 
   const subtitleSizes = {
     sm: 'text-[7px] sm:text-[8px] md:text-[9px] font-bold tracking-widest',
     md: 'text-[8px] sm:text-[9px] md:text-[10px] lg:text-xs font-bold tracking-widest',
     lg: 'text-xs sm:text-sm font-bold tracking-widest',
-    xl: 'text-sm font-bold tracking-widest'
+    xl: 'text-sm sm:text-base font-bold tracking-widest',
+    hero: 'text-base sm:text-lg font-extrabold tracking-widest'
   }[size];
 
   const renderEmblem = () => (

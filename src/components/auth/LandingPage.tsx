@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { PAID_PLANS, BillingFrequency } from '../../config/pricingPlans';
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
+import { PWAInstallButton } from '../common/PWAInstallButton';
 import { GoogleAuthModal } from './GoogleAuthModal';
 import {
   Lock,
@@ -132,19 +133,30 @@ export const LandingPage: React.FC = () => {
           </span>
         </div>
 
-        <button
-          onClick={toggleTheme}
-          className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 shadow-xs transition cursor-pointer"
-          aria-label="Cambiar tema claro u oscuro"
-          title="Cambiar tema"
-        >
-          {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
-        </button>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <PWAInstallButton />
+
+          <button
+            onClick={toggleTheme}
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 shadow-xs transition cursor-pointer"
+            aria-label="Cambiar tema claro u oscuro"
+            title="Cambiar tema"
+          >
+            {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
+          </button>
+        </div>
       </header>
 
       {/* 2. Hero Amigable y Despejado */}
       <main className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8 flex-1 flex flex-col items-center">
         
+        {/* LOGO EN GRANDE EN LA PÁGINA PRINCIPAL */}
+        <div className="mb-6 flex flex-col items-center justify-center animate-fade-in group">
+          <div className="p-3 sm:p-4 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-pink-200/80 dark:border-pink-900/50 shadow-2xl shadow-pink-500/10 ring-4 ring-pink-100/50 dark:ring-pink-950/30 transition-all duration-300 group-hover:scale-105 group-hover:shadow-pink-500/20">
+            <ChinmiLogo variant="stacked" size="xl" showSubtitle={true} logoUrl={config?.logoUrl} />
+          </div>
+        </div>
+
         <div className="text-center space-y-3 mb-6 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-pink-100 dark:bg-pink-950/60 border border-pink-300/60 dark:border-pink-800/60 text-[#681841] dark:text-pink-300 text-xs font-bold shadow-xs">
             <Smile className="w-4 h-4 text-[#e64980]" />

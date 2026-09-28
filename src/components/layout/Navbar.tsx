@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import { ChinmiLogo } from '../common/ChinmiLogo';
+import { PWAInstallButton } from '../common/PWAInstallButton';
 import { ROLE_PERMISSIONS } from '../../types';
 import { getExpiryStatus } from '../../utils/perishableUtils';
 import {
@@ -100,6 +101,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Acciones de la Fila Superior: 6 Elementos en secuencia directa */}
             <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 shrink-0">
               
+              {/* Botón de Instalación PWA */}
+              <PWAInstallButton className="hidden sm:inline-flex" />
+
               {/* 1. Actualizar (Cloud Sync) */}
               <button
                 id="cloud-sync-status-btn"

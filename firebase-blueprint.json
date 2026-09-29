@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Registered user profile and settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "avatar": { "type": "string" },
+        "plan": { "type": "string" },
+        "businessName": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "email"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "Restaurant table entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "number": { "type": "string" },
+        "name": { "type": "string" },
+        "zone": { "type": "string" },
+        "seats": { "type": "number" },
+        "status": { "type": "string" },
+        "userId": { "type": "string" },
+        "order": { "type": "object" },
+        "waiterCall": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "number", "name", "zone", "seats", "status"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Menu product/dish entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "stock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "sku": { "type": "string" },
+        "description": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "price", "stock"]
+    },
+    "PerishableItem": {
+      "title": "PerishableItem",
+      "description": "Fresh produce or inventory ingredient",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "minStock": { "type": "number" },
+        "entryDate": { "type": "string" },
+        "expiryDate": { "type": "string" },
+        "location": { "type": "string" },
+        "supplier": { "type": "string" },
+        "batchNumber": { "type": "string" },
+        "costPerUnit": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "notes": { "type": "string" },
+        "alarmDaysBeforeExpiry": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "quantity", "unit"]
+    },
+    "SaleReceipt": {
+      "title": "SaleReceipt",
+      "description": "Sales receipt or ticket entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "tableName": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "taxPercent": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "discountPercent": { "type": "number" },
+        "tipAmount": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "total", "paymentMethod", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "#/entities/User",
+      "description": "User profile document"
+    },
+    "/users/{userId}/tables/{tableId}": {
+      "schema": "#/entities/Table",
+      "description": "Tables collection for specific user"
+    },
+    "/users/{userId}/products/{productId}": {
+      "schema": "#/entities/Product",
+      "description": "Products collection for specific user"
+    },
+    "/users/{userId}/perishables/{perishableId}": {
+      "schema": "#/entities/PerishableItem",
+      "description": "Insumos e inventario para cada usuario"
+    },
+    "/users/{userId}/sales/{saleId}": {
+      "schema": "#/entities/SaleReceipt",
+      "description": "Ventas del usuario"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { AppStateData, Product, Table, SaleReceipt, PerishableItem, Order } from '../types';
+import { saveUserFirestoreData } from './firestoreUserStorage';
 
 const getRelativeIsoDate = (offsetDays: number = 0): string => {
   const d = new Date();
@@ -434,15 +435,17 @@ try {
   console.warn('BroadcastChannel not supported or restricted in environment:', e);
 }
 
-export function loadStoredData(): AppStateData {
+export function loadStoredData(storeId?: string): AppStateData {
+  const isDemoStore = !storeId || storeId === 'default' || storeId.startsWith('usr-gerente-') || storeId.startsWith('usr-cajero-') || storeId.startsWith('usr-camarero-') || storeId.startsWith('usr-barman-');
+
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const keyToRead = storeId && storeId !== 'default' ? `${STORAGE_KEY}_${storeId}` : STORAGE_KEY;
+    const raw = localStorage.getItem(keyToRead);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.tables) && Array.isArray(parsed.products)) {
         if (!parsed.perishables || !Array.isArray(parsed.perishables)) {
-          parsed.perishables = INITIAL_PERISHABLES;
-          saveStoredData(parsed, false);
+          parsed.perishables = isDemoStore ? INITIAL_PERISHABLES : [];
         }
         return parsed;
       }
@@ -451,7 +454,21 @@ export function loadStoredData(): AppStateData {
     console.error('Error reading localStorage:', err);
   }
 
-  // Initial seed state in Colombian Pesos (COP)
+  // Strictly enforce clean slate for non-demo new user accounts (0 mesas, 0 productos, 0 insumos, 0 ventas)
+  if (!isDemoStore) {
+    const cleanUserData: AppStateData = {
+      tables: [],
+      products: [],
+      perishables: [],
+      sales: [],
+      version: 2,
+      lastModified: new Date().toISOString()
+    };
+    saveStoredData(cleanUserData, false, storeId);
+    return cleanUserData;
+  }
+
+  // Initial seed state ONLY for demo/template store
   const initialData: AppStateData = {
     tables: INITIAL_TABLES,
     products: INITIAL_PRODUCTS,
@@ -481,7 +498,7 @@ export function loadStoredData(): AppStateData {
     lastModified: new Date().toISOString()
   };
 
-  saveStoredData(initialData, false);
+  saveStoredData(initialData, false, storeId);
   return initialData;
 }
 
@@ -493,15 +510,20 @@ export function saveStoredData(data: AppStateData, broadcast = true, storeId?: s
     };
     const storageKey = storeId ? `${STORAGE_KEY}_${storeId}` : STORAGE_KEY;
     localStorage.setItem(storageKey, JSON.stringify(updated));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    if (storeId && storeId !== 'default') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    }
     
     if (broadcast && syncChannel) {
       syncChannel.postMessage({ type: 'DATA_UPDATED', payload: updated });
     }
 
-    // Async push to cloud for cross-device real-time synchronization (Customer QR scan <-> Staff POS)
+    // Async push to cloud and Firestore for isolation per user (storeId / UID)
     if (broadcast) {
       pushCloudState(updated, storeId).catch(() => {});
+      if (storeId && storeId !== 'default') {
+        saveUserFirestoreData(storeId, updated).catch(() => {});
+      }
     }
   } catch (err) {
     console.error('Error saving to localStorage:', err);

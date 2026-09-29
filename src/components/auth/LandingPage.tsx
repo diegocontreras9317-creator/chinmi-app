@@ -601,8 +601,12 @@ export const LandingPage: React.FC = () => {
                   onClick={async () => {
                     setFormError(null);
                     const res = await loginWithGoogle();
-                    if (!res.success && res.error) {
-                      setFormError(res.error);
+                    if (!res.success) {
+                      if (res.error?.includes('API Key') || res.error?.includes('api-key-not-valid')) {
+                        handleOpenGoogle('login');
+                      } else if (res.error) {
+                        setFormError(res.error);
+                      }
                     }
                   }}
                   className="w-full py-3.5 px-5 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-sm font-extrabold transition-all shadow-md active:scale-98 flex items-center justify-center gap-3 cursor-pointer group"

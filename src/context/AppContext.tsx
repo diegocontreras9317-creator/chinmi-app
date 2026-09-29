@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem } from '../types';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
 import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
+import { fetchUserFirestoreData } from '../services/firestoreUserStorage';
 import { useAuth } from './AuthContext';
 import { playServiceBell } from '../utils/audioAlert';
 
@@ -198,11 +199,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Load initial data and start cloud sync loop
   useEffect(() => {
-    const data = loadStoredData();
-    setTables(data.tables);
-    setProducts(data.products);
+    const data = loadStoredData(storeId);
+    setTables(data.tables || []);
+    setProducts(data.products || []);
     setSales(data.sales || []);
     setPerishables(data.perishables || []);
+
+    // Sync from Firestore for isolated user account
+    if (storeId && storeId !== 'default') {
+      fetchUserFirestoreData(storeId).then(fsData => {
+        if (fsData) {
+          setTables(fsData.tables || []);
+          setProducts(fsData.products || []);
+          setSales(fsData.sales || []);
+          setPerishables(fsData.perishables || []);
+          saveStoredData(fsData, false, storeId);
+        }
+      }).catch(err => {
+        console.warn('Firestore user fetch notice:', err);
+      });
+    }
 
     // Initial fetch from cloud
     syncWithCloud();
@@ -223,7 +239,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [syncWithCloud, user?.id]);
+  }, [syncWithCloud, storeId, user?.id]);
 
   // Listen for broadcast sync messages from other tabs
   useEffect(() => {
@@ -808,7 +824,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetToDemoData = () => {
     localStorage.removeItem('appgenerica_data_v1');
-    const fresh = loadStoredData();
+    const fresh = loadStoredData(storeId);
     setTables(fresh.tables);
     setProducts(fresh.products);
     setSales(fresh.sales);

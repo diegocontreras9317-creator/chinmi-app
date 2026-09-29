@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, PlanType, UserRole, BillingFrequency } from '../types';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db, googleProvider } from '../firebase';
 
 export interface RegisteredAccount {
   id: string;
@@ -241,72 +244,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     avatar?: string;
   }): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
-    await new Promise(res => setTimeout(res, 450));
 
-    // If profile is provided, use user's explicit Google credentials
-    const cleanEmail = customGoogleProfile?.email?.trim()?.toLowerCase() || '';
-    const cleanName = customGoogleProfile?.name?.trim() || cleanEmail.split('@')[0] || 'Usuario Google';
-    const cleanBusiness = customGoogleProfile?.businessName?.trim() || 'Mi GastroBar';
-    const cleanAvatar = customGoogleProfile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail)}`;
+    try {
+      let uid = '';
+      let cleanEmail = '';
+      let cleanName = '';
+      let cleanAvatar = '';
 
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      setIsLoading(false);
-      return { success: false, error: 'Correo de Google no válido.' };
-    }
+      if (customGoogleProfile && customGoogleProfile.email) {
+        cleanEmail = customGoogleProfile.email.trim().toLowerCase();
+        cleanName = customGoogleProfile.name?.trim() || cleanEmail.split('@')[0] || 'Usuario Google';
+        cleanAvatar = customGoogleProfile.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail)}`;
+        uid = `usr-google-${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      } else {
+        // Execute official Firebase Auth Google popup
+        const result = await signInWithPopup(auth, googleProvider);
+        const fbUser = result.user;
+        uid = fbUser.uid;
+        cleanEmail = fbUser.email?.toLowerCase() || '';
+        cleanName = fbUser.displayName || cleanEmail.split('@')[0] || 'Usuario Google';
+        cleanAvatar = fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail)}`;
+      }
 
-    // Check if account already exists under this Google email
-    const isMasterAdmin = cleanEmail === 'diego.contreras9317@gmail.com';
-    const resolvedPlan: PlanType = isMasterAdmin ? 'pro' : 'free';
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        setIsLoading(false);
+        return { success: false, error: 'Correo de Google no válido.' };
+      }
 
-    const existing = accounts.find(a => a.email.toLowerCase() === cleanEmail);
-    if (existing) {
-      const existingUser: User = {
-        id: existing.id,
-        name: existing.name,
-        email: existing.email,
-        role: existing.role,
-        avatar: existing.avatar,
-        plan: isMasterAdmin ? 'pro' : existing.plan,
-        billingFrequency: existing.billingFrequency,
-        businessName: existing.businessName,
-        createdAt: existing.createdAt
-      };
-      setUser(existingUser);
+      const isMasterAdmin = cleanEmail === 'diego.contreras9317@gmail.com';
+      const resolvedPlan: PlanType = isMasterAdmin ? 'pro' : 'free';
+
+      // Consult or store user profile in Firestore bound to user uid
+      let resolvedUser: User;
+      try {
+        const userRef = doc(db, 'users', uid);
+        const snap = await getDoc(userRef);
+
+        if (snap.exists()) {
+          const data = snap.data() as User;
+          resolvedUser = {
+            id: uid,
+            name: data.name || cleanName,
+            email: data.email || cleanEmail,
+            role: data.role || 'gerente',
+            avatar: data.avatar || cleanAvatar,
+            plan: isMasterAdmin ? 'pro' : (data.plan || 'free'),
+            billingFrequency: data.billingFrequency,
+            businessName: data.businessName || customGoogleProfile?.businessName || 'Mi GastroBar',
+            createdAt: data.createdAt || new Date().toISOString()
+          };
+        } else {
+          resolvedUser = {
+            id: uid,
+            name: cleanName,
+            email: cleanEmail,
+            role: 'gerente',
+            avatar: cleanAvatar,
+            plan: resolvedPlan,
+            businessName: customGoogleProfile?.businessName || 'Mi GastroBar',
+            createdAt: new Date().toISOString()
+          };
+          await setDoc(userRef, resolvedUser, { merge: true });
+        }
+      } catch (fsError) {
+        console.warn('Firestore user profile sync warning:', fsError);
+        resolvedUser = {
+          id: uid,
+          name: cleanName,
+          email: cleanEmail,
+          role: 'gerente',
+          avatar: cleanAvatar,
+          plan: resolvedPlan,
+          businessName: customGoogleProfile?.businessName || 'Mi GastroBar',
+          createdAt: new Date().toISOString()
+        };
+      }
+
+      setUser(resolvedUser);
       setIsLoading(false);
       return { success: true };
+    } catch (err: any) {
+      console.error('Error in Google Auth:', err);
+      setIsLoading(false);
+      return {
+        success: false,
+        error: err.message || 'Error al iniciar sesión con la cuenta de Google.'
+      };
     }
-
-    // Create new registered account for this Google user
-    const newGoogleAccount: RegisteredAccount = {
-      id: `usr-google-${Date.now()}`,
-      name: cleanName,
-      email: cleanEmail,
-      role: 'gerente',
-      avatar: cleanAvatar,
-      plan: resolvedPlan,
-      businessName: cleanBusiness,
-      createdAt: new Date().toISOString(),
-      authProvider: 'google'
-    };
-
-    const nextAccounts = [...accounts, newGoogleAccount];
-    setAccounts(nextAccounts);
-    saveAccountsToStorage(nextAccounts);
-
-    const newUser: User = {
-      id: newGoogleAccount.id,
-      name: newGoogleAccount.name,
-      email: newGoogleAccount.email,
-      role: newGoogleAccount.role,
-      avatar: newGoogleAccount.avatar,
-      plan: newGoogleAccount.plan,
-      businessName: newGoogleAccount.businessName,
-      createdAt: newGoogleAccount.createdAt
-    };
-
-    setUser(newUser);
-    setIsLoading(false);
-    return { success: true };
   };
 
   const register = async (

@@ -2,8 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem } from '../types';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
 import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
-import { fetchUserFirestoreData } from '../services/firestoreUserStorage';
+import {
+  fetchUserFirestoreData,
+  deleteTableFromFirestore,
+  deleteProductFromFirestore,
+  deleteInventoryItemFromFirestore
+} from '../services/firestoreUserStorage';
 import { useAuth } from './AuthContext';
+import { auth } from '../firebase';
 import { playServiceBell } from '../utils/audioAlert';
 
 interface AppContextType {
@@ -146,7 +152,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => { perishablesRef.current = perishables; }, [perishables]);
 
   // Current isolated store ID per user/workspace
-  const storeId = user ? (user.id || user.email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_')) : (customerViewTableId ? 'default' : 'default');
+  const activeUid = auth.currentUser?.uid;
+  const storeId = activeUid || (user ? (user.id || user.email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_')) : 'default');
 
   // Ref to track active waiter calls across cloud polling to play chime alert for staff
   const prevWaiterCallsRef = React.useRef<Record<string, string>>({});
@@ -336,6 +343,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tablesRef.current = nextTables;
     setTables(nextTables);
     if (selectedTableId === id) setSelectedTableId(null);
+    deleteTableFromFirestore(id, storeId).catch(() => {});
     persistChanges(nextTables, products, sales);
   };
 
@@ -734,6 +742,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteProduct = (id: string) => {
     const nextProducts = products.filter(p => p.id !== id);
     setProducts(nextProducts);
+    deleteProductFromFirestore(id, storeId).catch(() => {});
     persistChanges(tables, nextProducts, sales);
   };
 
@@ -769,6 +778,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deletePerishable = (id: string) => {
     const nextPerishables = perishables.filter(p => p.id !== id);
     setPerishables(nextPerishables);
+    deleteInventoryItemFromFirestore(id, storeId).catch(() => {});
     persistChanges(tables, products, sales, nextPerishables);
   };
 

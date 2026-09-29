@@ -10,26 +10,22 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isOwner(userId) || request.auth != null;
 
-      match /tables/{tableId} {
+      match /mesas/{tableId} {
         allow read: if true;
         allow create, delete: if isOwner(userId) || request.auth != null;
-        allow update: if true; // Allows customers ordering via QR
+        allow update: if true;
       }
 
-      match /products/{productId} {
+      match /productos/{productId} {
         allow read: if true;
         allow write: if isOwner(userId) || request.auth != null;
       }
 
-      match /perishables/{perishableId} {
+      match /inventario/{itemId} {
         allow read, write: if isOwner(userId) || request.auth != null;
       }
 
-      match /sales/{saleId} {
-        allow read, write: if isOwner(userId) || request.auth != null;
-      }
-
-      match /data/{document=**} {
+      match /ventas/{saleId} {
         allow read, write: if isOwner(userId) || request.auth != null;
       }
     }

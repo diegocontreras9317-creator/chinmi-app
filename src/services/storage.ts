@@ -1,5 +1,5 @@
 import { AppStateData, Product, Table, SaleReceipt, PerishableItem, Order } from '../types';
-import { saveUserFirestoreData } from './firestoreUserStorage';
+import { saveUserFirestoreData, fetchUserFirestoreData } from './firestoreUserStorage';
 
 const getRelativeIsoDate = (offsetDays: number = 0): string => {
   const d = new Date();
@@ -436,7 +436,7 @@ try {
 }
 
 export function loadStoredData(storeId?: string): AppStateData {
-  const isDemoStore = !storeId || storeId === 'default' || storeId.startsWith('usr-gerente-') || storeId.startsWith('usr-cajero-') || storeId.startsWith('usr-camarero-') || storeId.startsWith('usr-barman-');
+  const isDemoStore = storeId === 'usr-gerente-1' || storeId === 'usr-cajero-4' || storeId === 'usr-camarero-2' || storeId === 'usr-barman-3' || storeId === 'demo-role';
 
   try {
     const keyToRead = storeId && storeId !== 'default' ? `${STORAGE_KEY}_${storeId}` : STORAGE_KEY;
@@ -708,7 +708,16 @@ export function mergeAppState(local: AppStateData, remote: AppStateData): AppSta
 }
 
 export async function fetchCloudState(storeId = 'default'): Promise<AppStateData | null> {
-  // 1. Backend Serverless / Express
+  if (storeId && storeId !== 'default' && storeId !== 'demo') {
+    try {
+      const fsData = await fetchUserFirestoreData(storeId);
+      if (fsData) return fsData;
+    } catch (err) {
+      console.warn('Firestore fetch notice:', err);
+    }
+  }
+
+  // Fallback endpoint for unauthenticated QR code scanner
   try {
     const url = storeId && storeId !== 'default' ? `${CLOUD_SYNC_ENDPOINT}?storeId=${encodeURIComponent(storeId)}` : CLOUD_SYNC_ENDPOINT;
     const res = await fetch(url, {
@@ -719,26 +728,6 @@ export async function fetchCloudState(storeId = 'default'): Promise<AppStateData
     if (res.ok) {
       const data = await res.json();
       if (data && Array.isArray(data.tables)) return data;
-    }
-  } catch (err) {
-    // ignore
-  }
-
-  // 2. Fallback KVDB
-  try {
-    const kvUrl = storeId && storeId !== 'default'
-      ? `${KV_FALLBACK_ENDPOINT}_${encodeURIComponent(storeId)}`
-      : KV_FALLBACK_ENDPOINT;
-    const res = await fetch(kvUrl, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      cache: 'no-store'
-    });
-    if (res.ok) {
-      const json = await res.json();
-      if (json && Array.isArray(json.tables)) {
-        return json as AppStateData;
-      }
     }
   } catch (err) {
     // ignore

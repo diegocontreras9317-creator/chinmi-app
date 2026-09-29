@@ -2,7 +2,7 @@
   "entities": {
     "User": {
       "title": "User Profile",
-      "description": "Registered user profile and settings",
+      "description": "Perfil de usuario registrado y su configuración",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -18,7 +18,7 @@
     },
     "Table": {
       "title": "Table",
-      "description": "Restaurant table entity",
+      "description": "Entidad de mesa en el restaurante",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -36,7 +36,7 @@
     },
     "Product": {
       "title": "Product",
-      "description": "Menu product/dish entity",
+      "description": "Entidad de producto/plato del menú",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -55,7 +55,7 @@
     },
     "PerishableItem": {
       "title": "PerishableItem",
-      "description": "Fresh produce or inventory ingredient",
+      "description": "Entidad de insumo/inventario fresco",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -79,7 +79,7 @@
     },
     "SaleReceipt": {
       "title": "SaleReceipt",
-      "description": "Sales receipt or ticket entity",
+      "description": "Entidad de recibo o comprobante de venta",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -103,23 +103,23 @@
   "firestore": {
     "/users/{userId}": {
       "schema": "#/entities/User",
-      "description": "User profile document"
+      "description": "Documento de perfil de usuario"
     },
-    "/users/{userId}/tables/{tableId}": {
+    "/users/{userId}/mesas/{tableId}": {
       "schema": "#/entities/Table",
-      "description": "Tables collection for specific user"
+      "description": "Colección aislada de mesas del usuario"
     },
-    "/users/{userId}/products/{productId}": {
+    "/users/{userId}/productos/{productId}": {
       "schema": "#/entities/Product",
-      "description": "Products collection for specific user"
+      "description": "Colección aislada de productos/menú del usuario"
     },
-    "/users/{userId}/perishables/{perishableId}": {
+    "/users/{userId}/inventario/{itemId}": {
       "schema": "#/entities/PerishableItem",
-      "description": "Insumos e inventario para cada usuario"
+      "description": "Colección aislada de inventario/insumos del usuario"
     },
-    "/users/{userId}/sales/{saleId}": {
+    "/users/{userId}/ventas/{saleId}": {
       "schema": "#/entities/SaleReceipt",
-      "description": "Ventas del usuario"
+      "description": "Colección aislada de ventas del usuario"
     }
   }
 }

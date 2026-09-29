@@ -326,9 +326,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       console.error('Error in Google Auth:', err);
       setIsLoading(false);
+
+      const errCode = err.code || '';
+      const errMsg = err.message || '';
+
+      if (errCode.includes('api-key-not-valid') || errMsg.includes('api-key-not-valid') || errCode.includes('invalid-api-key')) {
+        return {
+          success: false,
+          error: 'La API Key de Firebase no está configurada o es inválida en las variables de entorno (.env). Por favor verifica VITE_FIREBASE_API_KEY o NEXT_PUBLIC_FIREBASE_API_KEY.'
+        };
+      }
+
       return {
         success: false,
-        error: err.message || 'Error al iniciar sesión con la cuenta de Google.'
+        error: errMsg || 'Error al iniciar sesión con la cuenta de Google.'
       };
     }
   };

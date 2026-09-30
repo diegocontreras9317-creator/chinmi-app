@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import QRCode from 'qrcode';
 import { Table } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { auth } from '../../firebase';
 import {
   X,
   QrCode,
@@ -58,8 +59,8 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
   const getTableUrl = (t: Table) => {
     if (typeof window === 'undefined') return '';
     const origin = window.location.origin;
-    const pathname = window.location.pathname;
-    return `${origin}${pathname}?mesa=${encodeURIComponent(t.id)}`;
+    const uid = auth.currentUser?.uid || '';
+    return `${origin}/menu?uid=${encodeURIComponent(uid)}&mesa=${encodeURIComponent(t.id)}`;
   };
 
   const tableUrl = activeTable ? getTableUrl(activeTable) : '';

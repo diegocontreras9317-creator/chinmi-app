@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, PlanType, UserRole, BillingFrequency } from '../types';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '../firebase';
 
@@ -173,6 +173,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       localStorage.removeItem(AUTH_STORAGE_KEY);
     }
+  }, [user]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (!fbUser) {
+        if (user && user.id.startsWith('usr-google-')) {
+          setUser(null);
+        }
+      }
+    });
+    return () => unsubscribe();
   }, [user]);
 
   const saveAccountsToStorage = (nextAccounts: RegisteredAccount[]) => {
@@ -427,7 +438,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    try {
+      signOut(auth).catch(() => {});
+    } catch (e) {}
     setUser(null);
+    localStorage.removeItem(AUTH_STORAGE_KEY);
   };
 
   const upgradePlan = (newPlan: PlanType, billingFrequency?: BillingFrequency) => {

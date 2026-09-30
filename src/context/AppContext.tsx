@@ -4,9 +4,18 @@ import { defaultAppConfig, AppConfig } from '../config/appConfig';
 import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
 import {
   fetchUserFirestoreData,
+  saveUserFirestoreData,
+  subscribeUserTables,
+  subscribeUserMenu,
+  subscribeUserInventory,
+  subscribeUserSales,
+  saveTableToFirestore,
   deleteTableFromFirestore,
+  saveProductToFirestore,
   deleteProductFromFirestore,
-  deleteInventoryItemFromFirestore
+  saveInventoryItemToFirestore,
+  deleteInventoryItemFromFirestore,
+  saveSaleToFirestore
 } from '../services/firestoreUserStorage';
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
@@ -151,142 +160,89 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => { salesRef.current = sales; }, [sales]);
   useEffect(() => { perishablesRef.current = perishables; }, [perishables]);
 
-  // Current isolated store ID per user/workspace
-  const activeUid = auth.currentUser?.uid;
-  const storeId = activeUid || (user ? (user.id || user.email.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '_')) : 'default');
+  // Active UID from Firebase auth
+  const activeUid = auth.currentUser?.uid || user?.id;
+  const storeId = activeUid || 'default';
 
-  // Ref to track active waiter calls across cloud polling to play chime alert for staff
+  // Ref to track active waiter calls across real-time snapshots to play chime alert for staff
   const prevWaiterCallsRef = React.useRef<Record<string, string>>({});
 
-  // Function to pull latest state from cloud (Customer QR scan <-> Staff POS)
-  const syncWithCloud = useCallback(async () => {
+  // Real-time Firestore Subscriptions for authenticated UID
+  useEffect(() => {
+    if (!activeUid || activeUid === 'default') {
+      setTables([]);
+      setProducts([]);
+      setPerishables([]);
+      setSales([]);
+      return;
+    }
+
     setCloudStatus('syncing');
-    try {
-      const remoteData = await fetchCloudState(storeId);
-      if (remoteData && remoteData.tables && Array.isArray(remoteData.tables)) {
-        const localData = {
-          tables: tablesRef.current,
-          products: productsRef.current,
-          sales: salesRef.current,
-          perishables: perishablesRef.current,
-          version: 2,
-          lastModified: new Date().toISOString()
-        };
 
-        const merged = mergeAppState(localData, remoteData);
-
-        // Detect new waiter calls or bill requests to trigger audible chime
-        merged.tables.forEach(t => {
-          if (t && t.waiterCall) {
-            const callKey = `${t.id}_${t.waiterCall.type}_${t.waiterCall.requestedAt || ''}`;
-            if (!prevWaiterCallsRef.current[t.id] || prevWaiterCallsRef.current[t.id] !== callKey) {
-              playServiceBell(t.waiterCall.type === 'bill' ? 'bill' : 'waiter');
-              prevWaiterCallsRef.current[t.id] = callKey;
-            }
-          } else if (t && t.id) {
-            delete prevWaiterCallsRef.current[t.id];
+    const unsubTables = subscribeUserTables(activeUid, (newTables) => {
+      // Audio chime check for new waiter/bill calls
+      newTables.forEach(t => {
+        if (t && t.waiterCall) {
+          const callKey = `${t.id}_${t.waiterCall.type}_${t.waiterCall.requestedAt || ''}`;
+          if (!prevWaiterCallsRef.current[t.id] || prevWaiterCallsRef.current[t.id] !== callKey) {
+            playServiceBell(t.waiterCall.type === 'bill' ? 'bill' : 'waiter');
+            prevWaiterCallsRef.current[t.id] = callKey;
           }
-        });
-
-        setTables(merged.tables);
-        if (Array.isArray(merged.products) && merged.products.length > 0) setProducts(merged.products);
-        if (Array.isArray(merged.sales)) setSales(merged.sales);
-        if (Array.isArray(merged.perishables) && merged.perishables.length > 0) setPerishables(merged.perishables);
-
-        saveStoredData(merged, false, storeId);
-      }
-    } catch (err) {
-      console.debug('Cloud sync handled silently:', err);
-    } finally {
-      setTimeout(() => {
-        setCloudStatus('synced');
-      }, 400);
-    }
-  }, [storeId]);
-
-  // Load initial data and start cloud sync loop
-  useEffect(() => {
-    const data = loadStoredData(storeId);
-    setTables(data.tables || []);
-    setProducts(data.products || []);
-    setSales(data.sales || []);
-    setPerishables(data.perishables || []);
-
-    // Sync from Firestore for isolated user account
-    if (storeId && storeId !== 'default') {
-      fetchUserFirestoreData(storeId).then(fsData => {
-        if (fsData) {
-          setTables(fsData.tables || []);
-          setProducts(fsData.products || []);
-          setSales(fsData.sales || []);
-          setPerishables(fsData.perishables || []);
-          saveStoredData(fsData, false, storeId);
+        } else if (t && t.id) {
+          delete prevWaiterCallsRef.current[t.id];
         }
-      }).catch(err => {
-        console.warn('Firestore user fetch notice:', err);
       });
-    }
 
-    // Initial fetch from cloud
-    syncWithCloud();
-
-    // Poll cloud every 2.5s for real-time synchronization between scanned QR mobile phones and POS
-    const interval = setInterval(() => {
-      syncWithCloud();
-    }, 2500);
-
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        syncWithCloud();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [syncWithCloud, storeId, user?.id]);
-
-  // Listen for broadcast sync messages from other tabs
-  useEffect(() => {
-    const unsubscribe = subscribeToSyncChannel((remoteData) => {
-      setCloudStatus('syncing');
-      setTables(remoteData.tables);
-      setProducts(remoteData.products);
-      setSales(remoteData.sales);
-      if (remoteData.perishables) {
-        setPerishables(remoteData.perishables);
-      }
-      setTimeout(() => {
-        setCloudStatus('synced');
-      }, 500);
+      tablesRef.current = newTables;
+      setTables(newTables);
+      setCloudStatus('synced');
     });
 
-    return () => unsubscribe();
-  }, []);
+    const unsubMenu = subscribeUserMenu(activeUid, (newProducts) => {
+      productsRef.current = newProducts;
+      setProducts(newProducts);
+      setCloudStatus('synced');
+    });
 
-  // Helper to persist and broadcast
+    const unsubInventory = subscribeUserInventory(activeUid, (newPerishables) => {
+      perishablesRef.current = newPerishables;
+      setPerishables(newPerishables);
+      setCloudStatus('synced');
+    });
+
+    const unsubSales = subscribeUserSales(activeUid, (newSales) => {
+      salesRef.current = newSales;
+      setSales(newSales);
+      setCloudStatus('synced');
+    });
+
+    return () => {
+      unsubTables();
+      unsubMenu();
+      unsubInventory();
+      unsubSales();
+    };
+  }, [activeUid]);
+
+  // Helper to persist to Firestore
   const persistChanges = useCallback((
     newTables: Table[],
     newProducts: Product[],
     newSales: SaleReceipt[],
     newPerishables?: PerishableItem[]
   ) => {
+    if (!activeUid || activeUid === 'default') return;
     setCloudStatus('syncing');
-    saveStoredData({
+    saveUserFirestoreData(activeUid, {
       tables: newTables,
       products: newProducts,
       perishables: newPerishables ?? perishables,
       sales: newSales,
       version: 2,
       lastModified: new Date().toISOString()
-    }, true, storeId);
-
-    setTimeout(() => {
-      setCloudStatus('synced');
-    }, 400);
-  }, [perishables, storeId]);
+    }).catch(() => {});
+    setTimeout(() => { setCloudStatus('synced'); }, 300);
+  }, [activeUid, perishables]);
 
   const updateConfig = (partial: Partial<AppConfig>) => {
     setConfig(prev => {
@@ -829,7 +785,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const syncNow = () => {
     setCloudStatus('syncing');
     persistChanges(tablesRef.current, productsRef.current, salesRef.current, perishablesRef.current);
-    syncWithCloud();
+    setTimeout(() => setCloudStatus('synced'), 400);
   };
 
   const resetToDemoData = () => {

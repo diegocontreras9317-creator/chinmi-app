@@ -1,6 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Product, Table } from '../../types';
+import { Product, Table, OrderItem } from '../../types';
+import {
+  subscribeUserMenu,
+  subscribeUserTables,
+  saveTableToFirestore,
+  saveSaleToFirestore
+} from '../../services/firestoreUserStorage';
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
@@ -56,7 +62,34 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     syncNow
   } = useApp();
 
-  const table = tables.find(t => t.id === tableId) || null;
+  // Parse URL parameters for QR scan (uid & mesa)
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const urlUid = searchParams.get('uid') || '';
+  const urlMesa = searchParams.get('mesa') || searchParams.get('mesaId') || tableId;
+
+  const [qrMenuProducts, setQrMenuProducts] = useState<Product[]>([]);
+  const [qrTable, setQrTable] = useState<Table | null>(null);
+
+  useEffect(() => {
+    if (urlUid) {
+      const unsubMenu = subscribeUserMenu(urlUid, (prods) => {
+        setQrMenuProducts(prods);
+      });
+      const unsubTables = subscribeUserTables(urlUid, (tbls) => {
+        const found = tbls.find(t => t.id === urlMesa) || null;
+        setQrTable(found);
+      });
+      return () => {
+        unsubMenu();
+        unsubTables();
+      };
+    }
+  }, [urlUid, urlMesa]);
+
+  const activeTable = qrTable || tables.find(t => t.id === urlMesa || t.id === tableId) || null;
+  const activeProducts = qrMenuProducts.length > 0 ? qrMenuProducts : products;
+
+  const table = activeTable;
 
   const qrSettings = config.qrSettings || {
     allowOrdering: true,
@@ -102,13 +135,13 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
   // Filter products
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    return activeProducts.filter(p => {
       const matchesCat = selectedCategory === 'Todas las categorías' || p.category === selectedCategory;
       const matchesQuery = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            (p.description || '').toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCat && matchesQuery;
     });
-  }, [products, selectedCategory, searchQuery]);
+  }, [activeProducts, selectedCategory, searchQuery]);
 
   // Cart totals
   const cartItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -160,18 +193,60 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const handleSendOrder = () => {
     if (!table || cart.length === 0 || !canOrder) return;
 
-    addItemsToOrder(
-      table.id,
-      cart.map(c => ({
-        product: c.product,
-        quantity: c.quantity,
-        notes: c.notes,
-        customerName: customerName.trim() || undefined,
-        orderedBy: 'cliente'
-      }))
-    );
+    const newOrderItems: OrderItem[] = cart.map(c => ({
+      id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      productId: c.product.id,
+      name: c.product.name,
+      unitPrice: c.product.price,
+      quantity: c.quantity,
+      notes: c.notes,
+      addedAt: new Date().toISOString(),
+      customerName: customerName.trim() || undefined,
+      orderedBy: 'cliente'
+    }));
 
-    syncNow();
+    const nowIso = new Date().toISOString();
+    const existingOrder = table.order;
+    const updatedOrder = existingOrder
+      ? {
+          ...existingOrder,
+          items: [...existingOrder.items, ...newOrderItems],
+          lastUpdatedAt: nowIso
+        }
+      : {
+          id: `ord-${Date.now()}`,
+          tableId: table.id,
+          tableName: table.name,
+          items: newOrderItems,
+          discountPercent: 0,
+          taxPercent: 8,
+          tipAmount: 0,
+          openedAt: nowIso,
+          lastUpdatedAt: nowIso
+        };
+
+    const updatedTable: Table = {
+      ...table,
+      status: 'ocupada',
+      order: updatedOrder,
+      updatedAt: nowIso
+    };
+
+    if (urlUid) {
+      saveTableToFirestore(updatedTable, urlUid);
+    } else {
+      addItemsToOrder(
+        table.id,
+        cart.map(c => ({
+          product: c.product,
+          quantity: c.quantity,
+          notes: c.notes,
+          customerName: customerName.trim() || undefined,
+          orderedBy: 'cliente'
+        }))
+      );
+    }
+
     setCart([]);
     setIsCartOpen(false);
     setOrderSentSuccess(true);
@@ -181,9 +256,25 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   // Action: Call Waiter
   const handleConfirmCallWaiter = () => {
     if (!table) return;
+    const nowIso = new Date().toISOString();
     const msg = `Mesa ${table.number} solicita atención: ${waiterCallReason}`;
-    callWaiter(table.id, 'waiter', msg);
-    syncNow();
+
+    const updatedTable: Table = {
+      ...table,
+      updatedAt: nowIso,
+      waiterCall: {
+        type: 'waiter',
+        requestedAt: nowIso,
+        message: msg
+      }
+    };
+
+    if (urlUid) {
+      saveTableToFirestore(updatedTable, urlUid);
+    } else {
+      callWaiter(table.id, 'waiter', msg);
+    }
+
     setIsCallWaiterModalOpen(false);
     setWaiterCallSuccess(`¡Mesero avisado! Acudirá a tu mesa para "${waiterCallReason}".`);
     setTimeout(() => setWaiterCallSuccess(null), 8000);
@@ -198,9 +289,26 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       ? 'Tarjeta / Datáfono'
       : 'Transferencia / Nequi / Daviplata';
 
+    const nowIso = new Date().toISOString();
     const msg = `Mesa ${table.number} solicita la cuenta. Método: ${methodText}`;
-    callWaiter(table.id, 'bill', msg);
-    syncNow();
+
+    const updatedTable: Table = {
+      ...table,
+      status: 'cuenta',
+      updatedAt: nowIso,
+      waiterCall: {
+        type: 'bill',
+        requestedAt: nowIso,
+        message: msg
+      }
+    };
+
+    if (urlUid) {
+      saveTableToFirestore(updatedTable, urlUid);
+    } else {
+      callWaiter(table.id, 'bill', msg);
+    }
+
     setIsRequestBillModalOpen(false);
     setBillRequestSuccess(`¡Cuenta solicitada! El mesero se dirige con la cuenta (${methodText}).`);
     setTimeout(() => setBillRequestSuccess(null), 8000);

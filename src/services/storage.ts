@@ -438,25 +438,8 @@ try {
 export function loadStoredData(storeId?: string): AppStateData {
   const isDemoStore = storeId === 'usr-gerente-1' || storeId === 'usr-cajero-4' || storeId === 'usr-camarero-2' || storeId === 'usr-barman-3' || storeId === 'demo-role';
 
-  try {
-    const keyToRead = storeId && storeId !== 'default' ? `${STORAGE_KEY}_${storeId}` : STORAGE_KEY;
-    const raw = localStorage.getItem(keyToRead);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.tables) && Array.isArray(parsed.products)) {
-        if (!parsed.perishables || !Array.isArray(parsed.perishables)) {
-          parsed.perishables = isDemoStore ? INITIAL_PERISHABLES : [];
-        }
-        return parsed;
-      }
-    }
-  } catch (err) {
-    console.error('Error reading localStorage:', err);
-  }
-
-  // Strictly enforce clean slate for non-demo new user accounts (0 mesas, 0 productos, 0 insumos, 0 ventas)
   if (!isDemoStore) {
-    const cleanUserData: AppStateData = {
+    return {
       tables: [],
       products: [],
       perishables: [],
@@ -464,12 +447,9 @@ export function loadStoredData(storeId?: string): AppStateData {
       version: 2,
       lastModified: new Date().toISOString()
     };
-    saveStoredData(cleanUserData, false, storeId);
-    return cleanUserData;
   }
 
-  // Initial seed state ONLY for demo/template store
-  const initialData: AppStateData = {
+  return {
     tables: INITIAL_TABLES,
     products: INITIAL_PRODUCTS,
     perishables: INITIAL_PERISHABLES,
@@ -497,9 +477,6 @@ export function loadStoredData(storeId?: string): AppStateData {
     version: 2,
     lastModified: new Date().toISOString()
   };
-
-  saveStoredData(initialData, false, storeId);
-  return initialData;
 }
 
 export function saveStoredData(data: AppStateData, broadcast = true, storeId?: string): void {
@@ -508,25 +485,12 @@ export function saveStoredData(data: AppStateData, broadcast = true, storeId?: s
       ...data,
       lastModified: new Date().toISOString()
     };
-    const storageKey = storeId ? `${STORAGE_KEY}_${storeId}` : STORAGE_KEY;
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-    if (storeId && storeId !== 'default') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    }
     
-    if (broadcast && syncChannel) {
-      syncChannel.postMessage({ type: 'DATA_UPDATED', payload: updated });
-    }
-
-    // Async push to cloud and Firestore for isolation per user (storeId / UID)
-    if (broadcast) {
-      pushCloudState(updated, storeId).catch(() => {});
-      if (storeId && storeId !== 'default') {
-        saveUserFirestoreData(storeId, updated).catch(() => {});
-      }
+    if (storeId && storeId !== 'default' && storeId !== 'demo') {
+      saveUserFirestoreData(storeId, updated).catch(() => {});
     }
   } catch (err) {
-    console.error('Error saving to localStorage:', err);
+    console.error('Error saving data to Firestore:', err);
   }
 }
 

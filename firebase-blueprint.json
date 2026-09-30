@@ -109,13 +109,21 @@
       "schema": "#/entities/Table",
       "description": "Colección aislada de mesas del usuario"
     },
+    "/users/{userId}/menu/{menuId}": {
+      "schema": "#/entities/Product",
+      "description": "Colección aislada del menú del usuario"
+    },
     "/users/{userId}/productos/{productId}": {
       "schema": "#/entities/Product",
-      "description": "Colección aislada de productos/menú del usuario"
+      "description": "Colección aislada de productos del usuario"
     },
     "/users/{userId}/inventario/{itemId}": {
       "schema": "#/entities/PerishableItem",
       "description": "Colección aislada de inventario/insumos del usuario"
+    },
+    "/users/{userId}/pedidos/{pedidoId}": {
+      "schema": "#/entities/SaleReceipt",
+      "description": "Colección aislada de pedidos del usuario"
     },
     "/users/{userId}/ventas/{saleId}": {
       "schema": "#/entities/SaleReceipt",

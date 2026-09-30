@@ -62,18 +62,21 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     syncNow
   } = useApp();
 
-  // Parse URL parameters for QR scan (uid & mesa)
+  // Parse URL parameters for QR scan (restId / uid & mesa / mesaId)
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const urlUid = searchParams.get('uid') || '';
+  const urlUid = searchParams.get('restId') || searchParams.get('uid') || searchParams.get('restaurante') || '';
   const urlMesa = searchParams.get('mesa') || searchParams.get('mesaId') || tableId;
 
   const [qrMenuProducts, setQrMenuProducts] = useState<Product[]>([]);
   const [qrTable, setQrTable] = useState<Table | null>(null);
+  const [isQrLoading, setIsQrLoading] = useState<boolean>(!!urlUid);
 
   useEffect(() => {
     if (urlUid) {
+      setIsQrLoading(true);
       const unsubMenu = subscribeUserMenu(urlUid, (prods) => {
         setQrMenuProducts(prods);
+        setIsQrLoading(false);
       });
       const unsubTables = subscribeUserTables(urlUid, (tbls) => {
         const found = tbls.find(t => t.id === urlMesa) || null;
@@ -83,6 +86,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         unsubMenu();
         unsubTables();
       };
+    } else {
+      setIsQrLoading(false);
     }
   }, [urlUid, urlMesa]);
 
@@ -328,24 +333,41 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     }
   };
 
-  if (!table) {
+  if (isQrLoading) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-16 h-16 rounded-3xl bg-pink-100 dark:bg-pink-950 text-[#681841] flex items-center justify-center text-3xl mb-4 shadow-md">
-          🍽️
+        <div className="w-12 h-12 rounded-full border-4 border-pink-200 dark:border-pink-950 border-t-[#681841] dark:border-t-pink-500 animate-spin mb-4" />
+        <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">Cargando menú de la mesa...</p>
+      </div>
+    );
+  }
+
+  if (!urlUid || !urlMesa || !table) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-20 h-24 rounded-3xl bg-pink-100 dark:bg-pink-950/80 text-[#681841] dark:text-pink-300 flex items-center justify-center text-4xl mb-5 shadow-lg border border-pink-200 dark:border-pink-900/60">
+          📱
         </div>
-        <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
-          Mesa no encontrada
+        <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white max-w-sm">
+          Escanea el código QR de tu mesa para ver el menú
         </h2>
-        <p className="text-xs text-slate-500 max-w-sm mt-1 mb-6">
-          El código QR escaneado no corresponde a una mesa activa o la mesa ha sido reconfigurada. Por favor solicita ayuda a un camarero.
+        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mt-2 mb-8 leading-relaxed">
+          Para consultar la carta digital, pedir platos o llamar al mesero, apunta la cámara de tu celular al código QR ubicado sobre tu mesa.
         </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="px-5 py-2.5 rounded-xl bg-[#681841] text-white font-bold text-xs shadow-md transition cursor-pointer"
-        >
-          Recargar Menú
-        </button>
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm text-left max-w-xs w-full space-y-2.5 mb-6">
+          <div className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-semibold">
+            <span className="w-5 h-5 rounded-full bg-[#681841] text-white flex items-center justify-center font-bold text-[10px]">1</span>
+            <span>Abre la cámara de tu celular</span>
+          </div>
+          <div className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-semibold">
+            <span className="w-5 h-5 rounded-full bg-[#681841] text-white flex items-center justify-center font-bold text-[10px]">2</span>
+            <span>Apunta al código QR de la mesa</span>
+          </div>
+          <div className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-semibold">
+            <span className="w-5 h-5 rounded-full bg-[#681841] text-white flex items-center justify-center font-bold text-[10px]">3</span>
+            <span>Accede al menú interactivo</span>
+          </div>
+        </div>
       </div>
     );
   }

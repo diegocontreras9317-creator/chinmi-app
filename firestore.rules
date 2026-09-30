@@ -12,8 +12,13 @@ service cloud.firestore {
 
       match /mesas/{tableId} {
         allow read: if true;
-        allow create, delete: if isOwner(userId) || request.auth != null;
         allow update: if true;
+        allow create, delete: if isOwner(userId) || request.auth != null;
+      }
+
+      match /menu/{menuId} {
+        allow read: if true;
+        allow write: if isOwner(userId) || request.auth != null;
       }
 
       match /productos/{productId} {
@@ -23,6 +28,11 @@ service cloud.firestore {
 
       match /inventario/{itemId} {
         allow read, write: if isOwner(userId) || request.auth != null;
+      }
+
+      match /pedidos/{pedidoId} {
+        allow read, update, delete: if isOwner(userId) || request.auth != null;
+        allow create: if true;
       }
 
       match /ventas/{saleId} {

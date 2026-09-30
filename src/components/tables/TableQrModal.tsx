@@ -60,7 +60,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
     if (typeof window === 'undefined') return '';
     const origin = window.location.origin;
     const uid = auth.currentUser?.uid || '';
-    return `${origin}/menu?uid=${encodeURIComponent(uid)}&mesa=${encodeURIComponent(t.id)}`;
+    return `${origin}/menu?restId=${encodeURIComponent(uid)}&mesa=${encodeURIComponent(t.id)}`;
   };
 
   const tableUrl = activeTable ? getTableUrl(activeTable) : '';

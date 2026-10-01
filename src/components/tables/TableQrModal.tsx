@@ -56,6 +56,10 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
     menuOnlyMode: false
   };
 
+  const cleanBizName = (config.businessName && !config.businessName.toLowerCase().includes('perfume'))
+    ? config.businessName
+    : 'Chinmi GastroBar & Terraza';
+
   const getTableUrl = (t: Table) => {
     if (typeof window === 'undefined') return '';
     const origin = window.location.origin;
@@ -173,7 +177,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
       <!DOCTYPE html>
       <html>
         <head>
-          <title>QR Mesa ${activeTable.number} - ${config.businessName}</title>
+          <title>QR Mesa ${activeTable.number} - ${cleanBizName}</title>
           <style>
             @page { size: auto; margin: 15mm; }
             body {
@@ -249,7 +253,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
         </head>
         <body>
           <div class="card">
-            <h1 class="biz-name">${config.businessName}</h1>
+            <h1 class="biz-name">${cleanBizName}</h1>
             <div class="table-badge">MESA ${activeTable.number}</div>
             <div class="zone">${activeTable.name} · ${activeTable.zone}</div>
             <img class="qr-img" src="${qrDataUrl}" alt="QR Mesa ${activeTable.number}" />
@@ -551,7 +555,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
                 className="p-5 rounded-2xl bg-white dark:bg-slate-800 border-2 border-pink-200/80 dark:border-pink-900/60 text-center shadow-xs flex flex-col items-center"
               >
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#681841] dark:text-pink-300">
-                  {config.businessName}
+                  {cleanBizName}
                 </span>
 
                 <div className="my-2 px-4 py-1 rounded-full bg-[#681841] text-white font-black text-lg shadow-xs flex items-center gap-2">

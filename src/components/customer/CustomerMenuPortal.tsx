@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Product, Table, OrderItem } from '../../types';
+import { auth } from '../../firebase';
 import {
   subscribeUserMenu,
   subscribeUserTables,
@@ -195,7 +196,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   };
 
   // Submit cart order directly to kitchen/POS
-  const handleSendOrder = () => {
+  const handleSendOrder = async () => {
     if (!table || cart.length === 0 || !canOrder) return;
 
     const newOrderItems: OrderItem[] = cart.map(c => ({
@@ -237,20 +238,25 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       updatedAt: nowIso
     };
 
-    if (urlUid) {
-      saveTableToFirestore(updatedTable, urlUid);
-    } else {
-      addItemsToOrder(
-        table.id,
-        cart.map(c => ({
-          product: c.product,
-          quantity: c.quantity,
-          notes: c.notes,
-          customerName: customerName.trim() || undefined,
-          orderedBy: 'cliente'
-        }))
-      );
+    const targetUid = urlUid || auth.currentUser?.uid;
+    if (targetUid) {
+      try {
+        await saveTableToFirestore(updatedTable, targetUid);
+      } catch (err) {
+        console.error("Error guardando pedido QR en Firestore:", err);
+      }
     }
+
+    addItemsToOrder(
+      table.id,
+      cart.map(c => ({
+        product: c.product,
+        quantity: c.quantity,
+        notes: c.notes,
+        customerName: customerName.trim() || undefined,
+        orderedBy: 'cliente'
+      }))
+    );
 
     setCart([]);
     setIsCartOpen(false);
@@ -259,7 +265,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   };
 
   // Action: Call Waiter
-  const handleConfirmCallWaiter = () => {
+  const handleConfirmCallWaiter = async () => {
     if (!table) return;
     const nowIso = new Date().toISOString();
     const msg = `Mesa ${table.number} solicita atención: ${waiterCallReason}`;
@@ -274,11 +280,16 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       }
     };
 
-    if (urlUid) {
-      saveTableToFirestore(updatedTable, urlUid);
-    } else {
-      callWaiter(table.id, 'waiter', msg);
+    const targetUid = urlUid || auth.currentUser?.uid;
+    if (targetUid) {
+      try {
+        await saveTableToFirestore(updatedTable, targetUid);
+      } catch (err) {
+        console.error("Error guardando llamada a mesero en Firestore:", err);
+      }
     }
+
+    callWaiter(table.id, 'waiter', msg);
 
     setIsCallWaiterModalOpen(false);
     setWaiterCallSuccess(`¡Mesero avisado! Acudirá a tu mesa para "${waiterCallReason}".`);
@@ -286,7 +297,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   };
 
   // Action: Request Bill
-  const handleConfirmRequestBill = () => {
+  const handleConfirmRequestBill = async () => {
     if (!table) return;
     const methodText = paymentMethodChoice === 'efectivo'
       ? `Efectivo${cashAmountNote ? ` (paga con: ${cashAmountNote})` : ''}`
@@ -308,11 +319,16 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       }
     };
 
-    if (urlUid) {
-      saveTableToFirestore(updatedTable, urlUid);
-    } else {
-      callWaiter(table.id, 'bill', msg);
+    const targetUid = urlUid || auth.currentUser?.uid;
+    if (targetUid) {
+      try {
+        await saveTableToFirestore(updatedTable, targetUid);
+      } catch (err) {
+        console.error("Error guardando solicitud de cuenta en Firestore:", err);
+      }
     }
+
+    callWaiter(table.id, 'bill', msg);
 
     setIsRequestBillModalOpen(false);
     setBillRequestSuccess(`¡Cuenta solicitada! El mesero se dirige con la cuenta (${methodText}).`);

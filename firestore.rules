@@ -11,9 +11,8 @@ service cloud.firestore {
       allow read, write: if isOwner(userId) || request.auth != null;
 
       match /mesas/{tableId} {
-        allow read: if true;
-        allow update: if true;
-        allow create, delete: if isOwner(userId) || request.auth != null;
+        allow read, write, create, update: if true;
+        allow delete: if isOwner(userId) || request.auth != null;
       }
 
       match /menu/{menuId} {
@@ -31,12 +30,13 @@ service cloud.firestore {
       }
 
       match /pedidos/{pedidoId} {
-        allow read, update, delete: if isOwner(userId) || request.auth != null;
-        allow create: if true;
+        allow read, write, create, update: if true;
+        allow delete: if isOwner(userId) || request.auth != null;
       }
 
       match /ventas/{saleId} {
-        allow read, write: if isOwner(userId) || request.auth != null;
+        allow read, write, create: if true;
+        allow delete: if isOwner(userId) || request.auth != null;
       }
     }
 

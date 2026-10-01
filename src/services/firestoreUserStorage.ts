@@ -9,7 +9,7 @@ import {
   getDoc
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Table, Product, PerishableItem, SaleReceipt, AppStateData } from '../types';
+import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -117,6 +117,26 @@ export function subscribeUserInventory(uid: string, onUpdate: (items: Perishable
   return onSnapshot(colRef, (snap) => {
     const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as PerishableItem));
     onUpdate(items);
+  }, (err) => {
+    handleFirestoreError(err, OperationType.LIST, path);
+    onUpdate([]);
+  });
+}
+
+/**
+ * Escucha en tiempo real los pedidos de users/${uid}/pedidos
+ */
+export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => void): Unsubscribe {
+  if (!uid) {
+    onUpdate([]);
+    return () => {};
+  }
+  const path = `users/${uid}/pedidos`;
+  const colRef = collection(db, 'users', uid, 'pedidos');
+
+  return onSnapshot(colRef, (snap) => {
+    const orders = snap.docs.map(d => ({ id: d.id, ...d.data() } as Order));
+    onUpdate(orders);
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);
     onUpdate([]);
@@ -288,10 +308,13 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
   if (!uid) return;
 
   try {
-    // Sincronizar Mesas
+    // Sincronizar Mesas y sus Pedidos
     for (const tbl of data.tables || []) {
       if (tbl.id) {
         await setDoc(doc(db, 'users', uid, 'mesas', tbl.id), { ...tbl, userId: uid }, { merge: true });
+        if (tbl.order && tbl.order.id) {
+          await setDoc(doc(db, 'users', uid, 'pedidos', tbl.order.id), { ...tbl.order, userId: uid }, { merge: true });
+        }
       }
     }
 
@@ -325,12 +348,27 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
 /**
  * Operaciones individuales CRUD en Firestore con Optimistic Updates
  */
+export async function saveOrderToFirestore(order: Order, targetUid?: string): Promise<void> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid || !order.id) return;
+  const path = `users/${uid}/pedidos/${order.id}`;
+  try {
+    await setDoc(doc(db, 'users', uid, 'pedidos', order.id), { ...order, userId: uid }, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    throw err;
+  }
+}
+
 export async function saveTableToFirestore(table: Table, targetUid?: string): Promise<void> {
   const uid = getActiveUserId(targetUid);
   if (!uid || !table.id) return;
   const path = `users/${uid}/mesas/${table.id}`;
   try {
     await setDoc(doc(db, 'users', uid, 'mesas', table.id), { ...table, userId: uid }, { merge: true });
+    if (table.order && table.order.id) {
+      await saveOrderToFirestore(table.order, uid);
+    }
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;

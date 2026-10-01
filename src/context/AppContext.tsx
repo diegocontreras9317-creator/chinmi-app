@@ -6,10 +6,12 @@ import {
   fetchUserFirestoreData,
   saveUserFirestoreData,
   subscribeUserTables,
+  subscribeUserOrders,
   subscribeUserMenu,
   subscribeUserInventory,
   subscribeUserSales,
   saveTableToFirestore,
+  saveOrderToFirestore,
   deleteTableFromFirestore,
   saveProductToFirestore,
   deleteProductFromFirestore,
@@ -198,6 +200,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCloudStatus('synced');
     });
 
+    const unsubOrders = subscribeUserOrders(activeUid, (newOrders) => {
+      // Sincronización en tiempo real de la colección pedidos
+      if (newOrders && newOrders.length > 0) {
+        const currentTables = tablesRef.current;
+        let hasChanges = false;
+        const mergedTables = currentTables.map(tbl => {
+          const matchingOrder = newOrders.find(o => o.tableId === tbl.id || o.tableName === tbl.name);
+          if (matchingOrder && matchingOrder.items && matchingOrder.items.length > 0) {
+            if (!tbl.order || tbl.order.lastUpdatedAt !== matchingOrder.lastUpdatedAt || tbl.order.items.length !== matchingOrder.items.length) {
+              hasChanges = true;
+              return {
+                ...tbl,
+                status: (tbl.status === 'libre' ? 'ocupada' : tbl.status) as TableStatus,
+                order: matchingOrder
+              };
+            }
+          }
+          return tbl;
+        });
+
+        if (hasChanges) {
+          tablesRef.current = mergedTables;
+          setTables(mergedTables);
+        }
+      }
+      setCloudStatus('synced');
+    });
+
     const unsubMenu = subscribeUserMenu(activeUid, (newProducts) => {
       productsRef.current = newProducts;
       setProducts(newProducts);
@@ -218,6 +248,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => {
       unsubTables();
+      unsubOrders();
       unsubMenu();
       unsubInventory();
       unsubSales();

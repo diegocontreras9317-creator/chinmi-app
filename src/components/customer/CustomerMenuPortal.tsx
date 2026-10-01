@@ -6,6 +6,7 @@ import {
   subscribeUserMenu,
   subscribeUserTables,
   saveTableToFirestore,
+  saveOrderToFirestore,
   saveSaleToFirestore
 } from '../../services/firestoreUserStorage';
 import { formatCOP } from '../../utils/currency';
@@ -242,6 +243,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     if (targetUid) {
       try {
         await saveTableToFirestore(updatedTable, targetUid);
+        if (updatedOrder && updatedOrder.id) {
+          await saveOrderToFirestore(updatedOrder, targetUid);
+        }
       } catch (err) {
         console.error("Error guardando pedido QR en Firestore:", err);
       }

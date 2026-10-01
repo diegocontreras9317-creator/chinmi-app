@@ -5,10 +5,12 @@ import {
   onAuthStateChanged,
   signOut,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  sendEmailVerification
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, googleProvider } from '../firebase';
+import { auth, db, googleProvider, facebookProvider } from '../firebase';
 
 export interface RegisteredAccount {
   id: string;
@@ -21,7 +23,7 @@ export interface RegisteredAccount {
   billingFrequency?: BillingFrequency;
   businessName: string;
   createdAt: string;
-  authProvider: 'email' | 'google';
+  authProvider: 'email' | 'google' | 'facebook';
 }
 
 interface AuthContextType {
@@ -46,6 +48,9 @@ interface AuthContextType {
   closePinModal: () => void;
   loginWithEmail: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: (customGoogleProfile?: { name: string; email: string; businessName?: string; avatar?: string }) => Promise<{ success: boolean; error?: string }>;
+  loginWithFacebook: () => Promise<{ success: boolean; error?: string }>;
+  sendPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  sendVerificationEmail: () => Promise<{ success: boolean; error?: string; message?: string }>;
   register: (
     name: string,
     email: string,
@@ -54,7 +59,7 @@ interface AuthContextType {
     businessName?: string,
     plan?: PlanType,
     billingFrequency?: BillingFrequency
-  ) => Promise<{ success: boolean; error?: string }>;
+  ) => Promise<{ success: boolean; error?: string; message?: string }>;
   loginAsDemoRole: (role: UserRole) => void;
   logout: () => void;
   upgradePlan: (newPlan: PlanType, billingFrequency?: BillingFrequency) => void;
@@ -144,18 +149,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Por favor ingresa un correo electrónico válido.' };
     }
 
+    if (!password) {
+      setIsLoading(false);
+      return { success: false, error: 'Por favor ingresa tu contraseña.' };
+    }
+
     try {
-      await signInWithEmailAndPassword(auth, cleanEmail, password || '123456');
+      await signInWithEmailAndPassword(auth, cleanEmail, password);
       setIsLoading(false);
       return { success: true };
     } catch (err: any) {
       setIsLoading(false);
-      const errCode = err.code || '';
-      let errMsg = 'Error al iniciar sesión con Firebase Auth.';
-      if (errCode.includes('user-not-found') || errCode.includes('invalid-credential')) {
-        errMsg = 'No se encontró la cuenta o la contraseña es incorrecta. Si es tu primera vez, regístrate.';
-      } else if (errCode.includes('wrong-password')) {
-        errMsg = 'Contraseña incorrecta. Por favor verifica tus datos.';
+      const errCode = err?.code || '';
+      let errMsg = 'Error al iniciar sesión.';
+      if (errCode.includes('user-not-found') || errCode.includes('invalid-credential') || errCode.includes('wrong-password')) {
+        errMsg = 'Correo o contraseña incorrectos. Si aún no tienes cuenta, regístrate.';
+      } else if (errCode.includes('too-many-requests')) {
+        errMsg = 'Demasiados intentos fallidos. Inténtalo más tarde o restablece tu contraseña.';
+      } else if (errCode.includes('invalid-email')) {
+        errMsg = 'El formato del correo electrónico no es válido.';
       }
       return { success: false, error: errMsg };
     }
@@ -174,10 +186,88 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
       return { success: true };
     } catch (err: any) {
-      console.error('Error in Google Auth:', err);
       setIsLoading(false);
-      const errMsg = err.message || 'Error al iniciar sesión con la cuenta de Google.';
+      const errCode = err?.code || '';
+
+      if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
+        return { success: false, error: 'Has cerrado la ventana de inicio de sesión de Google.' };
+      }
+
+      if (errCode === 'auth/popup-blocked') {
+        return { success: false, error: 'El navegador bloqueó la ventana emergente de Google. Por favor permite ventanas emergentes.' };
+      }
+
+      console.warn('Google Auth notice:', errCode || err);
+      const errMsg = err?.message || 'Error al iniciar sesión con la cuenta de Google.';
       return { success: false, error: errMsg };
+    }
+  };
+
+  const loginWithFacebook = async (): Promise<{ success: boolean; error?: string }> => {
+    setIsLoading(true);
+
+    try {
+      await signInWithPopup(auth, facebookProvider);
+      setIsLoading(false);
+      return { success: true };
+    } catch (err: any) {
+      setIsLoading(false);
+      const errCode = err?.code || '';
+
+      if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
+        return { success: false, error: 'Has cerrado la ventana de inicio de sesión de Facebook.' };
+      }
+
+      if (errCode === 'auth/popup-blocked') {
+        return { success: false, error: 'El navegador bloqueó la ventana emergente de Facebook. Permite ventanas emergentes.' };
+      }
+
+      if (errCode === 'auth/account-exists-with-different-credential') {
+        return { success: false, error: 'Ya existe una cuenta vinculada a este correo con otro proveedor (Google o Contraseña). Inicia sesión con ese método.' };
+      }
+
+      console.warn('Facebook Auth notice:', errCode || err);
+      return { success: false, error: 'Error al iniciar sesión con la cuenta de Facebook.' };
+    }
+  };
+
+  const sendPasswordReset = async (email: string): Promise<{ success: boolean; error?: string; message?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return { success: false, error: 'Por favor ingresa un correo electrónico válido.' };
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+      return {
+        success: true,
+        message: 'Te hemos enviado un correo para restablecer tu contraseña. Revisa tu bandeja de entrada o spam.'
+      };
+    } catch (err: any) {
+      const errCode = err?.code || '';
+      let errMsg = 'No se pudo enviar el correo de recuperación.';
+      if (errCode.includes('user-not-found') || errCode.includes('invalid-credential')) {
+        errMsg = 'No encontramos ninguna cuenta registrada con este correo electrónico.';
+      } else if (errCode.includes('invalid-email')) {
+        errMsg = 'El formato del correo electrónico no es válido.';
+      }
+      return { success: false, error: errMsg };
+    }
+  };
+
+  const sendVerificationEmail = async (): Promise<{ success: boolean; error?: string; message?: string }> => {
+    if (!auth.currentUser) {
+      return { success: false, error: 'No hay ninguna sesión activa para enviar la verificación.' };
+    }
+
+    try {
+      await sendEmailVerification(auth.currentUser);
+      return {
+        success: true,
+        message: 'Correo de verificación enviado. Revisa tu bandeja de entrada o spam.'
+      };
+    } catch (err: any) {
+      return { success: false, error: 'No se pudo enviar el correo de verificación. Inténtalo más tarde.' };
     }
   };
 
@@ -189,7 +279,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     businessName: string = 'Mi Negocio Gastro',
     _plan: PlanType = 'free',
     _billingFrequency?: BillingFrequency
-  ): Promise<{ success: boolean; error?: string }> => {
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
     setIsLoading(true);
 
     const cleanEmail = email.trim().toLowerCase();
@@ -206,8 +296,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Por favor ingresa tu nombre completo.' };
     }
 
+    if (!password || password.length < 6) {
+      setIsLoading(false);
+      return { success: false, error: 'La contraseña debe tener al menos 6 caracteres.' };
+    }
+
     try {
-      const res = await createUserWithEmailAndPassword(auth, cleanEmail, password || '123456');
+      const res = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       const uid = res.user.uid;
       const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail)}`;
 
@@ -223,15 +318,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       await setDoc(doc(db, 'users', uid), newUser, { merge: true });
+
+      // Send Email Verification
+      try {
+        await sendEmailVerification(res.user);
+      } catch (verifErr) {
+        console.warn('Verification email error:', verifErr);
+      }
+
       setUser(newUser);
       setIsLoading(false);
-      return { success: true };
+      return {
+        success: true,
+        message: '¡Registro exitoso! Te hemos enviado un correo de bienvenida y verificación. Revisa tu bandeja de entrada o spam para continuar.'
+      };
     } catch (err: any) {
       setIsLoading(false);
-      const errCode = err.code || '';
+      const errCode = err?.code || '';
       let errMsg = 'Error al registrar usuario en Firebase Auth.';
       if (errCode.includes('email-already-in-use')) {
         errMsg = 'Ya existe una cuenta con este correo. Por favor inicia sesión.';
+      } else if (errCode.includes('weak-password')) {
+        errMsg = 'La contraseña es muy débil. Debe tener al menos 6 caracteres.';
+      } else if (errCode.includes('invalid-email')) {
+        errMsg = 'El correo electrónico ingresado no es válido.';
       }
       return { success: false, error: errMsg };
     }
@@ -389,6 +499,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         closePinModal,
         loginWithEmail,
         loginWithGoogle,
+        loginWithFacebook,
+        sendPasswordReset,
+        sendVerificationEmail,
         register,
         loginAsDemoRole,
         logout,

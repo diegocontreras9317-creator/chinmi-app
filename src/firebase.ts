@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, Auth, GoogleAuthProvider, FacebookAuthProvider } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import firebaseConfigData from '../firebase-applet-config.json';
 
@@ -30,6 +30,7 @@ const databaseId = firebaseConfigData?.firestoreDatabaseId;
 const db: Firestore = databaseId && databaseId !== '(default)' ? getFirestore(app, databaseId) : getFirestore(app);
 
 const googleProvider = new GoogleAuthProvider();
+const facebookProvider = new FacebookAuthProvider();
 
-export { app, auth, db, googleProvider };
+export { app, auth, db, googleProvider, facebookProvider };
 export default app;

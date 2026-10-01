@@ -5,6 +5,9 @@ import { PAID_PLANS, BillingFrequency } from '../../config/pricingPlans';
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 import { PWAInstallButton } from '../common/PWAInstallButton';
+import { GoogleIcon } from '../common/GoogleIcon';
+import { FacebookIcon } from '../common/FacebookIcon';
+import { ForgotPasswordModal } from './ForgotPasswordModal';
 import { GoogleAuthModal } from './GoogleAuthModal';
 import {
   Lock,
@@ -31,6 +34,7 @@ export const LandingPage: React.FC = () => {
   const {
     loginWithEmail,
     loginWithGoogle,
+    loginWithFacebook,
     register,
     loginAsDemoRole,
     isLoading,
@@ -56,9 +60,10 @@ export const LandingPage: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
-  // Google Modal
+  // Modals
   const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
   const [googleModalMode, setGoogleModalMode] = useState<'login' | 'register'>('register');
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   const selectedPaidPlan = PAID_PLANS[selectedCycle];
 
@@ -96,6 +101,7 @@ export const LandingPage: React.FC = () => {
       if (businessName.trim()) {
         updateConfig({ businessName: businessName.trim() });
       }
+      setFormSuccess(res.message || '¡Registro exitoso! Te hemos enviado un correo de bienvenida. Verifica tu bandeja de entrada o spam para continuar.');
     }
   };
 
@@ -530,24 +536,37 @@ export const LandingPage: React.FC = () => {
                 </button>
               </form>
 
-              {/* Botón de Google */}
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
-                <button
-                  type="button"
-                  onClick={() => handleOpenGoogle('register')}
-                  className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24">
-                    <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.2 9 5 12 5z" />
-                    <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z" />
-                    <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15.1s.7 5.4 1.9 7.8l3.7-2.9z" />
-                    <path fill="#34A853" d="M12 23.5c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.2-6.4-5.2L1.9 16.5C3.7 20.2 7.5 23.5 12 23.5z" />
-                  </svg>
-                  <span>Registrarme con mi Cuenta de Google</span>
-                </button>
+              {/* Botones de Social Login en Registro */}
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                <p className="text-[11px] font-bold text-center text-slate-400 uppercase tracking-wider mb-2">
+                  o regístrate con redes sociales
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenGoogle('register')}
+                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                  >
+                    <GoogleIcon className="w-4 h-4" />
+                    <span>Google</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setFormError(null);
+                      const res = await loginWithFacebook();
+                      if (!res.success && res.error) setFormError(res.error);
+                    }}
+                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                  >
+                    <FacebookIcon className="w-4 h-4" />
+                    <span>Facebook</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="text-center">
+              <div className="text-center pt-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -566,23 +585,14 @@ export const LandingPage: React.FC = () => {
 
           {/* === PESTAÑA 3: INICIAR SESIÓN === */}
           {activeTab === 'login' && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl shadow-pink-500/5 space-y-6">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl shadow-pink-500/5 space-y-5">
               
-              <div className="text-center space-y-2">
-                <div className="w-14 h-14 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 mx-auto flex items-center justify-center shadow-xs">
-                  <svg className="w-7 h-7" viewBox="0 0 24 24">
-                    <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.2 9 5 12 5z" />
-                    <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z" />
-                    <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15.1s.7 5.4 1.9 7.8l3.7-2.9z" />
-                    <path fill="#34A853" d="M12 23.5c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.2-6.4-5.2L1.9 16.5C3.7 20.2 7.5 23.5 12 23.5z" />
-                  </svg>
-                </div>
-
+              <div className="text-center space-y-1">
                 <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
                   Bienvenido de vuelta
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                  Inicia sesión de forma segura usando tu cuenta de Google. Tu restaurante mantendrá todos sus datos aislados y vinculados a tu cuenta.
+                  Ingresa con tu correo y contraseña o a través de tus redes sociales oficiales.
                 </p>
               </div>
 
@@ -593,47 +603,117 @@ export const LandingPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Botón Oficial de Continuar con Google vía Firebase Auth */}
-              <div className="space-y-3 pt-2">
+              {formSuccess && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2.5">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>{formSuccess}</span>
+                </div>
+              )}
+
+              {/* Formulario de Email y Contraseña */}
+              <form onSubmit={handleLoginSubmit} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Correo electrónico
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="admin@tunegocio.com"
+                      className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Contraseña
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsForgotPasswordOpen(true)}
+                      className="text-[11px] font-bold text-[#681841] dark:text-pink-400 hover:underline transition cursor-pointer"
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                    <input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                    />
+                  </div>
+                </div>
+
                 <button
-                  type="button"
+                  type="submit"
                   disabled={isLoading}
-                  onClick={async () => {
-                    setFormError(null);
-                    const res = await loginWithGoogle();
-                    if (!res.success) {
-                      if (res.error?.includes('API Key') || res.error?.includes('api-key-not-valid')) {
-                        handleOpenGoogle('login');
-                      } else if (res.error) {
-                        setFormError(res.error);
-                      }
-                    }
-                  }}
-                  className="w-full py-3.5 px-5 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-sm font-extrabold transition-all shadow-md active:scale-98 flex items-center justify-center gap-3 cursor-pointer group"
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs sm:text-sm font-bold shadow-md shadow-pink-500/20 transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
-                    <span className="inline-block animate-spin text-lg">⏳</span>
+                    <span className="inline-block animate-spin">⏳</span>
                   ) : (
                     <>
-                      <svg className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
-                        <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.2 9 5 12 5z" />
-                        <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z" />
-                        <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15.1s.7 5.4 1.9 7.8l3.7-2.9z" />
-                        <path fill="#34A853" d="M12 23.5c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.2-6.4-5.2L1.9 16.5C3.7 20.2 7.5 23.5 12 23.5z" />
-                      </svg>
-                      <span>Continuar con mi Cuenta de Google</span>
-                      <ArrowRight className="w-4 h-4 text-[#e64980] ml-auto" />
+                      <span>Iniciar Sesión</span>
+                      <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </button>
+              </form>
 
-                <div className="p-3 rounded-2xl bg-pink-50/60 dark:bg-pink-950/30 border border-pink-200/80 dark:border-pink-900/40 text-[11px] text-pink-900 dark:text-pink-300 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-[#e64980] shrink-0" />
-                  <span>Autenticación oficial y protegida con Firebase y Google Auth</span>
+              {/* Botones de Redes Sociales */}
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                <p className="text-[11px] font-bold text-center text-slate-400 uppercase tracking-wider mb-2">
+                  o entra rápidamente con
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={async () => {
+                      setFormError(null);
+                      const res = await loginWithGoogle();
+                      if (!res.success) {
+                        if (res.error?.includes('API Key') || res.error?.includes('api-key-not-valid')) {
+                          handleOpenGoogle('login');
+                        } else if (res.error) {
+                          setFormError(res.error);
+                        }
+                      }
+                    }}
+                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                  >
+                    <GoogleIcon className="w-4 h-4" />
+                    <span>Google</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={async () => {
+                      setFormError(null);
+                      const res = await loginWithFacebook();
+                      if (!res.success && res.error) setFormError(res.error);
+                    }}
+                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                  >
+                    <FacebookIcon className="w-4 h-4" />
+                    <span>Facebook</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="text-center pt-2">
+              <div className="text-center pt-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -643,7 +723,7 @@ export const LandingPage: React.FC = () => {
                   }}
                   className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
                 >
-                  ¿No tienes cuenta todavía? <strong className="text-[#681841] dark:text-pink-400">Regístrate aquí con tu correo o Google</strong>
+                  ¿No tienes cuenta todavía? <strong className="text-[#681841] dark:text-pink-400">Regístrate aquí gratis</strong>
                 </button>
               </div>
 
@@ -841,6 +921,13 @@ export const LandingPage: React.FC = () => {
         isOpen={isGoogleModalOpen}
         onClose={() => setIsGoogleModalOpen(false)}
         defaultMode={googleModalMode}
+      />
+
+      {/* Modal de Recuperación de Contraseña */}
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordOpen}
+        onClose={() => setIsForgotPasswordOpen(false)}
+        defaultEmail={email}
       />
 
     </div>

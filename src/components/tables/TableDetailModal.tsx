@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import { Table, Product, TableStatus } from '../../types';
 import { formatCOP } from '../../utils/currency';
+import { auth } from '../../firebase';
+import {
+  saveTableToFirestore,
+  saveOrderToFirestore
+} from '../../services/firestoreUserStorage';
 import {
   X,
   Search,
@@ -17,7 +23,10 @@ import {
   Percent,
   Coins,
   QrCode,
-  ArrowRight
+  ArrowRight,
+  Save,
+  RefreshCw,
+  CheckCircle2
 } from 'lucide-react';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
 import { TableQrModal } from './TableQrModal';
@@ -35,6 +44,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   table,
   onOpenCheckout
 }) => {
+  const { user } = useAuth();
   const {
     config,
     products,
@@ -53,6 +63,30 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   const [itemNoteText, setItemNoteText] = useState<string>('');
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'catalog' | 'order'>('catalog');
+  const [isSavingFirebase, setIsSavingFirebase] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [lastAddedToast, setLastAddedToast] = useState<string | null>(null);
+
+  const handleSaveAndUpdateComanda = async () => {
+    setIsSavingFirebase(true);
+    setSaveSuccessMsg(null);
+
+    try {
+      const activeUid = auth.currentUser?.uid || user?.id;
+      if (activeUid && table) {
+        await saveTableToFirestore(table, activeUid);
+        if (table.order) {
+          await saveOrderToFirestore(table.order, activeUid);
+        }
+      }
+      setSaveSuccessMsg('¡Comanda guardada y actualizada en Firebase!');
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
+    } catch (err) {
+      console.error('Error al guardar comanda en Firebase:', err);
+    } finally {
+      setIsSavingFirebase(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -79,6 +113,10 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
 
   const handleProductTap = (product: Product) => {
     addItemToOrder(table.id, product, 1);
+    setLastAddedToast(`+1 ${product.name}`);
+    setTimeout(() => {
+      setLastAddedToast(null);
+    }, 2200);
   };
 
   const handleStatusChange = (newStatus: TableStatus) => {
@@ -304,11 +342,20 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
             </div>
 
             {/* Products Grid */}
-            <div className="flex-1 p-4 overflow-y-auto">
+            <div className="flex-1 p-4 overflow-y-auto relative">
+              {/* Added Toast Notification on Mobile/Desktop */}
+              {lastAddedToast && (
+                <div className="sticky top-2 z-30 mx-auto max-w-xs px-3 py-1.5 rounded-full bg-slate-900/90 text-white dark:bg-white/90 dark:text-slate-900 text-xs font-black shadow-lg flex items-center justify-center gap-1.5 animate-in fade-in zoom-in">
+                  <Sparkles className="w-3.5 h-3.5 text-orange-400 dark:text-orange-600" />
+                  <span>{lastAddedToast}</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {filteredProducts.map((product) => {
                   const isLowStock = product.stock <= product.minStock;
                   const isOutOfStock = product.stock <= 0;
+                  const inOrderQty = items.reduce((sum, it) => it.productId === product.id ? sum + it.quantity : sum, 0);
 
                   return (
                     <button
@@ -329,6 +376,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           loading="lazy"
                         />
+                        {inOrderQty > 0 && (
+                          <span className="absolute bottom-1 left-1 bg-orange-600 text-white font-mono font-black text-[10px] px-2 py-0.5 rounded-full shadow-md">
+                            {inOrderQty} en comanda
+                          </span>
+                        )}
                         {isLowStock && !isOutOfStock && (
                           <span className="absolute top-1 right-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded-sm bg-amber-500 text-white shadow-xs">
                             ¡Stock {product.stock}!
@@ -364,6 +416,26 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                 })}
               </div>
             </div>
+
+            {/* Mobile Bottom Floating Order Bar */}
+            {items.length > 0 && (
+              <div className="lg:hidden p-3 bg-slate-900 text-white border-t border-slate-800 flex items-center justify-between gap-2 shadow-xl shrink-0">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Comanda actual</p>
+                  <p className="text-xs font-extrabold text-white truncate">
+                    {items.reduce((sum, it) => sum + it.quantity, 0)} ítems · <span className="text-orange-400">{formatCOP(total)}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileTab('order')}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-black shadow-md cursor-pointer shrink-0"
+                >
+                  <span>Ver Comanda</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
           </div>
 
@@ -523,9 +595,22 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                 )}
               </div>
 
+              {/* Success Notification Banner */}
+              {saveSuccessMsg && (
+                <div className="p-3 rounded-2xl bg-emerald-500 text-white font-bold text-xs flex items-center justify-between shadow-md animate-in fade-in">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-white shrink-0" />
+                    <span>{saveSuccessMsg}</span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-700/80 px-2.5 py-0.5 rounded-full uppercase tracking-wider font-extrabold">
+                    Sincronizado
+                  </span>
+                </div>
+              )}
+
               {/* High-Impact Total & Action Bar */}
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                <div>
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="flex items-center justify-between sm:block">
                   <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
                     Total Cuenta
                   </span>
@@ -534,29 +619,52 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2">
+                  {/* Botón Funcional de Guardar y Actualizar Comanda en Firebase */}
                   <button
                     type="button"
-                    onClick={() => {
-                      handleStatusChange('cuenta');
-                      onClose();
-                    }}
-                    disabled={items.length === 0}
-                    className="px-3 py-2.5 rounded-xl border border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-xs font-bold transition disabled:opacity-40"
+                    onClick={handleSaveAndUpdateComanda}
+                    disabled={isSavingFirebase || items.length === 0}
+                    className="flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs font-extrabold shadow-md shadow-pink-500/20 transition cursor-pointer disabled:opacity-40 w-full sm:w-auto"
+                    title="Guardar comanda y sincronizar inmediatamente con Firebase"
                   >
-                    Pide Cuenta
+                    {isSavingFirebase ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin text-white shrink-0" />
+                        <span>Guardando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 text-white shrink-0" />
+                        <span>Guardar y Actualizar Comanda</span>
+                      </>
+                    )}
                   </button>
 
-                  <button
-                    type="button"
-                    id="btn-open-checkout-pos"
-                    onClick={onOpenCheckout}
-                    disabled={items.length === 0}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white text-xs font-black shadow-md shadow-emerald-600/20 transition cursor-pointer"
-                  >
-                    <CreditCard className="w-4 h-4" />
-                    <span>Cobrar Cuenta</span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleStatusChange('cuenta');
+                        onClose();
+                      }}
+                      disabled={items.length === 0}
+                      className="px-3 py-2.5 rounded-xl border border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 text-xs font-bold transition disabled:opacity-40 text-center"
+                    >
+                      Pide Cuenta
+                    </button>
+
+                    <button
+                      type="button"
+                      id="btn-open-checkout-pos"
+                      onClick={onOpenCheckout}
+                      disabled={items.length === 0}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white text-xs font-black shadow-md shadow-emerald-600/20 transition cursor-pointer"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Cobrar</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 

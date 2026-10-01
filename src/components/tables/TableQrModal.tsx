@@ -290,23 +290,25 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
       <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh]">
         
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-pink-50/50 dark:bg-slate-800/50">
+        <div className="px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-pink-50/50 dark:bg-slate-800/50 pr-14">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#681841] text-white flex items-center justify-center shadow-md shadow-[#681841]/20">
+            <div className="w-10 h-10 rounded-2xl bg-[#681841] text-white flex items-center justify-center shadow-md shadow-[#681841]/20 shrink-0">
               <QrCode className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+            <div className="min-w-0">
+              <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white truncate">
                 Códigos QR & Carta Digital
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
                 Configuración de opciones de menú, pedidos y mesero
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
+            aria-label="Cerrar modal QR"
+            className="absolute top-3.5 right-3.5 z-50 p-2 rounded-2xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition cursor-pointer shadow-md border border-slate-200 dark:border-slate-700 flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>

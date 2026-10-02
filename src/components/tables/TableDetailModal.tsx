@@ -7,7 +7,8 @@ import { auth, db } from '../../firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import {
   saveTableToFirestore,
-  saveOrderToFirestore
+  saveOrderToFirestore,
+  sanitizeForFirestore
 } from '../../services/firestoreUserStorage';
 import {
   X,
@@ -93,27 +94,64 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     }
 
     const nowIso = new Date().toISOString();
-    const orderToSave = {
-      ...currentOrder,
+
+    // Sanitización exhaustiva del array de productos dentro del pedido
+    const cleanItems = (currentOrder.items || []).map(it => ({
+      id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      productId: it.productId || '',
+      name: it.name || 'Producto',
+      unitPrice: Number(it.unitPrice) || 0,
+      quantity: Number(it.quantity) || 1,
+      notes: it.notes?.trim() || '',
+      addedAt: it.addedAt || nowIso,
+      customerName: it.customerName?.trim() || '',
+      orderedBy: it.orderedBy || 'mesero'
+    }));
+
+    const rawOrderPayload = {
+      id: currentOrder.id,
+      tableId: table.id || '',
+      tableName: table.name || 'Barra',
+      items: cleanItems,
+      discountPercent: Number(currentOrder.discountPercent) || 0,
+      taxPercent: Number(currentOrder.taxPercent) || config.defaultTaxRate || 8,
+      tipAmount: Number(currentOrder.tipAmount) || 0,
+      openedAt: currentOrder.openedAt || nowIso,
+      lastUpdatedAt: nowIso,
       userId: activeUid,
-      lastUpdatedAt: nowIso
+      nombreCliente: '',
+      comentario: '',
+      mesa: table.name || 'Barra'
     };
 
-    const tableToSave = {
-      ...table,
-      status: (table.status === 'libre' && currentOrder.items.length > 0 ? 'ocupada' : table.status) as TableStatus,
-      order: orderToSave,
+    const sanitizedOrderPayload = sanitizeForFirestore(rawOrderPayload);
+
+    const rawTablePayload = {
+      id: table.id || '',
+      number: Number(table.number) || 1,
+      name: table.name || 'Mesa',
+      seats: Number(table.seats) || 2,
+      zone: table.zone || 'Salón Principal',
+      status: (table.status === 'libre' && cleanItems.length > 0 ? 'ocupada' : table.status) as TableStatus,
+      order: sanitizedOrderPayload,
       updatedAt: nowIso,
-      userId: activeUid
+      userId: activeUid,
+      waiterCall: table.waiterCall ? {
+        type: table.waiterCall.type || 'waiter',
+        requestedAt: table.waiterCall.requestedAt || nowIso,
+        message: table.waiterCall.message || ''
+      } : null
     };
+
+    const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
 
     try {
       // 1. Guardado explícito en la nube:
       // collection(db, 'users', auth.currentUser.uid, 'pedidos')
-      await setDoc(doc(db, 'users', activeUid, 'pedidos', currentOrder.id), orderToSave, { merge: true });
+      await setDoc(doc(db, 'users', activeUid, 'pedidos', sanitizedOrderPayload.id), sanitizedOrderPayload, { merge: true });
 
       // Actualizar también la mesa en Firestore
-      await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), tableToSave, { merge: true });
+      await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), sanitizedTablePayload, { merge: true });
 
       // 2. Alertas visuales para depuración (Muy Importante):
       alert('Pedido enviado correctamente a la caja');

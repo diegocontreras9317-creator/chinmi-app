@@ -8,7 +8,8 @@ import {
   subscribeUserTables,
   saveTableToFirestore,
   saveOrderToFirestore,
-  saveSaleToFirestore
+  saveSaleToFirestore,
+  sanitizeForFirestore
 } from '../../services/firestoreUserStorage';
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
@@ -208,60 +209,84 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       return;
     }
 
-    const newOrderItems: OrderItem[] = cart.map(c => ({
-      id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      productId: c.product.id,
-      name: c.product.name,
-      unitPrice: c.product.price,
-      quantity: c.quantity,
-      notes: c.notes?.trim() || undefined,
-      addedAt: new Date().toISOString(),
-      customerName: customerName.trim() || undefined,
-      orderedBy: 'cliente'
-    }));
-
     const nowIso = new Date().toISOString();
     const existingOrder = table.order;
     const orderId = existingOrder?.id || `ord-${Date.now()}`;
-    const updatedOrder: Order = existingOrder
-      ? {
-          ...existingOrder,
-          id: orderId,
-          items: [...existingOrder.items, ...newOrderItems],
-          lastUpdatedAt: nowIso
-        }
-      : {
-          id: orderId,
-          tableId: table.id,
-          tableName: table.name,
-          items: newOrderItems,
-          discountPercent: 0,
-          taxPercent: 8,
-          tipAmount: 0,
-          openedAt: nowIso,
-          lastUpdatedAt: nowIso
-        };
 
-    const updatedTable: Table = {
-      ...table,
-      status: 'ocupada',
-      order: updatedOrder,
-      updatedAt: nowIso
+    // Sanitización exhaustiva del array de productos para que NINGÚN campo sea undefined
+    const cleanNewItems: OrderItem[] = cart.map(c => ({
+      id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      productId: c.product.id || '',
+      name: c.product.name || 'Producto',
+      unitPrice: Number(c.product.price) || 0,
+      quantity: Number(c.quantity) || 1,
+      notes: c.notes?.trim() || '',
+      addedAt: nowIso,
+      customerName: customerName.trim() || '',
+      orderedBy: 'cliente'
+    }));
+
+    // Limpiar también cualquier item preexistente para garantizar que no arrastre undefined
+    const cleanExistingItems: OrderItem[] = (existingOrder?.items || []).map(it => ({
+      id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      productId: it.productId || '',
+      name: it.name || 'Producto',
+      unitPrice: Number(it.unitPrice) || 0,
+      quantity: Number(it.quantity) || 1,
+      notes: it.notes?.trim() || '',
+      addedAt: it.addedAt || nowIso,
+      customerName: it.customerName?.trim() || customerName.trim() || '',
+      orderedBy: it.orderedBy || 'cliente'
+    }));
+
+    const cleanAllItems = [...cleanExistingItems, ...cleanNewItems];
+
+    // Construcción del objeto de pedido con valores por defecto para campos opcionales
+    const rawOrderPayload = {
+      id: orderId,
+      tableId: table.id || '',
+      tableName: table.name || 'Barra',
+      items: cleanAllItems,
+      discountPercent: Number(existingOrder?.discountPercent) || 0,
+      taxPercent: Number(existingOrder?.taxPercent) || 8,
+      tipAmount: Number(existingOrder?.tipAmount) || 0,
+      openedAt: existingOrder?.openedAt || nowIso,
+      lastUpdatedAt: nowIso,
+      userId: targetUid || '',
+      nombreCliente: customerName.trim() || '',
+      cliente: customerName.trim() || '',
+      comentario: '',
+      mesa: table.name || 'Barra'
     };
+
+    const sanitizedOrderPayload = sanitizeForFirestore(rawOrderPayload);
+
+    const rawTablePayload = {
+      id: table.id || '',
+      number: Number(table.number) || 1,
+      name: table.name || 'Mesa',
+      seats: Number(table.seats) || 2,
+      zone: table.zone || 'Salón Principal',
+      status: 'ocupada',
+      order: sanitizedOrderPayload,
+      updatedAt: nowIso,
+      userId: targetUid || '',
+      waiterCall: table.waiterCall ? {
+        type: table.waiterCall.type || 'waiter',
+        requestedAt: table.waiterCall.requestedAt || nowIso,
+        message: table.waiterCall.message || ''
+      } : null
+    };
+
+    const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
 
     try {
       // 1. Guardado explícito en la nube:
       // collection(db, 'users', targetUid, 'pedidos')
-      await setDoc(doc(db, 'users', targetUid, 'pedidos', updatedOrder.id), {
-        ...updatedOrder,
-        userId: targetUid
-      }, { merge: true });
+      await setDoc(doc(db, 'users', targetUid, 'pedidos', sanitizedOrderPayload.id), sanitizedOrderPayload, { merge: true });
 
       // Actualizar también la mesa en Firestore para que la caja la vea ocupada y con los platos
-      await setDoc(doc(db, 'users', targetUid, 'mesas', table.id), {
-        ...updatedTable,
-        userId: targetUid
-      }, { merge: true });
+      await setDoc(doc(db, 'users', targetUid, 'mesas', table.id), sanitizedTablePayload, { merge: true });
 
       // 2. Alertas visuales para depuración (Muy Importante):
       alert('Pedido enviado correctamente a la caja');

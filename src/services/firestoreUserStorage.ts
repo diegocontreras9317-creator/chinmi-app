@@ -311,9 +311,9 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
     // Sincronizar Mesas y sus Pedidos
     for (const tbl of data.tables || []) {
       if (tbl.id) {
-        await setDoc(doc(db, 'users', uid, 'mesas', tbl.id), { ...tbl, userId: uid }, { merge: true });
+        await setDoc(doc(db, 'users', uid, 'mesas', tbl.id), sanitizeForFirestore({ ...tbl, userId: uid }), { merge: true });
         if (tbl.order && tbl.order.id) {
-          await setDoc(doc(db, 'users', uid, 'pedidos', tbl.order.id), { ...tbl.order, userId: uid }, { merge: true });
+          await setDoc(doc(db, 'users', uid, 'pedidos', tbl.order.id), sanitizeForFirestore({ ...tbl.order, userId: uid }), { merge: true });
         }
       }
     }
@@ -321,28 +321,44 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
     // Sincronizar Menú / Productos
     for (const prod of data.products || []) {
       if (prod.id) {
-        await setDoc(doc(db, 'users', uid, 'menu', prod.id), { ...prod, userId: uid }, { merge: true });
-        await setDoc(doc(db, 'users', uid, 'productos', prod.id), { ...prod, userId: uid }, { merge: true });
+        const cleanProd = sanitizeForFirestore({ ...prod, userId: uid });
+        await setDoc(doc(db, 'users', uid, 'menu', prod.id), cleanProd, { merge: true });
+        await setDoc(doc(db, 'users', uid, 'productos', prod.id), cleanProd, { merge: true });
       }
     }
 
     // Sincronizar Inventario / Insumos
     for (const per of data.perishables || []) {
       if (per.id) {
-        await setDoc(doc(db, 'users', uid, 'inventario', per.id), { ...per, userId: uid }, { merge: true });
+        await setDoc(doc(db, 'users', uid, 'inventario', per.id), sanitizeForFirestore({ ...per, userId: uid }), { merge: true });
       }
     }
 
     // Sincronizar Pedidos / Ventas
     for (const sale of data.sales || []) {
       if (sale.id) {
-        await setDoc(doc(db, 'users', uid, 'pedidos', sale.id), { ...sale, userId: uid }, { merge: true });
-        await setDoc(doc(db, 'users', uid, 'ventas', sale.id), { ...sale, userId: uid }, { merge: true });
+        const cleanSale = sanitizeForFirestore({ ...sale, userId: uid });
+        await setDoc(doc(db, 'users', uid, 'pedidos', sale.id), cleanSale, { merge: true });
+        await setDoc(doc(db, 'users', uid, 'ventas', sale.id), cleanSale, { merge: true });
       }
     }
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `users/${uid}`);
   }
+}
+
+/**
+ * Sanitiza recursivamente cualquier objeto antes de enviarlo a Firestore.
+ * Convierte valores 'undefined' a '' o elimina campos undefined para evitar:
+ * "Function setDoc() called with invalid data. Unsupported field value: undefined"
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return (null as unknown) as T;
+  }
+  return JSON.parse(JSON.stringify(data, (_, value) => {
+    return value === undefined ? '' : value;
+  }));
 }
 
 /**
@@ -353,7 +369,8 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
   if (!uid || !order.id) return;
   const path = `users/${uid}/pedidos/${order.id}`;
   try {
-    await setDoc(doc(db, 'users', uid, 'pedidos', order.id), { ...order, userId: uid }, { merge: true });
+    const cleanOrder = sanitizeForFirestore({ ...order, userId: uid });
+    await setDoc(doc(db, 'users', uid, 'pedidos', order.id), cleanOrder, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;
@@ -365,7 +382,8 @@ export async function saveTableToFirestore(table: Table, targetUid?: string): Pr
   if (!uid || !table.id) return;
   const path = `users/${uid}/mesas/${table.id}`;
   try {
-    await setDoc(doc(db, 'users', uid, 'mesas', table.id), { ...table, userId: uid }, { merge: true });
+    const cleanTable = sanitizeForFirestore({ ...table, userId: uid });
+    await setDoc(doc(db, 'users', uid, 'mesas', table.id), cleanTable, { merge: true });
     if (table.order && table.order.id) {
       await saveOrderToFirestore(table.order, uid);
     }

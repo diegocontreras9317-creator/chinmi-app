@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Product, Table, OrderItem } from '../../types';
-import { auth } from '../../firebase';
+import { Product, Table, OrderItem, Order } from '../../types';
+import { auth, db } from '../../firebase';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import {
   subscribeUserMenu,
   subscribeUserTables,
@@ -200,13 +201,20 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const handleSendOrder = async () => {
     if (!table || cart.length === 0 || !canOrder) return;
 
+    // 1. Obtener restId desde URL o fallback a usuario autenticado
+    const targetUid = urlUid || auth.currentUser?.uid;
+    if (!targetUid) {
+      alert('Error crítico de Firebase: No se encontró el restId del restaurante en la URL ni sesión activa.');
+      return;
+    }
+
     const newOrderItems: OrderItem[] = cart.map(c => ({
       id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       productId: c.product.id,
       name: c.product.name,
       unitPrice: c.product.price,
       quantity: c.quantity,
-      notes: c.notes,
+      notes: c.notes?.trim() || undefined,
       addedAt: new Date().toISOString(),
       customerName: customerName.trim() || undefined,
       orderedBy: 'cliente'
@@ -214,14 +222,16 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
     const nowIso = new Date().toISOString();
     const existingOrder = table.order;
-    const updatedOrder = existingOrder
+    const orderId = existingOrder?.id || `ord-${Date.now()}`;
+    const updatedOrder: Order = existingOrder
       ? {
           ...existingOrder,
+          id: orderId,
           items: [...existingOrder.items, ...newOrderItems],
           lastUpdatedAt: nowIso
         }
       : {
-          id: `ord-${Date.now()}`,
+          id: orderId,
           tableId: table.id,
           tableName: table.name,
           items: newOrderItems,
@@ -239,33 +249,34 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       updatedAt: nowIso
     };
 
-    const targetUid = urlUid || auth.currentUser?.uid;
-    if (targetUid) {
-      try {
-        await saveTableToFirestore(updatedTable, targetUid);
-        if (updatedOrder && updatedOrder.id) {
-          await saveOrderToFirestore(updatedOrder, targetUid);
-        }
-      } catch (err) {
-        console.error("Error guardando pedido QR en Firestore:", err);
-      }
+    try {
+      // 1. Guardado explícito en la nube:
+      // collection(db, 'users', targetUid, 'pedidos')
+      await setDoc(doc(db, 'users', targetUid, 'pedidos', updatedOrder.id), {
+        ...updatedOrder,
+        userId: targetUid
+      }, { merge: true });
+
+      // Actualizar también la mesa en Firestore para que la caja la vea ocupada y con los platos
+      await setDoc(doc(db, 'users', targetUid, 'mesas', table.id), {
+        ...updatedTable,
+        userId: targetUid
+      }, { merge: true });
+
+      // 2. Alertas visuales para depuración (Muy Importante):
+      alert('Pedido enviado correctamente a la caja');
+      setOrderSentSuccess(true);
+      setTimeout(() => setOrderSentSuccess(false), 6000);
+
+      // 3. Eliminación de estado fantasma:
+      // NO usamos localStorage ni mutamos manualmente el estado de React con addItemsToOrder.
+      // El estado en pantalla se actualiza automáticamente gracias a onSnapshot (subscribeUserTables).
+      setCart([]);
+      setIsCartOpen(false);
+    } catch (error: any) {
+      console.error('Error al guardar pedido en Firestore:', error);
+      alert('Error crítico de Firebase: ' + (error?.message || String(error)));
     }
-
-    addItemsToOrder(
-      table.id,
-      cart.map(c => ({
-        product: c.product,
-        quantity: c.quantity,
-        notes: c.notes,
-        customerName: customerName.trim() || undefined,
-        orderedBy: 'cliente'
-      }))
-    );
-
-    setCart([]);
-    setIsCartOpen(false);
-    setOrderSentSuccess(true);
-    setTimeout(() => setOrderSentSuccess(false), 6000);
   };
 
   // Action: Call Waiter

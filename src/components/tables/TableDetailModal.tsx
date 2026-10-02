@@ -3,7 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { Table, Product, TableStatus } from '../../types';
 import { formatCOP } from '../../utils/currency';
-import { auth } from '../../firebase';
+import { auth, db } from '../../firebase';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import {
   saveTableToFirestore,
   saveOrderToFirestore
@@ -71,18 +72,60 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     setIsSavingFirebase(true);
     setSaveSuccessMsg(null);
 
+    const activeUid = auth.currentUser?.uid || user?.id;
+    if (!activeUid) {
+      alert('Error crítico de Firebase: No hay sesión activa de usuario.');
+      setIsSavingFirebase(false);
+      return;
+    }
+
+    if (!table) {
+      alert('Error crítico de Firebase: No se encontró la mesa.');
+      setIsSavingFirebase(false);
+      return;
+    }
+
+    const currentOrder = table.order;
+    if (!currentOrder || !currentOrder.id) {
+      alert('Error crítico de Firebase: No hay consumos en la comanda para guardar.');
+      setIsSavingFirebase(false);
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const orderToSave = {
+      ...currentOrder,
+      userId: activeUid,
+      lastUpdatedAt: nowIso
+    };
+
+    const tableToSave = {
+      ...table,
+      status: (table.status === 'libre' && currentOrder.items.length > 0 ? 'ocupada' : table.status) as TableStatus,
+      order: orderToSave,
+      updatedAt: nowIso,
+      userId: activeUid
+    };
+
     try {
-      const activeUid = auth.currentUser?.uid || user?.id;
-      if (activeUid && table) {
-        await saveTableToFirestore(table, activeUid);
-        if (table.order) {
-          await saveOrderToFirestore(table.order, activeUid);
-        }
-      }
+      // 1. Guardado explícito en la nube:
+      // collection(db, 'users', auth.currentUser.uid, 'pedidos')
+      await setDoc(doc(db, 'users', activeUid, 'pedidos', currentOrder.id), orderToSave, { merge: true });
+
+      // Actualizar también la mesa en Firestore
+      await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), tableToSave, { merge: true });
+
+      // 2. Alertas visuales para depuración (Muy Importante):
+      alert('Pedido enviado correctamente a la caja');
       setSaveSuccessMsg('¡Comanda guardada y actualizada en Firebase!');
       setTimeout(() => setSaveSuccessMsg(null), 4000);
-    } catch (err) {
-      console.error('Error al guardar comanda en Firebase:', err);
+
+      // 3. Eliminación de estado fantasma:
+      // No se guarda nada en localStorage.
+      // La lista de pedidos en pantalla se actualiza automáticamente con onSnapshot.
+    } catch (error: any) {
+      console.error('Error al guardar comanda en Firebase:', error);
+      alert('Error crítico de Firebase: ' + (error?.message || String(error)));
     } finally {
       setIsSavingFirebase(false);
     }

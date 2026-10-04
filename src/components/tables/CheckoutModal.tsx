@@ -30,14 +30,62 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta');
   const [cashTendered, setCashTendered] = useState<string>('');
 
-  if (!isOpen || !table.order) return null;
+  if (!isOpen) return null;
 
-  const order = table.order;
-  const subtotal = order.items.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
-  const discountAmount = subtotal * (order.discountPercent / 100);
+  const order = table?.order;
+  const items = order?.items || (order as any)?.productos || [];
+
+  // 2. Validación de Renderizado:
+  // Si el objeto del pedido seleccionado es nulo o indefinido al abrir el modal de cobro,
+  // no renderizar la interfaz ni los productos. Retornar mensaje "No hay datos en esta mesa".
+  if (!table || !order || items.length === 0) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
+        <div 
+          className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-center space-y-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-100 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400">
+            <Receipt className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-slate-900 dark:text-white">
+              {table?.name || 'Mesa'}
+            </h3>
+            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mt-1">
+              No hay datos en esta mesa
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+              Esta mesa no tiene una comanda o productos activos para cobrar.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs transition cursor-pointer"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 1. Protección con Optional Chaining y Fallback defensivo:
+  // (order?.items || []).reduce(...) o (productos || []).reduce(...)
+  const subtotal = (items || []).reduce((acc: number, item: any) => {
+    const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
+    const qty = Number(item?.quantity ?? item?.cantidad ?? 0) || 0;
+    return acc + price * qty;
+  }, 0);
+
+  const discountPercent = Number(order?.discountPercent) || 0;
+  const discountAmount = subtotal * (discountPercent / 100);
   const taxableBase = subtotal - discountAmount;
-  const taxAmount = taxableBase * (order.taxPercent / 100);
-  const total = taxableBase + taxAmount + order.tipAmount;
+  const taxPercent = Number(order?.taxPercent ?? config?.defaultTaxRate ?? 0) || 0;
+  const taxAmount = taxableBase * (taxPercent / 100);
+  const tipAmount = Number(order?.tipAmount) || 0;
+  const total = taxableBase + taxAmount + tipAmount;
 
   const cashNumber = parseFloat(cashTendered) || 0;
   const change = Math.max(0, cashNumber - total);
@@ -87,7 +135,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 Cobrar y Cerrar {table.name}
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {table.zone} · {order.items.length} productos
+                {table.zone || 'Mesa'} · {items.length} productos
               </p>
             </div>
           </div>
@@ -99,7 +147,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           </button>
         </div>
 
-        <div className="p-6 space-y-5">
+        <div className="p-6 space-y-5 overflow-y-auto max-h-[calc(95vh-80px)]">
           
           {/* Total Highlight Banner */}
           <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-lg flex items-center justify-between">
@@ -111,8 +159,47 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
             <div className="text-right text-xs text-slate-300 space-y-0.5">
               <p>Base: $ {new Intl.NumberFormat('es-CO').format(Math.round(taxableBase))}</p>
-              <p>Impoconsumo ({order.taxPercent}%): $ {new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))}</p>
-              {order.tipAmount > 0 && <p className="text-emerald-400 font-medium">Propina: +$ {new Intl.NumberFormat('es-CO').format(Math.round(order.tipAmount))}</p>}
+              {taxAmount > 0 && (
+                <p>Impuesto ({taxPercent}%): $ {new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))}</p>
+              )}
+              {discountAmount > 0 && (
+                <p className="text-rose-400 font-medium">Descuento ({discountPercent}%): -$ {new Intl.NumberFormat('es-CO').format(Math.round(discountAmount))}</p>
+              )}
+              {tipAmount > 0 && (
+                <p className="text-emerald-400 font-medium">Propina: +$ {new Intl.NumberFormat('es-CO').format(Math.round(tipAmount))}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Tabla Resumen de Productos de la Comanda */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/50 dark:bg-slate-800/30">
+            <div className="px-4 py-2.5 bg-slate-100/70 dark:bg-slate-800/60 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+              <span>Detalle de Consumo ({items.length} productos)</span>
+              <span>Importe</span>
+            </div>
+            <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 px-4 text-xs">
+              {items.map((item: any, idx: number) => {
+                const name = item?.productName || item?.name || item?.producto || 'Producto';
+                const qty = Number(item?.quantity ?? item?.cantidad ?? 1) || 1;
+                const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
+                const itemTotal = price * qty;
+                return (
+                  <div key={item?.id || idx} className="py-2 flex items-center justify-between text-slate-700 dark:text-slate-300">
+                    <div className="flex items-center gap-2 min-w-0 pr-2">
+                      <span className="font-bold text-orange-600 dark:text-orange-400 font-mono">
+                        {qty}x
+                      </span>
+                      <span className="truncate">{name}</span>
+                      {item?.notes && (
+                        <span className="text-[10px] text-slate-400 italic">({item.notes})</span>
+                      )}
+                    </div>
+                    <span className="font-semibold font-mono shrink-0">
+                      $ {new Intl.NumberFormat('es-CO').format(itemTotal)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

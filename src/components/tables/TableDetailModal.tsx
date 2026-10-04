@@ -185,13 +185,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   });
 
   // Calculation in real time
-  const subtotal = items.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
-  const discountPercent = order?.discountPercent || 0;
+  const subtotal = (items || []).reduce((acc: number, item: any) => acc + (Number(item?.unitPrice ?? item?.price ?? 0) || 0) * (Number(item?.quantity ?? item?.cantidad ?? 0) || 0), 0);
+  const discountPercent = Number(order?.discountPercent) || 0;
   const discountAmount = subtotal * (discountPercent / 100);
   const taxableBase = subtotal - discountAmount;
-  const taxPercent = order?.taxPercent ?? config.defaultTaxRate;
+  const taxPercent = Number(order?.taxPercent ?? config.defaultTaxRate) || 0;
   const taxAmount = taxableBase * (taxPercent / 100);
-  const tipAmount = order?.tipAmount || 0;
+  const tipAmount = Number(order?.tipAmount) || 0;
   const total = taxableBase + taxAmount + tipAmount;
 
   const handleProductTap = (product: Product) => {

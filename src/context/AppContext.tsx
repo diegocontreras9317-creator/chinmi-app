@@ -625,16 +625,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     cashTendered?: number
   ): { success: boolean; receipt?: SaleReceipt } => {
     const table = tablesRef.current.find(t => t.id === tableId);
-    if (!table || !table.order || table.order.items.length === 0) {
+    const order = table?.order;
+    const items = order?.items || (order as any)?.productos || [];
+    if (!table || !order || items.length === 0) {
       return { success: false };
     }
 
-    const order = table.order;
-    const subtotal = order.items.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0);
-    const discountAmount = subtotal * (order.discountPercent / 100);
+    const subtotal = (items || []).reduce((acc: number, item: any) => {
+      const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
+      const qty = Number(item?.quantity ?? item?.cantidad ?? 0) || 0;
+      return acc + price * qty;
+    }, 0);
+    const discountPercent = Number(order.discountPercent) || 0;
+    const discountAmount = subtotal * (discountPercent / 100);
     const taxableBase = subtotal - discountAmount;
-    const taxAmount = taxableBase * (order.taxPercent / 100);
-    const total = taxableBase + taxAmount + order.tipAmount;
+    const taxPercent = Number(order.taxPercent ?? config.defaultTaxRate) || 0;
+    const taxAmount = taxableBase * (taxPercent / 100);
+    const tipAmount = Number(order.tipAmount) || 0;
+    const total = taxableBase + taxAmount + tipAmount;
 
     let change: number | undefined = undefined;
     if (paymentMethod === 'efectivo' && cashTendered !== undefined) {

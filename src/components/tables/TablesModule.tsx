@@ -144,10 +144,11 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
   const freeCount = tables.filter(t => t.status === 'libre').length;
   const activeOrdersAmount = tables.reduce((acc, t) => {
     if (!t.order) return acc;
-    const sub = t.order.items.reduce((s, it) => s + it.unitPrice * it.quantity, 0);
-    const disc = sub * (t.order.discountPercent / 100);
-    const tax = (sub - disc) * (t.order.taxPercent / 100);
-    return acc + (sub - disc + tax + t.order.tipAmount);
+    const items = t.order?.items || (t.order as any)?.productos || [];
+    const sub = (items || []).reduce((s: number, it: any) => s + (Number(it?.unitPrice ?? it?.price ?? 0) || 0) * (Number(it?.quantity ?? it?.cantidad ?? 0) || 0), 0);
+    const disc = sub * ((Number(t.order?.discountPercent) || 0) / 100);
+    const tax = (sub - disc) * ((Number(t.order?.taxPercent) || 0) / 100);
+    return acc + (sub - disc + tax + (Number(t.order?.tipAmount) || 0));
   }, 0);
 
   const occupancyRate = totalTables > 0 ? Math.round(((occupiedCount + billingCount) / totalTables) * 100) : 0;
@@ -500,14 +501,15 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
           }
         >
           {filteredTables.map((table) => {
-            const hasOrder = !!table.order && table.order.items.length > 0;
-            const itemsCount = table.order?.items.reduce((sum, it) => sum + it.quantity, 0) || 0;
+            const items = table.order?.items || (table.order as any)?.productos || [];
+            const hasOrder = !!table.order && items.length > 0;
+            const itemsCount = (items || []).reduce((sum: number, it: any) => sum + (Number(it?.quantity ?? it?.cantidad ?? 0) || 0), 0);
             
             // Calculate active total
-            const sub = table.order?.items.reduce((s, it) => s + it.unitPrice * it.quantity, 0) || 0;
-            const disc = sub * ((table.order?.discountPercent || 0) / 100);
-            const tax = (sub - disc) * ((table.order?.taxPercent || config.defaultTaxRate) / 100);
-            const tableTotal = sub - disc + tax + (table.order?.tipAmount || 0);
+            const sub = (items || []).reduce((s: number, it: any) => s + (Number(it?.unitPrice ?? it?.price ?? 0) || 0) * (Number(it?.quantity ?? it?.cantidad ?? 0) || 0), 0);
+            const disc = sub * ((Number(table.order?.discountPercent) || 0) / 100);
+            const tax = (sub - disc) * ((Number(table.order?.taxPercent ?? config.defaultTaxRate) || 0) / 100);
+            const tableTotal = sub - disc + tax + (Number(table.order?.tipAmount) || 0);
 
             // Styling per status
             const statusConfig = {

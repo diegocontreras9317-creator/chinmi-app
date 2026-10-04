@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { PlanComparisonTable } from './PlanComparisonTable';
 import { WompiPaymentWidget } from './WompiPaymentWidget';
+import { CanjearCodigo } from './CanjearCodigo';
 
 interface SubscriptionModalProps {
   isOpen: boolean;
@@ -367,6 +368,21 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                   </div>
                 </div>
 
+              </div>
+
+              {/* Canjear Código de Regalo / Promocional */}
+              <div className="pt-2">
+                <CanjearCodigo
+                  onSuccess={(dias) => {
+                    setTimeout(() => {
+                      setUpgradeSuccess(true);
+                      setTimeout(() => {
+                        setUpgradeSuccess(false);
+                        onClose();
+                      }, 1800);
+                    }, 500);
+                  }}
+                />
               </div>
 
               {/* Tabla Comparativa Detallada de Diferencias */}

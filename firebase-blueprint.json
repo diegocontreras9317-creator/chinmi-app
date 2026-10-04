@@ -98,9 +98,25 @@
         "userId": { "type": "string" }
       },
       "required": ["id", "total", "paymentMethod", "timestamp"]
+    },
+    "PromoCode": {
+      "title": "PromoCode",
+      "description": "Código promocional o cupón de regalo para días PRO",
+      "type": "object",
+      "properties": {
+        "codigo": { "type": "string" },
+        "dias_premium": { "type": "number" },
+        "activo": { "type": "boolean" },
+        "descripcion": { "type": "string" }
+      },
+      "required": ["activo", "dias_premium"]
     }
   },
   "firestore": {
+    "/codigos_promocionales/{codigoId}": {
+      "schema": "#/entities/PromoCode",
+      "description": "Colección de códigos promocionales canjeables"
+    },
     "/users/{userId}": {
       "schema": "#/entities/User",
       "description": "Documento de perfil de usuario"

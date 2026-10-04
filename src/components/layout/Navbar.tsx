@@ -84,14 +84,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 w-full divide-y divide-slate-100 dark:divide-slate-800/80">
           
           {/* FILA SUPERIOR: Logo, Actualizar, Subir a PRO, Tuerca, Campana, Modo Noche, Usuario */}
-          <div className="flex items-center justify-between h-14 sm:h-16 py-1.5 sm:py-2 gap-1 sm:gap-2 md:gap-3">
+          <div className="flex items-center justify-between h-14 sm:h-16 py-1 sm:py-2 gap-1.5 sm:gap-2 md:gap-3 w-full">
             
             {/* 1. Logo del local (Optimizado para móvil y desktop) */}
-            <div className="flex items-center gap-1.5 sm:gap-3 shrink min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-max">
               <button
                 type="button"
                 onClick={isGerente ? onOpenSettings : undefined}
-                className={`flex items-center text-left transition-transform active:scale-95 group shrink min-w-0 ${
+                className={`flex items-center text-left transition-transform active:scale-95 group shrink-0 ${
                   isGerente ? 'cursor-pointer hover:opacity-95' : 'cursor-default'
                 }`}
                 title={isGerente ? 'Haga clic para cambiar el logo o configuración del local' : config.businessName}
@@ -103,11 +103,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
 
-            {/* Acciones de la Fila Superior: 6 Elementos en secuencia directa */}
-            <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 shrink-0">
+            {/* 3. Contenedor con Scroll Horizontal (Fallback) y espaciados responsivos (gap-1.5 md:gap-4) */}
+            <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4 overflow-x-auto whitespace-nowrap scrollbar-hide w-full justify-end flex-1 min-w-0 py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               
-              {/* Botón de Instalación PWA */}
-              <PWAInstallButton className="hidden sm:inline-flex" />
+              {/* Botón de Instalación PWA (Icono en móviles, texto en md+) */}
+              <PWAInstallButton className="inline-flex" />
 
               {/* 1. Actualizar (Cloud Sync) */}
               <button
@@ -124,7 +124,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     cloudStatus === 'syncing' ? 'bg-[#e64980]' : 'bg-emerald-500'
                   }`} />
                 </span>
-                <RefreshCw className={`w-3.5 h-3.5 ${cloudStatus === 'syncing' ? 'animate-spin text-[#e64980]' : 'text-slate-500'}`} />
+                <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${cloudStatus === 'syncing' ? 'animate-spin text-[#e64980]' : 'text-slate-500'}`} />
                 <span className="hidden md:inline text-[11px] font-bold">
                   {cloudStatus === 'syncing' ? 'Actualizando...' : 'Actualizar'}
                 </span>
@@ -134,9 +134,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               {isGerente && (
                 user?.plan === 'pro' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] sm:text-xs font-extrabold bg-gradient-to-r from-[#681841] to-[#e64980] text-white shadow-xs shrink-0">
-                    <Sparkles className="w-2.5 h-2.5 fill-white" />
-                    <span className="hidden sm:inline">PRO ⭐</span>
-                    <span className="sm:hidden">PRO</span>
+                    <Sparkles className="w-3 h-3 fill-white" />
+                    <span className="hidden md:inline">PRO ⭐</span>
+                    <span className="md:hidden">PRO</span>
                   </span>
                 ) : (
                   <button
@@ -144,14 +144,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                     onClick={onOpenSubscription}
                     className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] sm:text-xs font-extrabold bg-pink-50 dark:bg-pink-950/40 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/80 hover:bg-pink-100 dark:hover:bg-pink-950 transition cursor-pointer shrink-0 whitespace-nowrap"
                   >
-                    <Sparkles className="w-2.5 h-2.5 text-[#e64980]" />
-                    <span className="hidden sm:inline">Subir a PRO</span>
-                    <span className="sm:hidden">PRO</span>
+                    <Sparkles className="w-3 h-3 text-[#e64980]" />
+                    <span className="hidden md:inline">Subir a PRO</span>
+                    <span className="md:hidden">PRO</span>
                   </button>
                 )
               )}
 
-              {/* 3. La Tuerca (Configuración) */}
+              {/* 3. La Tuerca (Configuración con icono w-5 h-5 adecuado para móviles) */}
               {isGerente && (
                 <button
                   id="btn-open-settings"
@@ -159,11 +159,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   title="Configuración de negocio y equipo (Tuerca)"
                   className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
                 >
-                  <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <Settings className="w-5 h-5" />
                 </button>
               )}
 
-              {/* 4. La Campana (Notificaciones) */}
+              {/* 4. La Campana (Notificaciones con icono w-5 h-5) */}
               <div className="relative shrink-0">
                 <button
                   id="btn-notifications-bell"
@@ -179,7 +179,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       : 'text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
-                  <BellRing className={`w-4 h-4 sm:w-5 sm:h-5 ${callingTables.length > 0 ? 'animate-bounce text-amber-600 dark:text-amber-400' : ''}`} />
+                  <BellRing className={`w-5 h-5 ${callingTables.length > 0 ? 'animate-bounce text-amber-600 dark:text-amber-400' : ''}`} />
                   {callingTables.length > 0 && (
                     <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-4 sm:min-w-5 h-4 sm:h-5 px-1 bg-red-600 text-white font-black text-[9px] sm:text-[10px] rounded-full shadow-md animate-pulse">
                       {callingTables.length}
@@ -278,41 +278,40 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </div>
 
-              {/* 5. El Modo Noche (Theme Toggle) */}
+              {/* 5. El Modo Noche (Theme Toggle con icono w-5 h-5) */}
               <button
                 id="btn-theme-toggle"
                 onClick={toggleTheme}
                 title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo noche (oscuro)'}
                 className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
               >
-                {theme === 'dark' ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />}
+                {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
               </button>
 
-              {/* Botón Gestión de Empleados (Visible solo si Admin / Gerente) */}
+              {/* Botón Gestión de Empleados (Visible solo si Admin / Gerente en pantallas desktop) */}
               {isGerente && onOpenEmployees && (
                 <button
                   type="button"
                   id="btn-open-employees"
                   onClick={onOpenEmployees}
                   title="Configuración de Empleados y Roles"
-                  className="hidden md:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-800 dark:text-purple-300 text-xs font-black transition cursor-pointer shrink-0 shadow-xs"
+                  className="hidden lg:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-800 dark:text-purple-300 text-xs font-black transition cursor-pointer shrink-0 shadow-xs"
                 >
-                  <Users className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <Users className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
                   <span>Empleados</span>
                 </button>
               )}
 
-              {/* Botón: Cambiar de usuario / Bloquear pantalla */}
+              {/* 1. Ocultar textos no esenciales: Botón Bloquear solo muestra el icono en móviles */}
               <button
                 type="button"
                 id="btn-lock-screen"
                 onClick={bloquearPantalla}
                 title="Cambiar de usuario / Bloquear pantalla"
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-amber-300/80 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-xs font-black transition cursor-pointer shrink-0 shadow-xs"
+                className="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-amber-300/80 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-xs font-black transition cursor-pointer shrink-0 shadow-xs"
               >
-                <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span className="hidden sm:inline">Cambiar de usuario / Bloquear pantalla</span>
-                <span className="sm:hidden">Bloquear</span>
+                <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="hidden md:inline">Bloquear</span>
               </button>
 
               {/* 6. El Usuario */}

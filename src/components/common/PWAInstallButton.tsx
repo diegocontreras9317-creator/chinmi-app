@@ -17,11 +17,11 @@ export const PWAInstallButton: React.FC<{ className?: string }> = ({ className =
       <button
         type="button"
         onClick={install}
-        className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#4a102e] hover:to-[#d6336c] text-white text-xs sm:text-sm font-bold shadow-md shadow-pink-500/20 active:scale-95 transition cursor-pointer ${className}`}
+        className={`inline-flex items-center gap-1.5 sm:gap-2 p-1.5 sm:px-2.5 sm:py-1.5 md:px-3 md:py-2 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#4a102e] hover:to-[#d6336c] text-white text-xs sm:text-sm font-bold shadow-md shadow-pink-500/20 active:scale-95 transition cursor-pointer shrink-0 ${className}`}
         title="Instalar Chinmi App en tu teléfono o computadora"
       >
-        <Download className="w-4 h-4 animate-bounce" />
-        <span>Instalar App</span>
+        <Download className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 animate-bounce" />
+        <span className="hidden md:inline">Instalar App Móvil</span>
       </button>
     );
   }
@@ -33,10 +33,11 @@ export const PWAInstallButton: React.FC<{ className?: string }> = ({ className =
         <button
           type="button"
           onClick={() => setShowIOSGuide(true)}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-pink-300 dark:border-pink-800 bg-pink-50 dark:bg-pink-950/40 text-[#681841] dark:text-pink-300 text-xs font-bold shadow-xs active:scale-95 transition cursor-pointer ${className}`}
+          className={`inline-flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 md:px-3 md:py-2 rounded-xl border border-pink-300 dark:border-pink-800 bg-pink-50 dark:bg-pink-950/40 text-[#681841] dark:text-pink-300 text-xs font-bold shadow-xs active:scale-95 transition cursor-pointer shrink-0 ${className}`}
+          title="Instalar Chinmi App en iPhone"
         >
-          <Smartphone className="w-4 h-4" />
-          <span>Instalar en iPhone</span>
+          <Smartphone className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+          <span className="hidden md:inline">Instalar en iPhone</span>
         </button>
 
         {showIOSGuide && (

@@ -60,7 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 w-full divide-y divide-slate-100 dark:divide-slate-800/80">
           
           {/* FILA SUPERIOR: Logo, Actualizar, Subir a PRO, Tuerca, Campana, Modo Noche, Usuario */}
-          <div className="flex items-center justify-between h-14 sm:h-16 py-1 sm:py-2 gap-1.5 sm:gap-2 md:gap-3 w-full overflow-x-auto overflow-y-hidden scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x">
+          <div className="flex items-center justify-between h-14 sm:h-16 py-1 sm:py-2 gap-1.5 sm:gap-2 md:gap-3 w-full">
             
             {/* 1. Logo del local (Optimizado para móvil y desktop) */}
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-max">
@@ -312,45 +312,45 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* FILA INFERIOR: Control de Mesas, Carta, Despensa e Historial (Visible en MÓVIL, TABLET y DESKTOP) */}
-          <div className="py-1.5 sm:py-2 flex items-center justify-center w-full max-w-full">
+          <div className="py-1.5 sm:py-2 flex items-center justify-center w-full">
             {isGerente ? (
-              <nav className="w-full max-w-full overflow-x-auto overflow-y-hidden flex items-center justify-start sm:justify-center gap-1.5 sm:gap-2 bg-slate-100/90 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x whitespace-nowrap">
+              <nav className="grid grid-cols-4 w-full md:w-auto md:flex md:items-center gap-1 md:gap-2 bg-slate-100/90 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs">
                 
                 {/* 1. Control de Mesas */}
                 <button
                   id="nav-tab-tables"
                   onClick={() => setActiveTab('tables')}
-                  className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-1.5 sm:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-sm font-extrabold transition-all cursor-pointer ${
+                  className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-2 px-1 sm:px-2 md:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-extrabold transition-all cursor-pointer w-full md:w-auto ${
                     activeTab === 'tables'
                       ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-md border-b-2 border-[#e64980]'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   <UtensilsCrossed className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${activeTab === 'tables' ? 'text-[#e64980]' : ''}`} />
-                  <span className="hidden sm:inline">Control de Mesas</span>
-                  <span className="sm:hidden truncate">Mesas</span>
+                  <span className="hidden md:inline">Control de Mesas</span>
+                  <span className="md:hidden truncate">Mesas</span>
                 </button>
 
                 {/* 2. Carta / Menú */}
                 <button
                   id="nav-tab-inventory"
                   onClick={() => setActiveTab('inventory')}
-                  className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-1.5 sm:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-sm font-extrabold transition-all cursor-pointer ${
+                  className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-2 px-1 sm:px-2 md:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-extrabold transition-all cursor-pointer w-full md:w-auto ${
                     activeTab === 'inventory'
                       ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-md border-b-2 border-[#e64980]'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   <Package className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${activeTab === 'inventory' ? 'text-[#e64980]' : ''}`} />
-                  <span className="hidden sm:inline">Carta & Menú</span>
-                  <span className="sm:hidden truncate">Carta</span>
+                  <span className="hidden md:inline">Carta & Menú</span>
+                  <span className="md:hidden truncate">Carta</span>
                 </button>
 
                 {/* 3. Despensa */}
                 <button
                   id="nav-tab-perishables"
                   onClick={() => setActiveTab('perishables')}
-                  className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-1.5 sm:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-sm font-extrabold transition-all cursor-pointer relative ${
+                  className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-2 px-1 sm:px-2 md:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-extrabold transition-all cursor-pointer w-full md:w-auto relative ${
                     activeTab === 'perishables'
                       ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-md border-b-2 border-[#e64980]'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -359,15 +359,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div className="relative flex items-center justify-center">
                     <Apple className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${activeTab === 'perishables' ? 'text-[#e64980]' : ''}`} />
                     {perishableAlarmCount > 0 && (
-                      <span className="sm:hidden absolute -top-1.5 -right-2 px-1 py-0.2 rounded-full text-[8px] font-black bg-rose-500 text-white animate-pulse">
+                      <span className="md:hidden absolute -top-1.5 -right-2 px-1 py-0.2 rounded-full text-[8px] font-black bg-rose-500 text-white animate-pulse">
                         {perishableAlarmCount}
                       </span>
                     )}
                   </div>
-                  <span className="hidden sm:inline">Despensa & Insumos</span>
-                  <span className="sm:hidden truncate">Despensa</span>
+                  <span className="hidden md:inline">Despensa & Insumos</span>
+                  <span className="md:hidden truncate">Despensa</span>
                   {perishableAlarmCount > 0 && (
-                    <span className="hidden sm:inline px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                    <span className="hidden md:inline px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
                       {perishableAlarmCount}
                     </span>
                   )}
@@ -377,19 +377,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   id="nav-tab-sales"
                   onClick={() => setActiveTab('sales')}
-                  className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 px-1.5 sm:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-sm font-extrabold transition-all cursor-pointer ${
+                  className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-2 px-1 sm:px-2 md:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-extrabold transition-all cursor-pointer w-full md:w-auto ${
                     activeTab === 'sales'
                       ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-md border-b-2 border-[#e64980]'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   <Receipt className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${activeTab === 'sales' ? 'text-[#e64980]' : ''}`} />
-                  <span className="hidden sm:inline">Historial de Ventas</span>
-                  <span className="sm:hidden truncate">Historial</span>
+                  <span className="hidden md:inline">Historial de Ventas</span>
+                  <span className="md:hidden truncate">Historial</span>
                 </button>
               </nav>
             ) : (
-              <div className="flex items-center justify-between w-full sm:w-auto sm:justify-start gap-2">
+              <div className="flex items-center justify-between w-full md:w-auto md:justify-start gap-2">
                 <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60">
                   <UtensilsCrossed className="w-4 h-4 text-[#e64980]" />
                   <span className="text-xs sm:text-sm font-extrabold text-slate-800 dark:text-slate-200">

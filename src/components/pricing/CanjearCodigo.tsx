@@ -23,10 +23,10 @@ export const CanjearCodigo: React.FC<CanjearCodigoProps> = ({ onSuccess, classNa
 
   const handleCanjear = async (e: React.FormEvent) => {
     e.preventDefault();
-    const codigoIngresado = codigo.trim().toUpperCase();
+    const codigoNormalizado = codigo.trim().toUpperCase();
 
-    // Validación: input no vacío
-    if (!codigoIngresado) {
+    // 1. Validación de campo no vacío
+    if (!codigoNormalizado) {
       setError('Por favor, ingresa un código promocional.');
       return;
     }
@@ -36,60 +36,60 @@ export const CanjearCodigo: React.FC<CanjearCodigoProps> = ({ onSuccess, classNa
     setMensajeExito(null);
 
     try {
-      // 1. Consulta a prueba de fallos apuntando a doc(db, "codigos_promocionales", codigoIngresado)
-      const docRef = doc(db, 'codigos_promocionales', codigoIngresado);
+      // 2. Consulta exacta al documento: doc(db, "codigos_promocionales", codigo)
+      const docRef = doc(db, 'codigos_promocionales', codigoNormalizado);
       const docSnap = await getDoc(docRef);
 
-      // 2. Validación de existencia del documento
+      // 3. Validación de existencia del documento
       if (!docSnap.exists()) {
         throw new Error('El código ingresado no existe');
       }
 
       const data = docSnap.data();
 
-      // 3. Validación de estado activo
-      if (data?.activo === false) {
+      // 4. Validación estricta de que el campo activo sea true
+      if (data?.activo !== true) {
         throw new Error('Este código ya expiró o fue desactivado');
       }
 
-      // 4. Extracción de días (soporta 'dias_premiun' y 'dias_premium')
+      // 5. Extracción y suma de días desde el campo dias_premiun
       const dias = Number(data?.dias_premiun ?? data?.dias_premium ?? 30);
 
       if (isNaN(dias) || dias <= 0) {
         throw new Error('El código no tiene una cantidad válida de días');
       }
 
-      // 5. Cálculo de fecha de expiración sumando los días a la fecha actual
+      // 6. Cálculo de la fecha de expiración sumando los días a la fecha actual
       const fechaExpiracion = new Date();
       fechaExpiracion.setDate(fechaExpiracion.getDate() + dias);
       const timestampExpira = Timestamp.fromDate(fechaExpiracion);
 
-      // 6. Obtención del UID del usuario logueado
+      // 7. Obtención del usuario logueado
       const targetUid = auth.currentUser?.uid || user?.id;
 
       if (!targetUid) {
         throw new Error('No se encontró una sesión activa de usuario');
       }
 
-      // 7. Actualización del documento del usuario en Firestore (users/{uid})
+      // 8. Actualización del usuario en Firestore (users/{uid})
       const userDocRef = doc(db, 'users', targetUid);
       await setDoc(
         userDocRef,
         {
           plan: 'pro',
           plan_expira: timestampExpira,
-          codigo_canjeado: codigoIngresado,
+          codigo_canjeado: codigoNormalizado,
           fecha_canje: Timestamp.now()
         },
         { merge: true }
       );
 
-      // 8. Actualización en tiempo real del contexto de la aplicación
+      // 9. Actualización inmediata del plan PRO en el estado de la aplicación
       if (upgradePlan) {
         upgradePlan('pro');
       }
 
-      // 9. Feedback exitoso y reseteo del campo
+      // 10. Feedback exitoso y limpieza del input
       const mensaje = `¡Código canjeado con éxito! Tienes ${dias} días PRO activados`;
       setMensajeExito(mensaje);
       setCodigo('');
@@ -98,10 +98,8 @@ export const CanjearCodigo: React.FC<CanjearCodigoProps> = ({ onSuccess, classNa
         onSuccess(dias);
       }
     } catch (error: any) {
-      // Impresión detallada del error en la consola
       console.error('Detalle del error:', error);
 
-      // Manejo específico para errores de permisos de Firestore
       if (
         error?.code === 'permission-denied' ||
         error?.message?.toLowerCase().includes('permission') ||

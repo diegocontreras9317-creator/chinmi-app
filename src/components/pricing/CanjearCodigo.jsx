@@ -7,7 +7,7 @@ import { Gift, Sparkles, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react
 /**
  * CanjearCodigo
  * Componente para canjear códigos promocionales (ej. PROMOPATRICIUS).
- * Implementa manejo detallado de errores y soporte para permisos en Firestore.
+ * Busca doc(db, "codigos_promocionales", codigo), valida activo === true y suma dias_premiun.
  */
 export const CanjearCodigo = ({ onSuccess, className = '' }) => {
   const { user, upgradePlan } = useAuth();
@@ -18,10 +18,10 @@ export const CanjearCodigo = ({ onSuccess, className = '' }) => {
 
   const handleCanjear = async (e) => {
     e.preventDefault();
-    const codigoIngresado = codigo.trim().toUpperCase();
+    const codigoNormalizado = codigo.trim().toUpperCase();
 
     // 1. Validación de input no vacío
-    if (!codigoIngresado) {
+    if (!codigoNormalizado) {
       setError('Por favor, ingresa un código promocional.');
       return;
     }
@@ -31,8 +31,8 @@ export const CanjearCodigo = ({ onSuccess, className = '' }) => {
     setMensajeExito(null);
 
     try {
-      // 2. Consulta a prueba de fallos: doc(db, "codigos_promocionales", codigoIngresado)
-      const docRef = doc(db, 'codigos_promocionales', codigoIngresado);
+      // 2. Consulta exacta al documento: doc(db, "codigos_promocionales", codigo)
+      const docRef = doc(db, 'codigos_promocionales', codigoNormalizado);
       const docSnap = await getDoc(docRef);
 
       // 3. Validación de existencia del documento
@@ -42,49 +42,49 @@ export const CanjearCodigo = ({ onSuccess, className = '' }) => {
 
       const data = docSnap.data();
 
-      // 4. Validación de estado activo
-      if (data?.activo === false) {
+      // 4. Validación estricta de que el campo activo sea true
+      if (data?.activo !== true) {
         throw new Error('Este código ya expiró o fue desactivado');
       }
 
-      // 5. Extracción de días (soporta 'dias_premiun' y 'dias_premium')
+      // 5. Extracción y suma de días desde el campo dias_premiun
       const dias = Number(data?.dias_premiun ?? data?.dias_premium ?? 30);
 
       if (isNaN(dias) || dias <= 0) {
         throw new Error('El código no tiene una cantidad válida de días');
       }
 
-      // 6. Cálculo de fecha de expiración
+      // 6. Cálculo de la fecha de expiración sumando los días a la fecha actual
       const fechaExpiracion = new Date();
       fechaExpiracion.setDate(fechaExpiracion.getDate() + dias);
       const timestampExpira = Timestamp.fromDate(fechaExpiracion);
 
-      // 7. Obtención del UID del usuario logueado
+      // 7. Obtención del usuario logueado
       const targetUid = auth.currentUser?.uid || user?.id;
 
       if (!targetUid) {
         throw new Error('No se encontró una sesión activa de usuario');
       }
 
-      // 8. Actualización del documento del usuario en Firestore (users/{uid})
+      // 8. Actualización del usuario en Firestore (users/{uid})
       const userDocRef = doc(db, 'users', targetUid);
       await setDoc(
         userDocRef,
         {
           plan: 'pro',
           plan_expira: timestampExpira,
-          codigo_canjeado: codigoIngresado,
+          codigo_canjeado: codigoNormalizado,
           fecha_canje: Timestamp.now()
         },
         { merge: true }
       );
 
-      // 9. Actualización en tiempo real del contexto de la aplicación
+      // 9. Actualización inmediata del plan PRO en el estado de la aplicación
       if (upgradePlan) {
         upgradePlan('pro');
       }
 
-      // 10. Feedback exitoso y reseteo del campo
+      // 10. Feedback exitoso y limpieza del input
       const mensaje = `¡Código canjeado con éxito! Tienes ${dias} días PRO activados`;
       setMensajeExito(mensaje);
       setCodigo('');
@@ -93,10 +93,8 @@ export const CanjearCodigo = ({ onSuccess, className = '' }) => {
         onSuccess(dias);
       }
     } catch (error) {
-      // Impresión detallada del error en la consola
       console.error('Detalle del error:', error);
 
-      // Manejo específico para errores de permisos de Firestore
       if (
         error?.code === 'permission-denied' ||
         error?.message?.toLowerCase().includes('permission') ||

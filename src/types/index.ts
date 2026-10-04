@@ -69,6 +69,17 @@ export interface User {
   createdAt: string;
 }
 
+export type EmpleadoRol = 'Admin' | 'Mesero' | 'Cajero' | 'Barman';
+
+export interface Empleado {
+  id: string;
+  nombre: string;
+  rol: EmpleadoRol;
+  pin?: string; // 4 a 6 dígitos numéricos (opcional)
+  avatarColor?: string; // 'purple' | 'blue' | 'emerald' | 'amber' | 'rose' | 'indigo' | 'orange'
+  createdAt?: string;
+}
+
 export type TableStatus = 'libre' | 'ocupada' | 'cuenta';
 
 export interface OrderItem {

@@ -46,7 +46,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   table,
   onOpenCheckout
 }) => {
-  const { user } = useAuth();
+  const { user, empleadoActivo } = useAuth();
   const {
     config,
     products,
@@ -105,7 +105,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       notes: it.notes?.trim() || '',
       addedAt: it.addedAt || nowIso,
       customerName: it.customerName?.trim() || '',
-      orderedBy: it.orderedBy || 'mesero'
+      orderedBy: it.orderedBy || (empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : 'mesero')
     }));
 
     const rawOrderPayload = {
@@ -121,7 +121,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       userId: activeUid,
       nombreCliente: '',
       comentario: '',
-      mesa: table.name || 'Barra'
+      mesa: table.name || 'Barra',
+      empleado: empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : 'Caja',
+      atendidoPor: empleadoActivo?.nombre || 'Caja'
     };
 
     const sanitizedOrderPayload = sanitizeForFirestore(rawOrderPayload);

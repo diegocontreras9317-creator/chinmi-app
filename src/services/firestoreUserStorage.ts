@@ -9,7 +9,7 @@ import {
   getDoc
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order } from '../types';
+import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, Empleado } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -464,6 +464,80 @@ export async function saveSaleToFirestore(sale: SaleReceipt, targetUid?: string)
     await setDoc(doc(db, 'users', uid, 'ventas', sale.id), { ...sale, userId: uid }, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
+    throw err;
+  }
+}
+
+/**
+ * Escucha en tiempo real la subcolección de empleados: users/${uid}/empleados
+ */
+export function subscribeUserEmpleados(uid: string, onUpdate: (empleados: Empleado[]) => void): Unsubscribe {
+  if (!uid) {
+    onUpdate([]);
+    return () => {};
+  }
+  const path = `users/${uid}/empleados`;
+  const colRef = collection(db, 'users', uid, 'empleados');
+
+  return onSnapshot(colRef, (snap) => {
+    const empleados = snap.docs.map(d => ({ id: d.id, ...d.data() } as Empleado));
+    onUpdate(empleados);
+  }, (err) => {
+    handleFirestoreError(err, OperationType.LIST, path);
+    onUpdate([]);
+  });
+}
+
+/**
+ * Obtiene los empleados de users/${uid}/empleados una sola vez
+ */
+export async function getUserEmpleados(targetUid?: string): Promise<Empleado[]> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid) return [];
+  const path = `users/${uid}/empleados`;
+  try {
+    const colRef = collection(db, 'users', uid, 'empleados');
+    const snap = await getDocs(colRef);
+    if (snap.empty) return [];
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Empleado));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+    return [];
+  }
+}
+
+/**
+ * Guarda o actualiza un empleado en users/${uid}/empleados/${empleado.id}
+ */
+export async function saveEmpleadoToFirestore(uid: string, empleado: Empleado): Promise<void> {
+  if (!uid || !empleado.id) return;
+  const path = `users/${uid}/empleados/${empleado.id}`;
+  try {
+    const cleanPayload = sanitizeForFirestore({
+      id: empleado.id,
+      nombre: empleado.nombre || '',
+      rol: empleado.rol || 'Mesero',
+      pin: empleado.pin || '',
+      avatarColor: empleado.avatarColor || 'purple',
+      createdAt: empleado.createdAt || new Date().toISOString()
+    });
+    await setDoc(doc(db, 'users', uid, 'empleados', empleado.id), cleanPayload, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    throw err;
+  }
+}
+
+/**
+ * Elimina un empleado de users/${uid}/empleados/${empleadoId}
+ */
+export async function deleteEmpleadoFromFirestore(uid: string, empleadoId: string): Promise<void> {
+  if (!uid || !empleadoId) return;
+  const path = `users/${uid}/empleados/${empleadoId}`;
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'empleados', empleadoId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
     throw err;
   }
 }

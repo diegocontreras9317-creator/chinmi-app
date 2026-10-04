@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, PlanType, UserRole, BillingFrequency } from '../types';
+import { User, PlanType, UserRole, BillingFrequency, Empleado, EmpleadoRol } from '../types';
 import {
   signInWithPopup,
   onAuthStateChanged,
@@ -11,6 +11,11 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider, facebookProvider } from '../firebase';
+import {
+  subscribeUserEmpleados,
+  saveEmpleadoToFirestore,
+  deleteEmpleadoFromFirestore
+} from '../services/firestoreUserStorage';
 
 export interface RegisteredAccount {
   id: string;
@@ -31,6 +36,13 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   teamMembers: User[];
+  empleadoActivo: Empleado | null;
+  empleados: Empleado[];
+  seleccionarEmpleado: (empleado: Empleado) => void;
+  bloquearPantalla: () => void;
+  crearEmpleado: (data: Omit<Empleado, 'id' | 'createdAt'>) => Promise<{ success: boolean; error?: string }>;
+  actualizarEmpleado: (id: string, partial: Partial<Empleado>) => Promise<{ success: boolean; error?: string }>;
+  eliminarEmpleado: (id: string) => Promise<{ success: boolean; error?: string }>;
   isGerente: boolean;
   canManageInventory: boolean;
   canManageBusiness: boolean;
@@ -79,7 +91,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
 
+  // Sub-usuarios / Perfiles de empleados (Netflix / POS)
+  const [empleados, setEmpleados] = useState<Empleado[]>([]);
+  const [empleadoActivo, setEmpleadoActivo] = useState<Empleado | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const saved = sessionStorage.getItem('chinmi_empleado_activo_v1');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const seleccionarEmpleado = (emp: Empleado) => {
+    setEmpleadoActivo(emp);
+    try {
+      sessionStorage.setItem('chinmi_empleado_activo_v1', JSON.stringify(emp));
+    } catch (err) {
+      console.error('Error guardando empleado activo en sessionStorage:', err);
+    }
+  };
+
+  const bloquearPantalla = () => {
+    setEmpleadoActivo(null);
+    try {
+      sessionStorage.removeItem('chinmi_empleado_activo_v1');
+    } catch (err) {
+      console.error('Error al remover empleado activo de sessionStorage:', err);
+    }
+  };
+
   useEffect(() => {
+    let unsubEmpleados: (() => void) | null = null;
+
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
         const uid = fbUser.uid;
@@ -131,13 +175,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
         }
         setUser(resolvedUser);
+
+        // Suscripción en tiempo real a los empleados de users/${uid}/empleados
+        unsubEmpleados = subscribeUserEmpleados(uid, async (empList) => {
+          setEmpleados(empList);
+
+          // Si no hay empleados aún, sembramos automáticamente el Administrador principal
+          if (empList.length === 0) {
+            const defaultAdmin: Empleado = {
+              id: `emp-admin-${uid.slice(0, 6)}`,
+              nombre: resolvedUser.name || 'Administrador',
+              rol: 'Admin',
+              pin: '',
+              avatarColor: 'purple',
+              createdAt: new Date().toISOString()
+            };
+            try {
+              await saveEmpleadoToFirestore(uid, defaultAdmin);
+            } catch (e) {
+              console.error('Error inicializando empleado admin:', e);
+            }
+          }
+
+          // Mantener sincronizado el empleado activo con los datos más recientes de Firestore
+          setEmpleadoActivo(curr => {
+            if (!curr) return null;
+            const fresh = empList.find(e => e.id === curr.id);
+            if (!fresh) {
+              // El empleado fue eliminado
+              try { sessionStorage.removeItem('chinmi_empleado_activo_v1'); } catch {}
+              return null;
+            }
+            try { sessionStorage.setItem('chinmi_empleado_activo_v1', JSON.stringify(fresh)); } catch {}
+            return fresh;
+          });
+        });
+
       } else {
         setUser(null);
+        setEmpleados([]);
+        bloquearPantalla();
+        if (unsubEmpleados) {
+          unsubEmpleados();
+          unsubEmpleados = null;
+        }
       }
       setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubEmpleados) unsubEmpleados();
+    };
   }, []);
 
   const loginWithEmail = async (email: string, password?: string): Promise<{ success: boolean; error?: string }> => {
@@ -469,7 +558,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPinModalConfig(null);
   };
 
-  const isGerente = user?.role === 'gerente';
+  const crearEmpleado = async (data: Omit<Empleado, 'id' | 'createdAt'>): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'No hay usuario autenticado' };
+    if (!data.nombre.trim()) return { success: false, error: 'El nombre es obligatorio' };
+
+    const newEmp: Empleado = {
+      id: `emp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      nombre: data.nombre.trim(),
+      rol: data.rol,
+      pin: data.pin?.trim() || '',
+      avatarColor: data.avatarColor || 'purple',
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      await saveEmpleadoToFirestore(user.id, newEmp);
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error creating employee:', err);
+      return { success: false, error: err?.message || 'Error al guardar empleado en Firestore' };
+    }
+  };
+
+  const actualizarEmpleado = async (id: string, partial: Partial<Empleado>): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'No hay usuario autenticado' };
+    const existing = empleados.find(e => e.id === id);
+    if (!existing) return { success: false, error: 'Empleado no encontrado' };
+
+    const updatedEmp: Empleado = {
+      ...existing,
+      ...partial,
+      nombre: partial.nombre !== undefined ? partial.nombre.trim() : existing.nombre,
+      pin: partial.pin !== undefined ? partial.pin.trim() : existing.pin
+    };
+
+    try {
+      await saveEmpleadoToFirestore(user.id, updatedEmp);
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error updating employee:', err);
+      return { success: false, error: err?.message || 'Error al actualizar empleado en Firestore' };
+    }
+  };
+
+  const eliminarEmpleado = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'No hay usuario autenticado' };
+    const empToDelete = empleados.find(e => e.id === id);
+    if (!empToDelete) return { success: false, error: 'Empleado no encontrado' };
+
+    const adminCount = empleados.filter(e => e.rol === 'Admin').length;
+    if (empToDelete.rol === 'Admin' && adminCount <= 1) {
+      return { success: false, error: 'No puedes eliminar el único perfil de Administrador.' };
+    }
+
+    try {
+      await deleteEmpleadoFromFirestore(user.id, id);
+      if (empleadoActivo?.id === id) {
+        bloquearPantalla();
+      }
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error deleting employee:', err);
+      return { success: false, error: err?.message || 'Error al eliminar empleado en Firestore' };
+    }
+  };
+
+  // Roles y permisos dinámicos según el perfil de empleado activo:
+  // Si hay un perfil de empleado activo seleccionado, sus permisos mandan ("Admin", "Mesero", "Cajero", "Barman").
+  // Si aún no se ha seleccionado perfil, usamos el rol global del dueño.
+  const isGerente = empleadoActivo ? empleadoActivo.rol === 'Admin' : user?.role === 'gerente';
   const canManageInventory = isGerente;
   const canManageBusiness = isGerente;
   const canViewSalesReports = isGerente;
@@ -482,6 +639,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!user,
         isLoading,
         teamMembers,
+        empleadoActivo,
+        empleados,
+        seleccionarEmpleado,
+        bloquearPantalla,
+        crearEmpleado,
+        actualizarEmpleado,
+        eliminarEmpleado,
         isGerente,
         canManageInventory,
         canManageBusiness,

@@ -12,15 +12,18 @@ import { SalesHistoryModal } from './components/sales/SalesHistoryModal';
 import { ManagerPinModal } from './components/auth/ManagerPinModal';
 import { CustomerMenuPortal } from './components/customer/CustomerMenuPortal';
 import { WaiterCallToast } from './components/common/WaiterCallToast';
+import { ProfileSelectionScreen } from './components/auth/ProfileSelectionScreen';
+import { EmployeeManagementModal } from './components/settings/EmployeeManagementModal';
 
 const MainLayout: React.FC = () => {
-  const { isGerente } = useAuth();
+  const { isGerente, empleadoActivo } = useAuth();
   const { theme, customerViewTableId, setCustomerViewTableId } = useApp();
 
   const [activeTab, setActiveTab] = useState<'tables' | 'inventory' | 'perishables' | 'sales'>('tables');
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
 
   // Check if current URL is public customer menu route (/menu or contains restId/uid query)
   const isPublicMenuRoute = typeof window !== 'undefined' && (
@@ -49,84 +52,102 @@ const MainLayout: React.FC = () => {
 
   return (
     <ProtectedRoute>
-      <div className={`min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors ${theme === 'dark' ? 'dark' : ''}`}>
-        
-        {/* Top Navbar */}
-        <Navbar
-          activeTab={activeTab}
-          setActiveTab={(tab) => {
-            if (tab === 'sales') {
-              if (isGerente) setIsSalesModalOpen(true);
-            } else if (tab === 'inventory') {
-              if (isGerente) setActiveTab('inventory');
-            } else if (tab === 'perishables') {
-              if (isGerente) setActiveTab('perishables');
-            } else {
-              setActiveTab('tables');
-            }
-          }}
-          onOpenSubscription={() => {
-            if (isGerente) setIsSubscriptionOpen(true);
-          }}
-          onOpenSettings={() => {
-            if (isGerente) setIsSettingsOpen(true);
-          }}
+      {/* Si la cuenta de Firebase está logueada pero NO se ha seleccionado perfil de empleado activo: */}
+      {!empleadoActivo ? (
+        <ProfileSelectionScreen
+          onOpenEmployeeManagement={() => setIsEmployeeModalOpen(true)}
         />
+      ) : (
+        <div className={`min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors ${theme === 'dark' ? 'dark' : ''}`}>
+          
+          {/* Top Navbar */}
+          <Navbar
+            activeTab={activeTab}
+            setActiveTab={(tab) => {
+              if (tab === 'sales') {
+                if (isGerente) setIsSalesModalOpen(true);
+              } else if (tab === 'inventory') {
+                if (isGerente) setActiveTab('inventory');
+              } else if (tab === 'perishables') {
+                if (isGerente) setActiveTab('perishables');
+              } else {
+                setActiveTab('tables');
+              }
+            }}
+            onOpenSubscription={() => {
+              if (isGerente) setIsSubscriptionOpen(true);
+            }}
+            onOpenSettings={() => {
+              if (isGerente) setIsSettingsOpen(true);
+            }}
+            onOpenEmployees={() => {
+              if (isGerente) setIsEmployeeModalOpen(true);
+            }}
+          />
 
-        {/* Main Content Area */}
-        <main className="flex-1 pb-12">
-          {activeTab === 'tables' && (
-            <TablesModule
-              onOpenSubscription={() => {
-                if (isGerente) setIsSubscriptionOpen(true);
-              }}
+          {/* Main Content Area */}
+          <main className="flex-1 pb-12">
+            {activeTab === 'tables' && (
+              <TablesModule
+                onOpenSubscription={() => {
+                  if (isGerente) setIsSubscriptionOpen(true);
+                }}
+              />
+            )}
+
+            {isGerente && activeTab === 'inventory' && (
+              <InventoryModule
+                onOpenSubscription={() => setIsSubscriptionOpen(true)}
+              />
+            )}
+
+            {isGerente && activeTab === 'perishables' && (
+              <PerishablesModule
+                onOpenSubscription={() => setIsSubscriptionOpen(true)}
+              />
+            )}
+          </main>
+
+          {/* Freemium Subscription Modal (Gerente only) */}
+          {isGerente && (
+            <SubscriptionModal
+              isOpen={isSubscriptionOpen}
+              onClose={() => setIsSubscriptionOpen(false)}
             />
           )}
 
-          {isGerente && activeTab === 'inventory' && (
-            <InventoryModule
-              onOpenSubscription={() => setIsSubscriptionOpen(true)}
+          {/* Business Settings & Team Permissions Modal (Gerente only) */}
+          {isGerente && (
+            <SettingsModal
+              isOpen={isSettingsOpen}
+              onClose={() => setIsSettingsOpen(false)}
             />
           )}
 
-          {isGerente && activeTab === 'perishables' && (
-            <PerishablesModule
-              onOpenSubscription={() => setIsSubscriptionOpen(true)}
+          {/* Employee & Role Configuration Modal (Admin only) */}
+          {isGerente && (
+            <EmployeeManagementModal
+              isOpen={isEmployeeModalOpen}
+              onClose={() => setIsEmployeeModalOpen(false)}
             />
           )}
-        </main>
 
-        {/* Freemium Subscription Modal (Gerente only) */}
-        {isGerente && (
-          <SubscriptionModal
-            isOpen={isSubscriptionOpen}
-            onClose={() => setIsSubscriptionOpen(false)}
-          />
-        )}
+          {/* Sales History Modal (Gerente only) */}
+          {isGerente && (
+            <SalesHistoryModal
+              isOpen={isSalesModalOpen}
+              onClose={() => setIsSalesModalOpen(false)}
+            />
+          )}
 
-        {/* Business Settings & Team Permissions Modal (Gerente only) */}
-        {isGerente && (
-          <SettingsModal
-            isOpen={isSettingsOpen}
-            onClose={() => setIsSettingsOpen(false)}
-          />
-        )}
+          {/* Global Manager PIN Verification Modal */}
+          <ManagerPinModal />
 
-        {/* Sales History Modal (Gerente only) */}
-        {isGerente && (
-          <SalesHistoryModal
-            isOpen={isSalesModalOpen}
-            onClose={() => setIsSalesModalOpen(false)}
-          />
-        )}
+          {/* Floating Waiter Call & Bill Request Alerts for Staff */}
+          <WaiterCallToast onNavigateToTable={() => setActiveTab('tables')} />
 
-        {/* Global Manager PIN Verification Modal */}
-        <ManagerPinModal />
-
-        {/* Floating Waiter Call & Bill Request Alerts for Staff */}
-        <WaiterCallToast onNavigateToTable={() => setActiveTab('tables')} />
-
-      </div>
+        </div>
+      )}
     </ProtectedRoute>
   );
 };

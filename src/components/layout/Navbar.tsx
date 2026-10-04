@@ -20,7 +20,8 @@ import {
   CreditCard,
   Lock,
   BellRing,
-  Apple
+  Apple,
+  Users
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -28,6 +29,7 @@ interface NavbarProps {
   setActiveTab: (tab: 'tables' | 'inventory' | 'perishables' | 'sales') => void;
   onOpenSubscription: () => void;
   onOpenSettings: () => void;
+  onOpenEmployees?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -35,6 +37,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   onOpenSubscription,
   onOpenSettings,
+  onOpenEmployees,
 }) => {
   const {
     user,
@@ -42,7 +45,9 @@ export const Navbar: React.FC<NavbarProps> = ({
     loginAsDemoRole,
     isGerente,
     promptManagerPin,
-    isPinProtectionEnabled
+    isPinProtectionEnabled,
+    empleadoActivo,
+    bloquearPantalla
   } = useAuth();
   const { config, theme, toggleTheme, cloudStatus, syncNow, tables, perishables, dismissWaiterCall, setSelectedTableId } = useApp();
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -283,6 +288,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {theme === 'dark' ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />}
               </button>
 
+              {/* Botón Gestión de Empleados (Visible solo si Admin / Gerente) */}
+              {isGerente && onOpenEmployees && (
+                <button
+                  type="button"
+                  id="btn-open-employees"
+                  onClick={onOpenEmployees}
+                  title="Configuración de Empleados y Roles"
+                  className="hidden md:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-800 dark:text-purple-300 text-xs font-black transition cursor-pointer shrink-0 shadow-xs"
+                >
+                  <Users className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <span>Empleados</span>
+                </button>
+              )}
+
+              {/* Botón: Cambiar de usuario / Bloquear pantalla */}
+              <button
+                type="button"
+                id="btn-lock-screen"
+                onClick={bloquearPantalla}
+                title="Cambiar de usuario / Bloquear pantalla"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-amber-300/80 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-xs font-black transition cursor-pointer shrink-0 shadow-xs"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="hidden sm:inline">Cambiar de usuario / Bloquear pantalla</span>
+                <span className="sm:hidden">Bloquear</span>
+              </button>
+
               {/* 6. El Usuario */}
               <div className="relative shrink-0">
                 <button
@@ -296,9 +328,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover border border-slate-300 dark:border-slate-700 shrink-0"
                   />
                   <div className="hidden lg:block text-left text-xs">
-                    <p className="font-semibold text-slate-900 dark:text-white leading-tight">{user?.name}</p>
+                    <p className="font-semibold text-slate-900 dark:text-white leading-tight">
+                      {empleadoActivo ? empleadoActivo.nombre : user?.name}
+                    </p>
                     <p className="text-[10px] text-[#681841] dark:text-pink-400 font-bold capitalize">
-                      {currentRoleConfig?.label || user?.role}
+                      {empleadoActivo ? `${empleadoActivo.rol} (Activo)` : (currentRoleConfig?.label || user?.role)}
                     </p>
                   </div>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden lg:block shrink-0" />
@@ -401,7 +435,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </button>
                     </div>
 
-                    <div className="pt-1.5 mt-1 border-t border-slate-100 dark:border-slate-800 px-1">
+                    <div className="pt-1.5 mt-1 border-t border-slate-100 dark:border-slate-800 px-1 space-y-0.5">
+                      {isGerente && onOpenEmployees && (
+                        <button
+                          onClick={onOpenEmployees}
+                          className="w-full px-3 py-2 text-left rounded-lg flex items-center gap-2 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 transition cursor-pointer font-semibold"
+                        >
+                          <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                          <span>Configuración de Empleados</span>
+                        </button>
+                      )}
+
+                      <button
+                        onClick={bloquearPantalla}
+                        className="w-full px-3 py-2 text-left rounded-lg flex items-center gap-2 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer font-semibold"
+                      >
+                        <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        <span>Cambiar de usuario / Bloquear</span>
+                      </button>
+
                       {isGerente && (
                         <button
                           onClick={onOpenSettings}

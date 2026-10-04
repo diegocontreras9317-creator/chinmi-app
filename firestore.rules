@@ -38,6 +38,10 @@ service cloud.firestore {
         allow read, write, create: if true;
         allow delete: if isOwner(userId) || request.auth != null;
       }
+
+      match /empleados/{empleadoId} {
+        allow read, write: if isOwner(userId) || request.auth != null;
+      }
     }
 
     match /{document=**} {

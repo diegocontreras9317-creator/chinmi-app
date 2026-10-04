@@ -4,28 +4,23 @@ import { auth, db } from '../../firebase';
 import { useAuth } from '../../context/AuthContext';
 import { Gift, Sparkles, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
-interface CanjearCodigoProps {
-  onSuccess?: (dias: number) => void;
-  className?: string;
-}
-
 /**
  * CanjearCodigo
- * Componente robusto para canjear códigos promocionales (ej. PROMOPATRICIUS).
+ * Componente para canjear códigos promocionales (ej. PROMOPATRICIUS).
  * Implementa manejo detallado de errores y soporte para permisos en Firestore.
  */
-export const CanjearCodigo: React.FC<CanjearCodigoProps> = ({ onSuccess, className = '' }) => {
+export const CanjearCodigo = ({ onSuccess, className = '' }) => {
   const { user, upgradePlan } = useAuth();
   const [codigo, setCodigo] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [mensajeExito, setMensajeExito] = useState<string | null>(null);
+  const [error, setError] = useState(null);
+  const [mensajeExito, setMensajeExito] = useState(null);
 
-  const handleCanjear = async (e: React.FormEvent) => {
+  const handleCanjear = async (e) => {
     e.preventDefault();
     const codigoIngresado = codigo.trim().toUpperCase();
 
-    // Validación: input no vacío
+    // 1. Validación de input no vacío
     if (!codigoIngresado) {
       setError('Por favor, ingresa un código promocional.');
       return;
@@ -36,42 +31,42 @@ export const CanjearCodigo: React.FC<CanjearCodigoProps> = ({ onSuccess, classNa
     setMensajeExito(null);
 
     try {
-      // 1. Consulta a prueba de fallos apuntando a doc(db, "codigos_promocionales", codigoIngresado)
+      // 2. Consulta a prueba de fallos: doc(db, "codigos_promocionales", codigoIngresado)
       const docRef = doc(db, 'codigos_promocionales', codigoIngresado);
       const docSnap = await getDoc(docRef);
 
-      // 2. Validación de existencia del documento
+      // 3. Validación de existencia del documento
       if (!docSnap.exists()) {
         throw new Error('El código ingresado no existe');
       }
 
       const data = docSnap.data();
 
-      // 3. Validación de estado activo
+      // 4. Validación de estado activo
       if (data?.activo === false) {
         throw new Error('Este código ya expiró o fue desactivado');
       }
 
-      // 4. Extracción de días (soporta 'dias_premiun' y 'dias_premium')
+      // 5. Extracción de días (soporta 'dias_premiun' y 'dias_premium')
       const dias = Number(data?.dias_premiun ?? data?.dias_premium ?? 30);
 
       if (isNaN(dias) || dias <= 0) {
         throw new Error('El código no tiene una cantidad válida de días');
       }
 
-      // 5. Cálculo de fecha de expiración sumando los días a la fecha actual
+      // 6. Cálculo de fecha de expiración
       const fechaExpiracion = new Date();
       fechaExpiracion.setDate(fechaExpiracion.getDate() + dias);
       const timestampExpira = Timestamp.fromDate(fechaExpiracion);
 
-      // 6. Obtención del UID del usuario logueado
+      // 7. Obtención del UID del usuario logueado
       const targetUid = auth.currentUser?.uid || user?.id;
 
       if (!targetUid) {
         throw new Error('No se encontró una sesión activa de usuario');
       }
 
-      // 7. Actualización del documento del usuario en Firestore (users/{uid})
+      // 8. Actualización del documento del usuario en Firestore (users/{uid})
       const userDocRef = doc(db, 'users', targetUid);
       await setDoc(
         userDocRef,
@@ -84,12 +79,12 @@ export const CanjearCodigo: React.FC<CanjearCodigoProps> = ({ onSuccess, classNa
         { merge: true }
       );
 
-      // 8. Actualización en tiempo real del contexto de la aplicación
+      // 9. Actualización en tiempo real del contexto de la aplicación
       if (upgradePlan) {
         upgradePlan('pro');
       }
 
-      // 9. Feedback exitoso y reseteo del campo
+      // 10. Feedback exitoso y reseteo del campo
       const mensaje = `¡Código canjeado con éxito! Tienes ${dias} días PRO activados`;
       setMensajeExito(mensaje);
       setCodigo('');
@@ -97,7 +92,7 @@ export const CanjearCodigo: React.FC<CanjearCodigoProps> = ({ onSuccess, classNa
       if (onSuccess) {
         onSuccess(dias);
       }
-    } catch (error: any) {
+    } catch (error) {
       // Impresión detallada del error en la consola
       console.error('Detalle del error:', error);
 

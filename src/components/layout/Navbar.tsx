@@ -12,13 +12,9 @@ import {
   Settings,
   Sun,
   Moon,
-  LogOut,
   RefreshCw,
   Sparkles,
-  UserCheck,
-  ChevronDown,
   CreditCard,
-  Lock,
   BellRing,
   Apple,
   Users
@@ -41,16 +37,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const {
     user,
-    logout,
-    loginAsDemoRole,
     isGerente,
-    promptManagerPin,
-    isPinProtectionEnabled,
     empleadoActivo,
     bloquearPantalla
   } = useAuth();
   const { config, theme, toggleTheme, cloudStatus, syncNow, tables, perishables, dismissWaiterCall, setSelectedTableId } = useApp();
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
   const callingTables = tables.filter(t => t.waiterCall !== null && t.waiterCall !== undefined);
@@ -59,21 +50,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     const status = getExpiryStatus(item.expiryDate, item.alarmDaysBeforeExpiry);
     return status === 'expired' || status === 'expires_today' || status === 'expiring_soon' || item.quantity <= item.minStock;
   }).length;
-
-  const handleSwitchToGerente = () => {
-    if (user?.role === 'gerente') return;
-    if (isPinProtectionEnabled) {
-      promptManagerPin(
-        () => {
-          loginAsDemoRole('gerente');
-        },
-        'Acceso de Gerente Protegido',
-        'Introduce la clave de acceso de Gerente para acceder con control total a todas las áreas.'
-      );
-    } else {
-      loginAsDemoRole('gerente');
-    }
-  };
 
   const currentRoleConfig = user?.role ? ROLE_PERMISSIONS[user.role] : null;
 
@@ -302,177 +278,38 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               )}
 
-              {/* 1. Ocultar textos no esenciales: Botón Bloquear solo muestra el icono en móviles */}
+              {/* 6. Avatar Interactivo (Botón para Bloquear pantalla / Cambiar de usuario) */}
               <button
                 type="button"
-                id="btn-lock-screen"
+                id="btn-user-avatar-action"
                 onClick={bloquearPantalla}
-                title="Cambiar de usuario / Bloquear pantalla"
-                className="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-amber-300/80 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-xs font-black transition cursor-pointer shrink-0 shadow-xs"
+                title={`Bloquear pantalla / Cambiar de usuario (${empleadoActivo ? empleadoActivo.nombre : user?.name || 'Usuario'})`}
+                className="flex items-center gap-1.5 sm:gap-2 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-pink-50/60 dark:hover:bg-pink-950/40 hover:border-pink-300 dark:hover:border-pink-800/80 cursor-pointer hover:opacity-80 transition-all hover:ring-2 hover:ring-[#e64980] active:scale-95 shrink-0 shadow-xs group"
               >
-                <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span className="hidden md:inline">Bloquear</span>
+                <div className="relative shrink-0">
+                  {user?.avatar ? (
+                    <img
+                      src={user.avatar}
+                      alt={user?.name || 'Usuario'}
+                      className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover border border-slate-300 dark:border-slate-700 group-hover:border-[#e64980] transition-colors shrink-0"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-tr from-[#681841] to-[#e64980] text-white flex items-center justify-center font-black text-xs sm:text-sm shadow-xs shrink-0 select-none">
+                      {(empleadoActivo?.nombre || user?.name || 'U').charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                </div>
+
+                <div className="hidden lg:block text-left text-xs pr-1">
+                  <p className="font-semibold text-slate-900 dark:text-white leading-tight group-hover:text-[#681841] dark:group-hover:text-pink-300 transition-colors">
+                    {empleadoActivo ? empleadoActivo.nombre : user?.name}
+                  </p>
+                  <p className="text-[10px] text-[#681841] dark:text-pink-400 font-bold capitalize">
+                    {empleadoActivo ? `${empleadoActivo.rol} (Activo)` : (currentRoleConfig?.label || user?.role)}
+                  </p>
+                </div>
               </button>
-
-              {/* 6. El Usuario */}
-              <div className="relative shrink-0">
-                <button
-                  id="btn-user-profile-menu"
-                  onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-1 sm:gap-2 p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition cursor-pointer shrink-0"
-                >
-                  <img
-                    src={user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80'}
-                    alt={user?.name || 'Usuario'}
-                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover border border-slate-300 dark:border-slate-700 shrink-0"
-                  />
-                  <div className="hidden lg:block text-left text-xs">
-                    <p className="font-semibold text-slate-900 dark:text-white leading-tight">
-                      {empleadoActivo ? empleadoActivo.nombre : user?.name}
-                    </p>
-                    <p className="text-[10px] text-[#681841] dark:text-pink-400 font-bold capitalize">
-                      {empleadoActivo ? `${empleadoActivo.rol} (Activo)` : (currentRoleConfig?.label || user?.role)}
-                    </p>
-                  </div>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden lg:block shrink-0" />
-                </button>
-
-                {/* Popup del perfil de usuario */}
-                {showUserMenu && (
-                  <div 
-                    className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 py-2 z-50 text-xs animate-in fade-in slide-in-from-top-2"
-                    onClick={() => setShowUserMenu(false)}
-                  >
-                    <div className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800">
-                      <p className="font-bold text-slate-900 dark:text-white">{user?.name}</p>
-                      <p className="text-slate-500 dark:text-slate-400 text-[11px] truncate">{user?.email}</p>
-                      <div className="mt-1.5 flex items-center justify-between">
-                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-950 text-[#681841] dark:text-pink-300">
-                          {currentRoleConfig?.badgeLabel || user?.role}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {isGerente ? 'Todo el control' : 'Solo mesas & pedidos'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Seleccionar Rol en vivo */}
-                    <div className="py-1.5 px-1">
-                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Probar rol en vivo:
-                      </p>
-                      
-                      <button
-                        onClick={handleSwitchToGerente}
-                        className={`w-full px-3 py-2 text-left rounded-lg flex items-center justify-between transition cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                          user?.role === 'gerente' ? 'bg-pink-50 dark:bg-slate-800 text-[#681841] dark:text-pink-300 font-bold' : 'text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-base">👨‍💼</span>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="block font-bold">Carlos (Gerente)</span>
-                              {isPinProtectionEnabled && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-sm bg-pink-100 dark:bg-pink-950 text-[#681841] dark:text-pink-300 flex items-center gap-0.5">
-                                  <Lock className="w-2.5 h-2.5" /> PIN
-                                </span>
-                              )}
-                            </div>
-                            <span className="block text-[10px] text-slate-400">Todo el control</span>
-                          </div>
-                        </div>
-                        {user?.role === 'gerente' && <UserCheck className="w-4 h-4 text-[#e64980]" />}
-                      </button>
-
-                      <button
-                        onClick={() => loginAsDemoRole('cajero')}
-                        className={`w-full px-3 py-2 text-left rounded-lg flex items-center justify-between transition cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                          user?.role === 'cajero' ? 'bg-pink-50 dark:bg-slate-800 text-[#681841] dark:text-pink-300 font-bold' : 'text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-base">💳</span>
-                          <div>
-                            <span className="block font-bold">Sofía (Caja)</span>
-                            <span className="block text-[10px] text-slate-400">Solo mesas y cobro</span>
-                          </div>
-                        </div>
-                        {user?.role === 'cajero' && <UserCheck className="w-4 h-4 text-[#e64980]" />}
-                      </button>
-
-                      <button
-                        onClick={() => loginAsDemoRole('camarero')}
-                        className={`w-full px-3 py-2 text-left rounded-lg flex items-center justify-between transition cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                          user?.role === 'camarero' ? 'bg-pink-50 dark:bg-slate-800 text-[#681841] dark:text-pink-300 font-bold' : 'text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-base">👩‍🍳</span>
-                          <div>
-                            <span className="block font-bold">Elena (Camarera)</span>
-                            <span className="block text-[10px] text-slate-400">Solo mesas y comandas</span>
-                          </div>
-                        </div>
-                        {user?.role === 'camarero' && <UserCheck className="w-4 h-4 text-[#e64980]" />}
-                      </button>
-
-                      <button
-                        onClick={() => loginAsDemoRole('barman')}
-                        className={`w-full px-3 py-2 text-left rounded-lg flex items-center justify-between transition cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
-                          user?.role === 'barman' ? 'bg-pink-50 dark:bg-slate-800 text-[#681841] dark:text-pink-300 font-bold' : 'text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-base">🍸</span>
-                          <div>
-                            <span className="block font-bold">Mateo (Barman)</span>
-                            <span className="block text-[10px] text-slate-400">Barra y comandas</span>
-                          </div>
-                        </div>
-                        {user?.role === 'barman' && <UserCheck className="w-4 h-4 text-[#e64980]" />}
-                      </button>
-                    </div>
-
-                    <div className="pt-1.5 mt-1 border-t border-slate-100 dark:border-slate-800 px-1 space-y-0.5">
-                      {isGerente && onOpenEmployees && (
-                        <button
-                          onClick={onOpenEmployees}
-                          className="w-full px-3 py-2 text-left rounded-lg flex items-center gap-2 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 transition cursor-pointer font-semibold"
-                        >
-                          <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                          <span>Configuración de Empleados</span>
-                        </button>
-                      )}
-
-                      <button
-                        onClick={bloquearPantalla}
-                        className="w-full px-3 py-2 text-left rounded-lg flex items-center gap-2 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer font-semibold"
-                      >
-                        <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                        <span>Cambiar de usuario / Bloquear</span>
-                      </button>
-
-                      {isGerente && (
-                        <button
-                          onClick={onOpenSettings}
-                          className="w-full px-3 py-2 text-left rounded-lg flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition cursor-pointer"
-                        >
-                          <Settings className="w-4 h-4 text-slate-500" />
-                          <span>Configuración de Negocio</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={logout}
-                        className="w-full px-3 py-2 text-left rounded-lg flex items-center gap-2 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer font-medium"
-                      >
-                        <LogOut className="w-4 h-4" />
-                        <span>Cerrar Sesión</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
 
             </div>
           </div>

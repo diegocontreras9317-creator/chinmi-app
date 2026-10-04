@@ -135,7 +135,11 @@ export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => 
   const colRef = collection(db, 'users', uid, 'pedidos');
 
   return onSnapshot(colRef, (snap) => {
-    const orders = snap.docs.map(d => ({ id: d.id, ...d.data() } as Order));
+    const orders = snap.docs.map(d => {
+      const data = d.data();
+      const items = data.items || data.productos || [];
+      return { id: d.id, ...data, items } as Order;
+    });
     onUpdate(orders);
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);

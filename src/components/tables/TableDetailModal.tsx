@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
-import { Table, Product, TableStatus } from '../../types';
+import { Table, Product, TableStatus, OrderItem } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import { auth, db } from '../../firebase';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc } from 'firebase/firestore';
 import {
   saveTableToFirestore,
   saveOrderToFirestore,
@@ -65,38 +65,38 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   const [itemNoteText, setItemNoteText] = useState<string>('');
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'catalog' | 'order'>('catalog');
-  const [isSavingFirebase, setIsSavingFirebase] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [lastAddedToast, setLastAddedToast] = useState<string | null>(null);
 
+  const order = table?.order;
+  const items: OrderItem[] = order?.items || (order as any)?.productos || [];
+
+  // Filter products for catalog
+  const filteredProducts = products.filter(prod => {
+    const matchesCategory = selectedCategory === 'Todas las categorías' || prod.category === selectedCategory;
+    const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          prod.sku.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  // Calculation in real time according to local component state
+  const subtotal = (items || []).reduce((acc: number, item: OrderItem) => acc + (Number(item?.unitPrice ?? (item as any)?.price ?? 0) || 0) * (Number(item?.quantity ?? 0) || 0), 0);
+  const discountPercent = Number(order?.discountPercent) || 0;
+  const discountAmount = subtotal * (discountPercent / 100);
+  const taxableBase = subtotal - discountAmount;
+  const taxPercent = Number(order?.taxPercent ?? config.defaultTaxRate) || 0;
+  const taxAmount = taxableBase * (taxPercent / 100);
+  const tipAmount = Number(order?.tipAmount) || 0;
+  const total = taxableBase + taxAmount + tipAmount;
+
   const handleSaveAndUpdateComanda = async () => {
-    setIsSavingFirebase(true);
-    setSaveSuccessMsg(null);
-
     const activeUid = auth.currentUser?.uid || user?.id;
-    if (!activeUid) {
-      alert('Error crítico de Firebase: No hay sesión activa de usuario.');
-      setIsSavingFirebase(false);
-      return;
-    }
-
-    if (!table) {
-      alert('Error crítico de Firebase: No se encontró la mesa.');
-      setIsSavingFirebase(false);
-      return;
-    }
-
-    const currentOrder = table.order;
-    if (!currentOrder || !currentOrder.id) {
-      alert('Error crítico de Firebase: No hay consumos en la comanda para guardar.');
-      setIsSavingFirebase(false);
-      return;
-    }
-
     const nowIso = new Date().toISOString();
+    const pedidoId = order?.id || `ord-${table?.id || Date.now()}`;
 
-    // Sanitización exhaustiva del array de productos dentro del pedido
-    const cleanItems = (currentOrder.items || []).map(it => ({
+    // Sanitización y armado del arreglo de productos actualizado
+    const cleanItems = (items || []).map((it: OrderItem) => ({
       id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       productId: it.productId || '',
       name: it.name || 'Producto',
@@ -108,91 +108,175 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       orderedBy: it.orderedBy || (empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : 'mesero')
     }));
 
-    const rawOrderPayload = {
-      id: currentOrder.id,
-      tableId: table.id || '',
-      tableName: table.name || 'Barra',
+    // Payload actualizado según el estado local del componente (con total y productos actualizados)
+    const datosDelPedido = {
+      id: pedidoId,
+      tableId: table?.id || '',
+      tableName: table?.name || 'Mesa',
       items: cleanItems,
-      discountPercent: Number(currentOrder.discountPercent) || 0,
-      taxPercent: Number(currentOrder.taxPercent) || config.defaultTaxRate || 8,
-      tipAmount: Number(currentOrder.tipAmount) || 0,
-      openedAt: currentOrder.openedAt || nowIso,
+      productos: cleanItems,
+      subtotal: Math.round(subtotal),
+      taxPercent: Number(taxPercent) || 0,
+      taxAmount: Math.round(taxAmount),
+      discountPercent: Number(discountPercent) || 0,
+      discountAmount: Math.round(discountAmount),
+      tipAmount: Number(tipAmount) || 0,
+      total: Math.round(total),
+      status: 'activa',
+      openedAt: order?.openedAt || nowIso,
       lastUpdatedAt: nowIso,
-      userId: activeUid,
-      nombreCliente: '',
-      comentario: '',
-      mesa: table.name || 'Barra',
-      empleado: empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : 'Caja',
-      atendidoPor: empleadoActivo?.nombre || 'Caja'
+      userId: activeUid || '',
+      nombreCliente: (order as any)?.customerName || (order as any)?.nombreCliente || '',
+      comentario: (order as any)?.notes || (order as any)?.comentario || '',
+      mesa: table?.name || 'Mesa',
+      empleado: empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : (user?.name || 'Caja'),
+      atendidoPor: empleadoActivo?.nombre || user?.name || 'Mesero'
     };
 
-    const sanitizedOrderPayload = sanitizeForFirestore(rawOrderPayload);
-
-    const rawTablePayload = {
-      id: table.id || '',
-      number: Number(table.number) || 1,
-      name: table.name || 'Mesa',
-      seats: Number(table.seats) || 2,
-      zone: table.zone || 'Salón Principal',
-      status: (table.status === 'libre' && cleanItems.length > 0 ? 'ocupada' : table.status) as TableStatus,
-      order: sanitizedOrderPayload,
-      updatedAt: nowIso,
-      userId: activeUid,
-      waiterCall: table.waiterCall ? {
-        type: table.waiterCall.type || 'waiter',
-        requestedAt: table.waiterCall.requestedAt || nowIso,
-        message: table.waiterCall.message || ''
-      } : null
-    };
-
-    const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
+    // 1. Asegurar la ejecución (Evitar fallas silenciosas):
+    console.log("Iniciando guardado...", datosDelPedido);
+    setIsLoading(true);
+    setSaveSuccessMsg(null);
 
     try {
-      // 1. Guardado explícito en la nube:
-      // collection(db, 'users', auth.currentUser.uid, 'pedidos')
-      await setDoc(doc(db, 'users', activeUid, 'pedidos', sanitizedOrderPayload.id), sanitizedOrderPayload, { merge: true });
+      if (!activeUid) {
+        throw new Error('No hay sesión activa de usuario en Firebase.');
+      }
+      if (!table) {
+        throw new Error('No se encontró la información de la mesa.');
+      }
+      if (cleanItems.length === 0) {
+        throw new Error('No hay productos en la comanda para guardar.');
+      }
 
-      // Actualizar también la mesa en Firestore
+      // 2. Uso correcto de Firestore Update:
+      // setDoc con { merge: true } apuntando a doc(db, 'users', auth.currentUser.uid, 'pedidos', pedidoId)
+      const sanitizedOrderPayload = sanitizeForFirestore(datosDelPedido);
+      const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
+      await setDoc(pedidoRef, sanitizedOrderPayload, { merge: true });
+
+      // Actualizar también la mesa en Firestore users/${uid}/mesas/${table.id}
+      const rawTablePayload = {
+        id: table.id || '',
+        number: Number(table.number) || 1,
+        name: table.name || 'Mesa',
+        seats: Number(table.seats) || 2,
+        zone: table.zone || 'Salón Principal',
+        status: (table.status === 'libre' && cleanItems.length > 0 ? 'ocupada' : table.status) as TableStatus,
+        order: sanitizedOrderPayload,
+        updatedAt: nowIso,
+        userId: activeUid,
+        waiterCall: table.waiterCall ? {
+          type: table.waiterCall.type || 'waiter',
+          requestedAt: table.waiterCall.requestedAt || nowIso,
+          message: table.waiterCall.message || ''
+        } : null
+      };
+
+      const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
       await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), sanitizedTablePayload, { merge: true });
 
-      // 2. Alertas visuales para depuración (Muy Importante):
-      alert('Pedido enviado correctamente a la caja');
-      setSaveSuccessMsg('¡Comanda guardada y actualizada en Firebase!');
-      setTimeout(() => setSaveSuccessMsg(null), 4000);
-
-      // 3. Eliminación de estado fantasma:
-      // No se guarda nada en localStorage.
-      // La lista de pedidos en pantalla se actualiza automáticamente con onSnapshot.
+      // 3. Interfaz de Usuario (Feedback):
+      // Mostrar pequeño mensaje de "Actualizado" y cerrar el modal
+      setSaveSuccessMsg('Actualizado');
+      setTimeout(() => {
+        setSaveSuccessMsg(null);
+        onClose();
+      }, 800);
     } catch (error: any) {
-      console.error('Error al guardar comanda en Firebase:', error);
-      alert('Error crítico de Firebase: ' + (error?.message || String(error)));
+      console.error("Error al actualizar:", error);
+      alert(error?.message || String(error));
     } finally {
-      setIsSavingFirebase(false);
+      setIsLoading(false);
+    }
+  };
+
+  // Función exclusiva para eliminar producto con arquitectura de Single Source of Truth
+  const eliminarProducto = async (idEliminar: string) => {
+    try {
+      const activeUid = auth.currentUser?.uid || user?.id;
+      if (!activeUid) {
+        throw new Error('No hay sesión activa de usuario en Firebase.');
+      }
+
+      const pedidoId = order?.id || `ord-${table?.id}`;
+      if (!pedidoId) {
+        throw new Error('No se encontró el ID del pedido para actualizar.');
+      }
+
+      // 2. Cálculo y Sanitización:
+      const productosActuales = items;
+      const nuevosProductos = productosActuales.filter((p: OrderItem) => p.id !== idEliminar);
+
+      // Recalcula el subtotal y total basado en nuevosProductos
+      const nuevoSubtotal = nuevosProductos.reduce(
+        (acc: number, item: OrderItem) =>
+          acc + (Number(item?.unitPrice ?? (item as any)?.price ?? 0) || 0) * (Number(item?.quantity ?? 0) || 0),
+        0
+      );
+      const discPercent = Number(order?.discountPercent) || 0;
+      const discAmount = nuevoSubtotal * (discPercent / 100);
+      const taxBase = nuevoSubtotal - discAmount;
+      const taxRate = Number(order?.taxPercent ?? config.defaultTaxRate) || 0;
+      const taxAmt = taxBase * (taxRate / 100);
+      const tipAmt = Number(order?.tipAmount) || 0;
+      const nuevoTotal = Math.round(taxBase + taxAmt + tipAmt);
+
+      const cleanNuevosProductos = nuevosProductos.map((it: OrderItem) => ({
+        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: it.productId || '',
+        name: it.name || 'Producto',
+        unitPrice: Number(it.unitPrice) || 0,
+        quantity: Number(it.quantity) || 1,
+        notes: it.notes?.trim() || '',
+        addedAt: it.addedAt || new Date().toISOString(),
+        customerName: it.customerName?.trim() || '',
+        orderedBy: it.orderedBy || 'mesero'
+      }));
+
+      // 3. Actualización directa e inmediata a Firestore:
+      // doc(db, 'users', auth.currentUser.uid, 'pedidos', pedidoId)
+      const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
+      await updateDoc(pedidoRef, {
+        productos: cleanNuevosProductos,
+        items: cleanNuevosProductos,
+        subtotal: Math.round(nuevoSubtotal),
+        total: nuevoTotal,
+        lastUpdatedAt: new Date().toISOString()
+      });
+
+      // Sincronizar también la mesa en Firestore
+      if (table?.id) {
+        const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
+        if (cleanNuevosProductos.length === 0) {
+          await updateDoc(mesaRef, {
+            order: null,
+            status: 'libre',
+            updatedAt: new Date().toISOString()
+          });
+        } else {
+          await updateDoc(mesaRef, {
+            'order.items': cleanNuevosProductos,
+            'order.productos': cleanNuevosProductos,
+            'order.subtotal': Math.round(nuevoSubtotal),
+            'order.total': nuevoTotal,
+            'order.lastUpdatedAt': new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
+
+      // 1. Única fuente de la verdad (Single Source of Truth):
+      // NO actualices el estado local de React manualmente (setProductos(...)) cuando se presione la papelera.
+      // onSnapshot actualiza la UI automáticamente cuando Firebase confirme el cambio.
+    } catch (error: any) {
+      // 4. Captura del Error Silencioso (CRÍTICO):
+      console.error('Error al borrar en Firebase:', error);
+      alert('Error al borrar en Firebase: ' + error.message);
     }
   };
 
   if (!isOpen) return null;
-
-  const order = table.order;
-  const items = order?.items || [];
-
-  // Filter products for catalog
-  const filteredProducts = products.filter(prod => {
-    const matchesCategory = selectedCategory === 'Todas las categorías' || prod.category === selectedCategory;
-    const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          prod.sku.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
-
-  // Calculation in real time
-  const subtotal = (items || []).reduce((acc: number, item: any) => acc + (Number(item?.unitPrice ?? item?.price ?? 0) || 0) * (Number(item?.quantity ?? item?.cantidad ?? 0) || 0), 0);
-  const discountPercent = Number(order?.discountPercent) || 0;
-  const discountAmount = subtotal * (discountPercent / 100);
-  const taxableBase = subtotal - discountAmount;
-  const taxPercent = Number(order?.taxPercent ?? config.defaultTaxRate) || 0;
-  const taxAmount = taxableBase * (taxPercent / 100);
-  const tipAmount = Number(order?.tipAmount) || 0;
-  const total = taxableBase + taxAmount + tipAmount;
 
   const handleProductTap = (product: Product) => {
     addItemToOrder(table.id, product, 1);
@@ -599,9 +683,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => removeOrderItem(table.id, item.id)}
+                          onClick={() => eliminarProducto(item.id)}
                           className="p-1 text-slate-400 hover:text-rose-600 transition"
-                          title="Eliminar línea"
+                          title="Eliminar producto"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -707,14 +791,19 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                   <button
                     type="button"
                     onClick={handleSaveAndUpdateComanda}
-                    disabled={isSavingFirebase || items.length === 0}
+                    disabled={isLoading}
                     className="flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs font-extrabold shadow-md shadow-pink-500/20 transition cursor-pointer disabled:opacity-40 w-full sm:w-auto"
                     title="Guardar comanda y sincronizar inmediatamente con Firebase"
                   >
-                    {isSavingFirebase ? (
+                    {isLoading ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin text-white shrink-0" />
                         <span>Guardando...</span>
+                      </>
+                    ) : saveSuccessMsg ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
+                        <span>{saveSuccessMsg}</span>
                       </>
                     ) : (
                       <>

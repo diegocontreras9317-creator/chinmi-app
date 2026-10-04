@@ -216,6 +216,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 order: matchingOrder
               };
             }
+          } else if (matchingOrder && (!matchingOrder.items || matchingOrder.items.length === 0)) {
+            if (tbl.order) {
+              hasChanges = true;
+              return {
+                ...tbl,
+                status: 'libre' as TableStatus,
+                order: undefined
+              };
+            }
           }
           return tbl;
         });

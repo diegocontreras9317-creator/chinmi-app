@@ -20,18 +20,26 @@ export default defineConfig(() => {
           id: '/',
           name: 'Chinmi App - GastroBar & POS',
           short_name: 'ChinmiApp',
-          description: 'Sistema de gestión inteligente para restaurantes, bares y comanderos.',
+          description: 'Sistema de gestión inteligente para restaurantes, bares y comanderos. Control de mesas, inventario y ventas en tiempo real.',
           theme_color: '#e64980',
           background_color: '#111827',
           display: 'standalone',
+          orientation: 'portrait',
           start_url: '/',
           scope: '/',
+          categories: ['food', 'business', 'productivity', 'utilities'],
           icons: [
             {
               src: '/pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any'
+            },
+            {
+              src: '/pwa-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'maskable'
             },
             {
               src: '/pwa-512x512.png',
@@ -44,6 +52,28 @@ export default defineConfig(() => {
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable'
+            },
+            {
+              src: '/pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any maskable'
+            }
+          ],
+          screenshots: [
+            {
+              src: '/screenshot-mobile.png',
+              sizes: '1080x1920',
+              type: 'image/png',
+              form_factor: 'narrow',
+              label: 'Gestión de Comandas y Mesas en Móvil'
+            },
+            {
+              src: '/screenshot-desktop.png',
+              sizes: '1920x1080',
+              type: 'image/png',
+              form_factor: 'wide',
+              label: 'Terminal POS y Control de Inventario en Escritorio'
             }
           ]
         },

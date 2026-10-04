@@ -60,7 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 w-full divide-y divide-slate-100 dark:divide-slate-800/80">
           
           {/* FILA SUPERIOR: Logo, Actualizar, Subir a PRO, Tuerca, Campana, Modo Noche, Usuario */}
-          <div className="flex items-center justify-between h-14 sm:h-16 py-1 sm:py-2 gap-1.5 sm:gap-2 md:gap-3 w-full">
+          <div className="flex items-center justify-between h-14 sm:h-16 py-1 sm:py-2 gap-1.5 sm:gap-2 md:gap-3 w-full overflow-x-auto overflow-y-hidden scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x">
             
             {/* 1. Logo del local (Optimizado para móvil y desktop) */}
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-max">
@@ -82,9 +82,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* 3. Contenedor con Scroll Horizontal (Fallback) y espaciados responsivos (gap-1.5 md:gap-4) */}
             <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4 overflow-x-auto whitespace-nowrap scrollbar-hide w-full justify-end flex-1 min-w-0 py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               
-              {/* Botón de Instalación PWA (Icono en móviles, texto en md+) */}
-              <PWAInstallButton className="inline-flex" />
-
               {/* 1. Actualizar (Cloud Sync) */}
               <button
                 id="cloud-sync-status-btn"
@@ -315,9 +312,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* FILA INFERIOR: Control de Mesas, Carta, Despensa e Historial (Visible en MÓVIL, TABLET y DESKTOP) */}
-          <div className="py-1.5 sm:py-2 flex items-center justify-center w-full">
+          <div className="py-1.5 sm:py-2 flex items-center justify-center w-full max-w-full">
             {isGerente ? (
-              <nav className="w-full sm:w-auto grid grid-cols-4 sm:flex sm:items-center gap-1 sm:gap-2 bg-slate-100/90 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+              <nav className="w-full max-w-full overflow-x-auto overflow-y-hidden flex items-center justify-start sm:justify-center gap-1.5 sm:gap-2 bg-slate-100/90 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-pan-x whitespace-nowrap">
                 
                 {/* 1. Control de Mesas */}
                 <button

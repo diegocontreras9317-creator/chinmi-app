@@ -53,8 +53,8 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
           </span>
         </div>
 
-        {/* 2. Contenedor del lado derecho: flex items-center gap-2 md:gap-4 (espaciado reducido en móvil) */}
-        <div className="flex items-center gap-2 md:gap-4 shrink-0">
+        {/* 2. Contenedor del lado derecho: permite desplazamiento horizontal (scroll) de izquierda a derecha en mobile/tablet */}
+        <div className="flex items-center gap-2 md:gap-4 overflow-x-auto max-w-full whitespace-nowrap scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden shrink-0">
           
           {/* Enlace a Planes y Precios (visible en pantallas medianas y grandes) */}
           {onNavigateTab && (
@@ -71,9 +71,6 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
               <span>Planes y Precios</span>
             </button>
           )}
-
-          {/* Botón PWA (Icono en móviles, texto en md+) */}
-          <PWAInstallButton className="inline-flex shrink-0" />
 
           {/* Theme Toggle (Modo noche / día) */}
           <button

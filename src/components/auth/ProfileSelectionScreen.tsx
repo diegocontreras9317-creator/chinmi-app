@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useApp } from '../../context/AppContext';
 import { Empleado, EmpleadoRol } from '../../types';
 import {
   Lock,
@@ -88,6 +89,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
   onOpenEmployeeManagement
 }) => {
   const { user, empleados, seleccionarEmpleado, logout, crearEmpleado } = useAuth();
+  const { config } = useApp();
 
   const [selectedEmpForPin, setSelectedEmpForPin] = useState<Empleado | null>(null);
   const [pinInput, setPinInput] = useState<string>('');
@@ -203,13 +205,13 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
       {/* Top Header Bar */}
       <div className="w-full max-w-6xl mx-auto flex items-center justify-between py-2 border-b border-slate-800/80">
         <div className="flex items-center gap-3">
-          <ChinmiLogo size="md" />
+          <ChinmiLogo size="md" logoUrl={config.logoUrl || (user as any)?.logoUrl} />
           <div className="hidden sm:block">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
               Terminal POS
             </span>
             <span className="text-sm font-black text-white">
-              {user?.businessName || 'Chinmi GastroBar'}
+              {config.businessName || user?.businessName || 'Chinmi GastroBar'}
             </span>
           </div>
         </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider, useApp } from './context/AppContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
-import { Navbar } from './components/layout/Navbar';
+import { PrivateNavbar } from './components/layout/PrivateNavbar';
 import { TablesModule } from './components/tables/TablesModule';
 import { InventoryModule } from './components/inventory/InventoryModule';
 import { PerishablesModule } from './components/perishables/PerishablesModule';
@@ -60,8 +60,8 @@ const MainLayout: React.FC = () => {
       ) : (
         <div className={`min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors ${theme === 'dark' ? 'dark' : ''}`}>
           
-          {/* Top Navbar */}
-          <Navbar
+          {/* Top Navbar (PrivateNavbar para rutas privadas con branding dinámico de restaurante) */}
+          <PrivateNavbar
             activeTab={activeTab}
             setActiveTab={(tab) => {
               if (tab === 'sales') {

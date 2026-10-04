@@ -7,6 +7,7 @@ interface ChinmiLogoProps {
   className?: string;
   lightText?: boolean;
   logoUrl?: string;
+  isPublicBranding?: boolean;
 }
 
 export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
@@ -15,12 +16,13 @@ export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
   showSubtitle = true,
   className = '',
   lightText = false,
-  logoUrl
+  logoUrl,
+  isPublicBranding = false
 }) => {
   const [imgFailed, setImgFailed] = useState(false);
 
-  // Default to our official pug mascot cocktail logo
-  const effectiveLogoUrl = logoUrl || '/pug_cocktail_logo.png';
+  // Default to our official SaaS pug mascot logo. If isPublicBranding is true, NEVER use dynamic tenant logoUrl
+  const effectiveLogoUrl = isPublicBranding ? '/pug_cocktail_logo.png' : (logoUrl || '/pug_cocktail_logo.png');
 
   // Dimensions according to size - generously sized, clear and impactful
   const iconDimensions = {

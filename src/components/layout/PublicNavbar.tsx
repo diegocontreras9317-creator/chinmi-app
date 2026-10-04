@@ -15,6 +15,11 @@ interface PublicNavbarProps {
  * REGLA ESTRICTA DE BRANDING:
  * El logo mostrado es ESTÁTICO y pertenece únicamente a la marca del SaaS "Chinmi App".
  * BAJO NINGUNA CIRCUNSTANCIA consume el logo de un restaurante particular ni variables de estado de usuario.
+ * 
+ * REGLAS DE DISEÑO RESPONSIVO (MOBILE-FIRST):
+ * 1. Textos colapsados en móviles para evitar cualquier desbordamiento horizontal.
+ * 2. Flexbox fluido con `flex justify-between items-center w-full`.
+ * 3. Contenedor de acciones derecho con `flex items-center gap-2 md:gap-4`.
  */
 export const PublicNavbar: React.FC<PublicNavbarProps> = ({
   activeTab,
@@ -24,10 +29,11 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-30 w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 transition-colors shadow-xs">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+      {/* 2. Contenedor principal con flex justify-between items-center w-full */}
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex justify-between items-center w-full">
         
-        {/* 1. Logo Oficial Estático del SaaS Chinmi App */}
-        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+        {/* 1. Logo Oficial Estático del SaaS Chinmi App (w-auto y shrink-0) */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <button
             type="button"
             onClick={() => onNavigateTab?.('demo')}
@@ -36,26 +42,26 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
           >
             <ChinmiLogo
               variant="horizontal"
-              size="md"
-              showSubtitle={true}
+              size="sm"
+              showSubtitle={false}
               logoUrl="/pug_cocktail_logo.png"
               isPublicBranding={true}
             />
           </button>
-          <span className="hidden sm:inline-flex text-[11px] font-bold px-2.5 py-1 rounded-full bg-pink-100/70 dark:bg-pink-950/60 text-[#681841] dark:text-pink-300 border border-pink-200/80 dark:border-pink-900/60">
+          <span className="hidden lg:inline-flex text-[11px] font-bold px-2.5 py-1 rounded-full bg-pink-100/70 dark:bg-pink-950/60 text-[#681841] dark:text-pink-300 border border-pink-200/80 dark:border-pink-900/60 shrink-0">
             🇨🇴 Precios en COP$
           </span>
         </div>
 
-        {/* 2. Navegación y Acciones Públicas */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+        {/* 2. Contenedor del lado derecho: flex items-center gap-2 md:gap-4 (espaciado reducido en móvil) */}
+        <div className="flex items-center gap-2 md:gap-4 shrink-0">
           
-          {/* Enlace rápido a Precios */}
+          {/* Enlace a Planes y Precios (visible en pantallas medianas y grandes) */}
           {onNavigateTab && (
             <button
               type="button"
               onClick={() => onNavigateTab('pricing')}
-              className={`hidden md:inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
                 activeTab === 'pricing'
                   ? 'bg-pink-50 dark:bg-pink-950/50 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/60'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -66,43 +72,53 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
             </button>
           )}
 
-          {/* Botón PWA */}
-          <PWAInstallButton className="inline-flex" />
+          {/* Botón PWA (Icono en móviles, texto en md+) */}
+          <PWAInstallButton className="inline-flex shrink-0" />
 
-          {/* Theme Toggle */}
+          {/* Theme Toggle (Modo noche / día) */}
           <button
             type="button"
             onClick={toggleTheme}
-            className="p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-xs transition cursor-pointer"
+            className="p-1.5 sm:p-2 md:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-xs transition cursor-pointer shrink-0"
             aria-label="Cambiar tema claro u oscuro"
             title="Cambiar tema"
           >
-            {theme === 'dark' ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />}
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+            )}
           </button>
 
-          {/* Botón Iniciar Sesión / Registro si se proporciona navegación */}
+          {/* Botón Iniciar Sesión / Registro */}
           {onNavigateTab && (
-            <div className="flex items-center gap-1 sm:gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              
+              {/* Botón Acceder: ícono representativo visible en móviles, texto colapsado con hidden md:inline */}
               <button
                 type="button"
                 onClick={() => onNavigateTab('login')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                title="Acceder / Iniciar Sesión"
+                className={`flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 ${
                   activeTab === 'login'
                     ? 'bg-[#681841] text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
                 }`}
               >
-                <span>Acceder</span>
+                <User className="w-4 h-4 text-[#e64980] dark:text-pink-400 shrink-0" />
+                <span className="hidden md:inline">Acceder</span>
               </button>
 
+              {/* Botón Probar Gratis (Oculto en móviles muy pequeños para máxima limpieza, visible en sm+) */}
               <button
                 type="button"
                 onClick={() => onNavigateTab('register')}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs font-extrabold shadow-sm shadow-pink-500/20 transition cursor-pointer"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs font-extrabold shadow-sm shadow-pink-500/20 transition cursor-pointer shrink-0"
               >
                 <span>Probar Gratis</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
+
             </div>
           )}
 
@@ -112,3 +128,5 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
     </header>
   );
 };
+
+export default PublicNavbar;

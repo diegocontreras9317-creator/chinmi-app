@@ -97,10 +97,11 @@ export const PWAInstallButton: React.FC<{ className?: string }> = ({ className =
       onClick={() => {
         alert('Para instalar la app en tu teléfono, abre el menú de tu navegador (3 puntos) y selecciona "Instalar aplicación" o "Agregar a la pantalla principal".');
       }}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-pink-200 dark:border-pink-900/60 bg-pink-50/60 dark:bg-pink-950/30 text-[#681841] dark:text-pink-300 text-xs font-bold shadow-xs transition cursor-pointer ${className}`}
+      className={`inline-flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 md:px-3 md:py-1.5 rounded-xl border border-pink-200 dark:border-pink-900/60 bg-pink-50/60 dark:bg-pink-950/30 text-[#681841] dark:text-pink-300 text-xs font-bold shadow-xs active:scale-95 transition cursor-pointer shrink-0 ${className}`}
+      title="Instalar App Móvil"
     >
-      <Smartphone className="w-4 h-4 text-[#e64980]" />
-      <span>Instalar App Móvil</span>
+      <Smartphone className="w-4 h-4 sm:w-5 sm:h-5 text-[#e64980] shrink-0" />
+      <span className="hidden md:inline">Instalar App Móvil</span>
     </button>
   );
 };

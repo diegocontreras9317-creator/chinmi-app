@@ -621,9 +621,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
             </div>
 
             {/* Items List in Order */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-2">
+            <div className={`flex-1 overflow-y-auto space-y-2 ${items.length === 0 ? 'p-0 md:p-4' : 'p-4'}`}>
               {items.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
+                <div className="hidden md:flex h-full flex-col items-center justify-center text-center p-6 text-slate-400">
                   <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-2">
                     <Receipt className="w-6 h-6" />
                   </div>

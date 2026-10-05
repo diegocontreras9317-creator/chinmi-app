@@ -1,19 +1,4 @@
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { defineConfig } from 'vite';
-import { VitePWA } from 'vite-plugin-pwa';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-export default defineConfig(() => {
-  return {
-    plugins: [
-      react(),
-      tailwindcss(),
-      VitePWA({
+VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pug_cocktail_logo.png'],
         manifest: {
@@ -52,51 +37,7 @@ export default defineConfig(() => {
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable'
-            },
-            {
-              src: '/pwa-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'any maskable'
-            }
-          ],
-          screenshots: [
-            {
-              src: '/screenshot-mobile.png',
-              sizes: '1080x1920',
-              type: 'image/png',
-              form_factor: 'narrow',
-              label: 'Gestión de Comandas y Mesas en Móvil'
-            },
-            {
-              src: '/screenshot-desktop.png',
-              sizes: '1920x1080',
-              type: 'image/png',
-              form_factor: 'wide',
-              label: 'Terminal POS y Control de Inventario en Escritorio'
             }
           ]
-        },
-        workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}']
-        },
-        devOptions: {
-          enabled: true,
-          type: 'module'
         }
       })
-    ],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.')
-      }
-    },
-    build: {
-      chunkSizeWarningLimit: 1600
-    },
-    server: {
-      hmr: process.env.DISABLE_HMR !== 'true',
-      watch: process.env.DISABLE_HMR === 'true' ? null : {}
-    }
-  };
-});

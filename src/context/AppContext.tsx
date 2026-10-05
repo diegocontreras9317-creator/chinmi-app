@@ -169,6 +169,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Ref to track active waiter calls across real-time snapshots to play chime alert for staff
   const prevWaiterCallsRef = React.useRef<Record<string, string>>({});
+  // Ref para tracking de mutaciones locales optimistas recientes y evitar rebotes de onSnapshot
+  const lastLocalTableMutations = React.useRef<Record<string, number>>({});
 
   // Real-time Firestore Subscriptions for authenticated UID
   useEffect(() => {
@@ -196,8 +198,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       });
 
-      tablesRef.current = newTables;
-      setTables(newTables);
+      // Estabilización optimista: Si una mesa fue modificada localmente hace menos de 1500ms,
+      // preservamos el estado local para evitar parpadeos mientras Firestore termina de propagar.
+      const now = Date.now();
+      const current = tablesRef.current;
+      const stabilizedTables = newTables.map(remoteTable => {
+        const lastMutationTime = lastLocalTableMutations.current[remoteTable.id];
+        if (lastMutationTime && now - lastMutationTime < 1500) {
+          const localTable = current.find(t => t.id === remoteTable.id);
+          if (localTable) {
+            return {
+              ...remoteTable,
+              order: localTable.order,
+              status: localTable.status,
+              updatedAt: localTable.updatedAt || remoteTable.updatedAt
+            };
+          }
+        }
+        return remoteTable;
+      });
+
+      tablesRef.current = stabilizedTables;
+      setTables(stabilizedTables);
       setCloudStatus('synced');
     });
 
@@ -460,6 +482,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -528,6 +551,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -568,6 +592,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -599,6 +624,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };
@@ -625,6 +651,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
     persistChanges(nextTables, products, sales);
   };

@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { Table, Product, TableStatus, OrderItem } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import { auth, db } from '../../firebase';
-import { collection, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import {
   saveTableToFirestore,
   saveOrderToFirestore,
@@ -72,30 +72,49 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   const order = table?.order;
   const items: OrderItem[] = order?.items || (order as any)?.productos || [];
 
-  // Filter products for catalog
-  const filteredProducts = products.filter(prod => {
-    const matchesCategory = selectedCategory === 'Todas las categorías' || prod.category === selectedCategory;
-    const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          prod.sku.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // Filter products for catalog with useMemo for smooth performance
+  const filteredProducts = useMemo(() => {
+    return products.filter(prod => {
+      const matchesCategory = selectedCategory === 'Todas las categorías' || prod.category === selectedCategory;
+      const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            prod.sku.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesCategory && matchesSearch;
+    });
+  }, [products, selectedCategory, searchQuery]);
 
-  // Calculation in real time according to local component state
-  const subtotal = (items || []).reduce((acc: number, item: OrderItem) => acc + (Number(item?.unitPrice ?? (item as any)?.price ?? 0) || 0) * (Number(item?.quantity ?? 0) || 0), 0);
-  const discountPercent = Number(order?.discountPercent) || 0;
-  const discountAmount = subtotal * (discountPercent / 100);
-  const taxableBase = subtotal - discountAmount;
-  const taxPercent = Number(order?.taxPercent ?? config.defaultTaxRate) || 0;
-  const taxAmount = taxableBase * (taxPercent / 100);
-  const tipAmount = Number(order?.tipAmount) || 0;
-  const total = taxableBase + taxAmount + tipAmount;
+  // Real-time calculations with useMemo to prevent unneeded recomputations
+  const { subtotal, discountPercent, discountAmount, taxableBase, taxPercent, taxAmount, tipAmount, total } = useMemo(() => {
+    const sub = (items || []).reduce(
+      (acc: number, item: OrderItem) =>
+        acc + (Number(item?.unitPrice ?? (item as any)?.price ?? 0) || 0) * (Number(item?.quantity ?? 0) || 0),
+      0
+    );
+    const discPct = Number(order?.discountPercent) || 0;
+    const discAmt = sub * (discPct / 100);
+    const base = sub - discAmt;
+    const taxPct = Number(order?.taxPercent ?? config.defaultTaxRate) || 0;
+    const taxAmt = base * (taxPct / 100);
+    const tip = Number(order?.tipAmount) || 0;
+    const tot = base + taxAmt + tip;
 
+    return {
+      subtotal: sub,
+      discountPercent: discPct,
+      discountAmount: discAmt,
+      taxableBase: base,
+      taxPercent: taxPct,
+      taxAmount: taxAmt,
+      tipAmount: tip,
+      total: tot
+    };
+  }, [items, order?.discountPercent, order?.taxPercent, order?.tipAmount, config.defaultTaxRate]);
+
+  // Guardar y sincronizar comanda
   const handleSaveAndUpdateComanda = async () => {
     const activeUid = auth.currentUser?.uid || user?.id;
     const nowIso = new Date().toISOString();
     const pedidoId = order?.id || `ord-${table?.id || Date.now()}`;
 
-    // Sanitización y armado del arreglo de productos actualizado
     const cleanItems = (items || []).map((it: OrderItem) => ({
       id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       productId: it.productId || '',
@@ -108,7 +127,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       orderedBy: it.orderedBy || (empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : 'mesero')
     }));
 
-    // Payload actualizado según el estado local del componente (con total y productos actualizados)
     const datosDelPedido = {
       id: pedidoId,
       tableId: table?.id || '',
@@ -133,8 +151,6 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       atendidoPor: empleadoActivo?.nombre || user?.name || 'Mesero'
     };
 
-    // 1. Asegurar la ejecución (Evitar fallas silenciosas):
-    console.log("Iniciando guardado...", datosDelPedido);
     setIsLoading(true);
     setSaveSuccessMsg(null);
 
@@ -149,13 +165,10 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         throw new Error('No hay productos en la comanda para guardar.');
       }
 
-      // 2. Uso correcto de Firestore Update:
-      // setDoc con { merge: true } apuntando a doc(db, 'users', auth.currentUser.uid, 'pedidos', pedidoId)
       const sanitizedOrderPayload = sanitizeForFirestore(datosDelPedido);
       const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
       await setDoc(pedidoRef, sanitizedOrderPayload, { merge: true });
 
-      // Actualizar también la mesa en Firestore users/${uid}/mesas/${table.id}
       const rawTablePayload = {
         id: table.id || '',
         number: Number(table.number) || 1,
@@ -176,13 +189,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
       await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), sanitizedTablePayload, { merge: true });
 
-      // 3. Interfaz de Usuario (Feedback):
-      // Mostrar pequeño mensaje de "Actualizado" y cerrar el modal
-      setSaveSuccessMsg('Actualizado');
+      setSaveSuccessMsg('Comanda guardada');
       setTimeout(() => {
         setSaveSuccessMsg(null);
         onClose();
-      }, 800);
+      }, 700);
     } catch (error: any) {
       console.error("Error al actualizar:", error);
       alert(error?.message || String(error));
@@ -191,89 +202,10 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     }
   };
 
-  // Función exclusiva para eliminar producto con arquitectura de Single Source of Truth
-  const eliminarProducto = async (idEliminar: string) => {
-    try {
-      const activeUid = auth.currentUser?.uid || user?.id;
-      if (!activeUid) {
-        throw new Error('No hay sesión activa de usuario en Firebase.');
-      }
-
-      const pedidoId = order?.id || `ord-${table?.id}`;
-      if (!pedidoId) {
-        throw new Error('No se encontró el ID del pedido para actualizar.');
-      }
-
-      // 2. Cálculo y Sanitización:
-      const productosActuales = items;
-      const nuevosProductos = productosActuales.filter((p: OrderItem) => p.id !== idEliminar);
-
-      // Recalcula el subtotal y total basado en nuevosProductos
-      const nuevoSubtotal = nuevosProductos.reduce(
-        (acc: number, item: OrderItem) =>
-          acc + (Number(item?.unitPrice ?? (item as any)?.price ?? 0) || 0) * (Number(item?.quantity ?? 0) || 0),
-        0
-      );
-      const discPercent = Number(order?.discountPercent) || 0;
-      const discAmount = nuevoSubtotal * (discPercent / 100);
-      const taxBase = nuevoSubtotal - discAmount;
-      const taxRate = Number(order?.taxPercent ?? config.defaultTaxRate) || 0;
-      const taxAmt = taxBase * (taxRate / 100);
-      const tipAmt = Number(order?.tipAmount) || 0;
-      const nuevoTotal = Math.round(taxBase + taxAmt + tipAmt);
-
-      const cleanNuevosProductos = nuevosProductos.map((it: OrderItem) => ({
-        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        productId: it.productId || '',
-        name: it.name || 'Producto',
-        unitPrice: Number(it.unitPrice) || 0,
-        quantity: Number(it.quantity) || 1,
-        notes: it.notes?.trim() || '',
-        addedAt: it.addedAt || new Date().toISOString(),
-        customerName: it.customerName?.trim() || '',
-        orderedBy: it.orderedBy || 'mesero'
-      }));
-
-      // 3. Actualización directa e inmediata a Firestore:
-      // doc(db, 'users', auth.currentUser.uid, 'pedidos', pedidoId)
-      const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
-      await updateDoc(pedidoRef, {
-        productos: cleanNuevosProductos,
-        items: cleanNuevosProductos,
-        subtotal: Math.round(nuevoSubtotal),
-        total: nuevoTotal,
-        lastUpdatedAt: new Date().toISOString()
-      });
-
-      // Sincronizar también la mesa en Firestore
-      if (table?.id) {
-        const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
-        if (cleanNuevosProductos.length === 0) {
-          await updateDoc(mesaRef, {
-            order: null,
-            status: 'libre',
-            updatedAt: new Date().toISOString()
-          });
-        } else {
-          await updateDoc(mesaRef, {
-            'order.items': cleanNuevosProductos,
-            'order.productos': cleanNuevosProductos,
-            'order.subtotal': Math.round(nuevoSubtotal),
-            'order.total': nuevoTotal,
-            'order.lastUpdatedAt': new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-        }
-      }
-
-      // 1. Única fuente de la verdad (Single Source of Truth):
-      // NO actualices el estado local de React manualmente (setProductos(...)) cuando se presione la papelera.
-      // onSnapshot actualiza la UI automáticamente cuando Firebase confirme el cambio.
-    } catch (error: any) {
-      // 4. Captura del Error Silencioso (CRÍTICO):
-      console.error('Error al borrar en Firebase:', error);
-      alert('Error al borrar en Firebase: ' + error.message);
-    }
+  // Actualización optimista instantánea para eliminar producto (0ms latencia)
+  const eliminarProducto = (idEliminar: string) => {
+    if (!table?.id) return;
+    removeOrderItem(table.id, idEliminar);
   };
 
   if (!isOpen) return null;

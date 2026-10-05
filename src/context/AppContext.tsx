@@ -17,7 +17,8 @@ import {
   deleteProductFromFirestore,
   saveInventoryItemToFirestore,
   deleteInventoryItemFromFirestore,
-  saveSaleToFirestore
+  saveSaleToFirestore,
+  releaseTableInFirestore
 } from '../services/firestoreUserStorage';
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
@@ -704,7 +705,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
-    // 3. Record sales receipt
+    // 3. Record sales receipt & persist immediately
     const nextSales = [receipt, ...sales];
 
     tablesRef.current = nextTables;
@@ -713,6 +714,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSales(nextSales);
     setLatestReceipt(receipt);
     persistChanges(nextTables, nextProducts, nextSales);
+
+    // 4. Actualización directa e inmediata en Firestore para liberar la mesa sin desfases
+    if (activeUid && activeUid !== 'default') {
+      releaseTableInFirestore(tableId, order.id, activeUid).catch(err => {
+        console.error('Error liberando mesa en Firestore:', err);
+      });
+      saveSaleToFirestore(receipt, activeUid).catch(err => {
+        console.error('Error guardando venta en Firestore:', err);
+      });
+    }
 
     return { success: true, receipt };
   };

@@ -3,6 +3,7 @@ import {
   doc,
   getDocs,
   setDoc,
+  updateDoc,
   deleteDoc,
   onSnapshot,
   Unsubscribe,
@@ -315,7 +316,17 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
     // Sincronizar Mesas y sus Pedidos
     for (const tbl of data.tables || []) {
       if (tbl.id) {
-        await setDoc(doc(db, 'users', uid, 'mesas', tbl.id), sanitizeForFirestore({ ...tbl, userId: uid }), { merge: true });
+        const cleanTable = {
+          ...tbl,
+          userId: uid,
+          status: tbl.status || 'libre',
+          estado: tbl.status || 'libre',
+          order: tbl.order ? sanitizeForFirestore(tbl.order) : null,
+          currentOrder: tbl.order ? sanitizeForFirestore(tbl.order) : null,
+          pedidoActual: tbl.order ? sanitizeForFirestore(tbl.order) : null,
+          waiterCall: tbl.waiterCall ? sanitizeForFirestore(tbl.waiterCall) : null
+        };
+        await setDoc(doc(db, 'users', uid, 'mesas', tbl.id), cleanTable);
         if (tbl.order && tbl.order.id) {
           await setDoc(doc(db, 'users', uid, 'pedidos', tbl.order.id), sanitizeForFirestore({ ...tbl.order, userId: uid }), { merge: true });
         }
@@ -386,13 +397,71 @@ export async function saveTableToFirestore(table: Table, targetUid?: string): Pr
   if (!uid || !table.id) return;
   const path = `users/${uid}/mesas/${table.id}`;
   try {
-    const cleanTable = sanitizeForFirestore({ ...table, userId: uid });
-    await setDoc(doc(db, 'users', uid, 'mesas', table.id), cleanTable, { merge: true });
+    const cleanTable = {
+      ...table,
+      userId: uid,
+      status: table.status || 'libre',
+      estado: table.status || 'libre',
+      order: table.order ? sanitizeForFirestore(table.order) : null,
+      currentOrder: table.order ? sanitizeForFirestore(table.order) : null,
+      pedidoActual: table.order ? sanitizeForFirestore(table.order) : null,
+      waiterCall: table.waiterCall ? sanitizeForFirestore(table.waiterCall) : null
+    };
+    await setDoc(doc(db, 'users', uid, 'mesas', table.id), cleanTable);
     if (table.order && table.order.id) {
       await saveOrderToFirestore(table.order, uid);
     }
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
+    throw err;
+  }
+}
+
+/**
+ * Libera una mesa tras el cobro o pago exitoso en Firestore.
+ * Actualiza el estado de la mesa a 'libre' / 'disponible', establece el pedidoActual/order a null,
+ * limpia las alertas de mesero y marca la comanda activa como cerrada/cobrada.
+ */
+export async function releaseTableInFirestore(
+  tableId: string,
+  orderId?: string,
+  targetUid?: string
+): Promise<void> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid || !tableId) return;
+  const tablePath = `users/${uid}/mesas/${tableId}`;
+  const nowIso = new Date().toISOString();
+
+  try {
+    const tableRef = doc(db, 'users', uid, 'mesas', tableId);
+
+    // 1. Actualización inmediata del documento de la mesa mediante updateDoc
+    await updateDoc(tableRef, {
+      status: 'libre',
+      estado: 'libre',
+      order: null,
+      currentOrder: null,
+      pedidoActual: null,
+      waiterCall: null,
+      updatedAt: nowIso
+    });
+
+    // 2. Marcar la comanda/pedido como cerrada para que no queden rastros
+    if (orderId) {
+      try {
+        const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
+        await updateDoc(orderRef, {
+          status: 'cobrado',
+          estado: 'cerrado',
+          closed: true,
+          closedAt: nowIso
+        });
+      } catch (orderErr) {
+        console.warn('Nota: Pedido no requirió actualización adicional:', orderErr);
+      }
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, tablePath);
     throw err;
   }
 }

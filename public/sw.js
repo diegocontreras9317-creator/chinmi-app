@@ -3,7 +3,7 @@ const CACHE_NAME = 'chinmi-app-v1';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
-  '/manifest.webmanifest',
+  '/manifest.json',
   '/pug_cocktail_logo.png',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
@@ -39,7 +39,6 @@ self.addEventListener('activate', (event) => {
 
 // Evento Fetch: Estrategia Network-First con fallback a Caché para navegación offline
 self.addEventListener('fetch', (event) => {
-  // Filtrar peticiones no GET o esquemas no HTTP/HTTPS (extensiones, sockets, etc.)
   if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) {
     return;
   }

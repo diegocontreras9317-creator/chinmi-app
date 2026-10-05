@@ -142,6 +142,18 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     setDetailNotes('');
   };
 
+  // Configuración de Impuestos para Colombia (Impoconsumo 8% o IVA según configuración del negocio)
+  const taxRate = Number(config.defaultTaxRate) || 8;
+
+  /**
+   * En Colombia los precios del menú digital QR deben mostrarse obligatoriamente con impuestos incluidos (Impoconsumo/IVA)
+   * para coincidir 1:1 con el ticket de caja, la comanda y la cuenta final del cliente.
+   */
+  const getTaxInclusivePrice = (basePrice: number): number => {
+    if (isNaN(basePrice) || basePrice <= 0) return 0;
+    return Math.round(basePrice * (1 + taxRate / 100));
+  };
+
   // Filter products
   const filteredProducts = useMemo(() => {
     return activeProducts.filter(p => {
@@ -152,14 +164,22 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     });
   }, [activeProducts, selectedCategory, searchQuery]);
 
-  // Cart totals
+  // Cart totals (Base, Impuestos y Total Final con impuestos incluidos)
   const cartItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
-  const cartSubtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
+  const cartBaseSubtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
+  const cartTaxAmount = Math.round(cartBaseSubtotal * (taxRate / 100));
+  const cartTaxInclusiveTotal = cart.reduce(
+    (acc, item) => acc + getTaxInclusivePrice(item.product.price) * item.quantity,
+    0
+  );
 
-  // Existing table order totals (items already ordered and cooking)
+  // Existing table order totals (items ya pedidos en comanda con impuestos incluidos)
   const existingOrder = table?.order;
   const existingItemsCount = existingOrder?.items.reduce((acc, it) => acc + it.quantity, 0) || 0;
-  const existingSubtotal = existingOrder?.items.reduce((acc, it) => acc + it.unitPrice * it.quantity, 0) || 0;
+  const existingBaseSubtotal = existingOrder?.items.reduce((acc, it) => acc + it.unitPrice * it.quantity, 0) || 0;
+  const existingOrderTaxRate = Number(existingOrder?.taxPercent ?? taxRate) || taxRate;
+  const existingTaxAmount = Math.round(existingBaseSubtotal * (existingOrderTaxRate / 100));
+  const existingTaxInclusiveTotal = Math.round(existingBaseSubtotal + existingTaxAmount);
 
   // Add product to cart
   const handleAddToCart = (product: Product, notes?: string) => {
@@ -449,6 +469,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 </span>
                 <span>·</span>
                 <span>{table.zone}</span>
+                <span>·</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-pink-100 dark:bg-pink-950/80 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/60">
+                  🇨🇴 Impuestos ({taxRate}%) incl.
+                </span>
               </div>
             </div>
           </div>
@@ -523,7 +547,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <div>
                 <p className="font-bold text-xs sm:text-sm">¡Cuenta solicitada!</p>
                 <p className="text-[11px] text-purple-100">
-                  El personal llevará el total a tu mesa. Total actual: {formatCOP(existingSubtotal)}.
+                  El personal llevará el total a tu mesa. Total actual: {formatCOP(existingTaxInclusiveTotal)}.
                 </p>
               </div>
             </div>
@@ -700,9 +724,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                           )}
                         </div>
 
-                        <div className="mt-2">
-                          <span className="font-mono font-black text-sm text-[#681841] dark:text-pink-300">
-                            {formatCOP(product.price)}
+                        <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
+                          <span className="font-mono font-black text-sm sm:text-base text-[#681841] dark:text-pink-300">
+                            {formatCOP(getTaxInclusivePrice(product.price))}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-semibold">
+                            (Imp. incl.)
                           </span>
                         </div>
                       </div>
@@ -794,38 +821,51 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-[#681841] dark:text-pink-400" />
-                <h4 className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white">
-                  Consumo Acumulado en Mesa {table.number}
-                </h4>
+                <div>
+                  <h4 className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white">
+                    Consumo Acumulado en Mesa {table.number}
+                  </h4>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Base: {formatCOP(existingBaseSubtotal)} · Impuesto ({existingOrderTaxRate}%): {formatCOP(existingTaxAmount)}
+                  </p>
+                </div>
               </div>
-              <span className="font-mono font-black text-sm text-[#681841] dark:text-pink-300">
-                {formatCOP(existingSubtotal)}
-              </span>
+              <div className="text-right">
+                <span className="font-mono font-black text-sm text-[#681841] dark:text-pink-300 block">
+                  {formatCOP(existingTaxInclusiveTotal)}
+                </span>
+                <span className="text-[10px] text-slate-400 font-semibold block">
+                  (Total a pagar)
+                </span>
+              </div>
             </div>
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-              {existingOrder?.items.map((it) => (
-                <div key={it.id} className="py-2 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-400 w-5 text-center">
-                      {it.quantity}x
-                    </span>
-                    <div>
-                      <span className="font-medium text-slate-800 dark:text-slate-200">
-                        {it.name}
+              {existingOrder?.items.map((it) => {
+                const itemInclusiveUnitPrice = Math.round(it.unitPrice * (1 + existingOrderTaxRate / 100));
+                return (
+                  <div key={it.id} className="py-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-400 w-5 text-center">
+                        {it.quantity}x
                       </span>
-                      {it.notes && (
-                        <p className="text-[10px] text-pink-600 dark:text-pink-400 italic">
-                          Nota: {it.notes}
-                        </p>
-                      )}
+                      <div>
+                        <span className="font-medium text-slate-800 dark:text-slate-200">
+                          {it.name}
+                        </span>
+                        {it.notes && (
+                          <p className="text-[10px] text-pink-600 dark:text-pink-400 italic">
+                            Nota: {it.notes}
+                          </p>
+                        )}
+                      </div>
                     </div>
+                    <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                      {formatCOP(itemInclusiveUnitPrice * it.quantity)}
+                    </span>
                   </div>
-                  <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                    {formatCOP(it.unitPrice * it.quantity)}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Request Bill Button in summary */}
@@ -863,7 +903,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 </div>
                 <span>Ver Mi Pedido ({cartItemsCount})</span>
               </div>
-              <span className="font-mono font-black">{formatCOP(cartSubtotal)}</span>
+              <span className="font-mono font-black">{formatCOP(cartTaxInclusiveTotal)}</span>
             </button>
           ) : (
             /* If no items in cart or in menuOnly mode: Provide prominent Waiter & Bill buttons */
@@ -1009,13 +1049,18 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             </div>
 
             {existingItemsCount > 0 ? (
-              <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 flex items-center justify-between">
-                <span className="text-xs font-semibold text-purple-900 dark:text-purple-200">
-                  Total de tu consumo:
-                </span>
-                <span className="font-mono font-black text-base text-[#681841] dark:text-pink-300">
-                  {formatCOP(existingSubtotal)}
-                </span>
+              <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-purple-900 dark:text-purple-200">
+                    Total a pagar:
+                  </span>
+                  <span className="font-mono font-black text-base text-[#681841] dark:text-pink-300">
+                    {formatCOP(existingTaxInclusiveTotal)}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  Incluye consumo base ({formatCOP(existingBaseSubtotal)}) e Impoconsumo/IVA ({existingOrderTaxRate}%: {formatCOP(existingTaxAmount)})
+                </p>
               </div>
             ) : (
               <p className="text-xs text-slate-500">
@@ -1161,7 +1206,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                         {item.product.name}
                       </h5>
                       <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                        {formatCOP(item.product.price)} c/u
+                        {formatCOP(getTaxInclusivePrice(item.product.price))} c/u (Imp. incl.)
                       </span>
                       {item.notes && (
                         <p className="text-[10px] text-pink-600 dark:text-pink-400 italic truncate">
@@ -1205,11 +1250,17 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
             {/* Drawer Footer & Send Button */}
             <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-semibold text-slate-500">Total a pedir:</span>
-                <span className="font-mono font-black text-lg text-slate-900 dark:text-white">
-                  {formatCOP(cartSubtotal)}
-                </span>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-bold text-slate-700 dark:text-slate-200">Total a pedir:</span>
+                  <span className="font-mono font-black text-lg text-[#681841] dark:text-pink-300">
+                    {formatCOP(cartTaxInclusiveTotal)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                  <span>Base consumo: {formatCOP(cartBaseSubtotal)}</span>
+                  <span>Impoconsumo/IVA ({taxRate}%): {formatCOP(cartTaxAmount)}</span>
+                </div>
               </div>
 
               <button
@@ -1309,12 +1360,17 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
             {/* Modal Body */}
             <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
-              <div className="flex items-baseline justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  Precio unitario
-                </span>
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div>
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
+                    Precio unitario (Imp. incl.)
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">
+                    Base: {formatCOP(selectedProductForDetail.price)} + Imp. ({taxRate}%): {formatCOP(getTaxInclusivePrice(selectedProductForDetail.price) - selectedProductForDetail.price)}
+                  </span>
+                </div>
                 <span className="font-mono font-black text-xl text-[#681841] dark:text-pink-300">
-                  {formatCOP(selectedProductForDetail.price)}
+                  {formatCOP(getTaxInclusivePrice(selectedProductForDetail.price))}
                 </span>
               </div>
 
@@ -1408,7 +1464,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 >
                   <Plus className="w-4 h-4" />
                   <span>
-                    Añadir al pedido · {formatCOP(selectedProductForDetail.price * detailQuantity)}
+                    Añadir al pedido · {formatCOP(getTaxInclusivePrice(selectedProductForDetail.price) * detailQuantity)}
                   </span>
                 </button>
               )}

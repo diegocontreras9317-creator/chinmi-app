@@ -412,7 +412,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   if (isQrLoading) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-12 h-12 rounded-full border-4 border-pink-200 dark:border-pink-950 border-t-[#681841] dark:border-t-pink-500 animate-spin mb-4" />
+        <div className="w-12 h-12 rounded-full border-4 border-stone-200 dark:border-stone-800 border-t-rose-950 dark:border-t-rose-400 animate-spin mb-4" />
         <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">Cargando menú de la mesa...</p>
       </div>
     );
@@ -421,7 +421,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   if (!urlUid || !urlMesa || !table) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-20 h-24 rounded-3xl bg-pink-100 dark:bg-pink-950/80 text-[#681841] dark:text-pink-300 flex items-center justify-center text-4xl mb-5 shadow-lg border border-pink-200 dark:border-pink-900/60">
+        <div className="w-20 h-24 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 flex items-center justify-center text-4xl mb-5 shadow-xs border border-stone-200 dark:border-stone-700">
           📱
         </div>
         <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white max-w-sm">
@@ -430,17 +430,17 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-md mt-2 mb-8 leading-relaxed">
           Para consultar la carta digital, pedir platos o llamar al mesero, apunta la cámara de tu celular al código QR ubicado sobre tu mesa.
         </p>
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm text-left max-w-xs w-full space-y-2.5 mb-6">
+        <div className="p-4 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs text-left max-w-xs w-full space-y-2.5 mb-6">
           <div className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-semibold">
-            <span className="w-5 h-5 rounded-full bg-[#681841] text-white flex items-center justify-center font-bold text-[10px]">1</span>
+            <span className="w-5 h-5 rounded-md bg-rose-950 text-white flex items-center justify-center font-bold text-[10px]">1</span>
             <span>Abre la cámara de tu celular</span>
           </div>
           <div className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-semibold">
-            <span className="w-5 h-5 rounded-full bg-[#681841] text-white flex items-center justify-center font-bold text-[10px]">2</span>
+            <span className="w-5 h-5 rounded-md bg-rose-950 text-white flex items-center justify-center font-bold text-[10px]">2</span>
             <span>Apunta al código QR de la mesa</span>
           </div>
           <div className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 font-semibold">
-            <span className="w-5 h-5 rounded-full bg-[#681841] text-white flex items-center justify-center font-bold text-[10px]">3</span>
+            <span className="w-5 h-5 rounded-md bg-rose-950 text-white flex items-center justify-center font-bold text-[10px]">3</span>
             <span>Accede al menú interactivo</span>
           </div>
         </div>
@@ -464,13 +464,13 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <span>{config.businessName}</span>
               </h1>
               <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                <span className="font-bold text-[#681841] dark:text-pink-400">
+                <span className="font-bold text-rose-950 dark:text-rose-400">
                   📍 Mesa {table.number}
                 </span>
                 <span>·</span>
                 <span>{table.zone}</span>
                 <span>·</span>
-                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-pink-100 dark:bg-pink-950/80 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/60">
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700">
                   🇨🇴 Impuestos ({taxRate}%) incl.
                 </span>
               </div>
@@ -585,9 +585,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
         {/* Informative Banner for "Solo Ver Menú" mode */}
         {isMenuOnly && (
-          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-pink-50 to-rose-50 dark:from-pink-950/40 dark:to-rose-950/30 border border-pink-200 dark:border-pink-900/60 flex items-center justify-between gap-3">
+          <div className="p-3.5 rounded-md bg-stone-50 dark:bg-stone-900/50 border border-stone-200 dark:border-stone-800 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-[#681841] text-white">
+              <div className="p-2 rounded-md bg-rose-950 text-white">
                 <Eye className="w-4 h-4" />
               </div>
               <div>
@@ -603,7 +603,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCallWaiterModalOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-[#681841] hover:bg-[#571436] text-white font-bold text-xs shadow-xs shrink-0 cursor-pointer"
+                className="px-3 py-1.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs shadow-xs shrink-0 cursor-pointer"
               >
                 Llamar Mesero
               </button>
@@ -612,7 +612,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         )}
 
         {/* Search & Category Filter Navigation */}
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-md border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
           {/* Search Box */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -621,7 +621,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar platos, bebidas, cócteles o ingredientes..."
-              className="w-full pl-9 pr-4 py-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-[#681841]/50"
+              className="w-full pl-9 pr-4 py-2.5 text-xs rounded-md bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
             />
             {searchQuery && (
               <button
@@ -671,10 +671,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 return (
                   <div
                     key={product.id}
-                    className={`p-3 sm:p-3.5 rounded-3xl bg-white dark:bg-slate-900 border transition flex flex-col justify-between overflow-hidden relative group ${
+                    className={`p-3 sm:p-3.5 rounded-md bg-white dark:bg-slate-900 border transition flex flex-col justify-between overflow-hidden relative group ${
                       isOutOfStock
                         ? 'opacity-65 border-slate-200 dark:border-slate-800'
-                        : 'border-slate-200 dark:border-slate-800 shadow-xs hover:border-pink-300 dark:hover:border-pink-900 hover:shadow-md'
+                        : 'border-slate-200 dark:border-slate-800 shadow-xs hover:border-slate-400 dark:hover:border-slate-600'
                     }`}
                   >
                     <div className="flex gap-3 items-start">
@@ -682,7 +682,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       <div
                         onClick={() => openProductDetail(product)}
                         title="Toca para ver foto ampliada y detalles"
-                        className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 relative cursor-pointer group/img border border-slate-200/60 dark:border-slate-700/60"
+                        className="w-24 h-24 sm:w-28 sm:h-28 rounded-md overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 relative cursor-pointer group/img border border-slate-200/60 dark:border-slate-700/60"
                       >
                         <img
                           src={product.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'}
@@ -707,13 +707,13 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
                         <div>
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-[10px] font-bold text-pink-600 dark:text-pink-400 uppercase tracking-wider block truncate">
+                            <span className="text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider block truncate">
                               {product.category}
                             </span>
                           </div>
                           <h4
                             onClick={() => openProductDetail(product)}
-                            className="font-bold text-sm text-slate-900 dark:text-white leading-snug cursor-pointer hover:text-[#681841] dark:hover:text-pink-300 transition-colors line-clamp-2 mt-0.5"
+                            className="font-bold text-sm text-slate-900 dark:text-white leading-snug cursor-pointer hover:text-rose-900 dark:hover:text-rose-400 transition-colors line-clamp-2 mt-0.5"
                           >
                             {product.name}
                           </h4>
@@ -725,7 +725,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                         </div>
 
                         <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
-                          <span className="font-mono font-black text-sm sm:text-base text-[#681841] dark:text-pink-300">
+                          <span className="font-mono font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
                             {formatCOP(getTaxInclusivePrice(product.price))}
                           </span>
                           <span className="text-[10px] text-slate-400 font-semibold">
@@ -749,24 +749,24 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       {canOrder ? (
                         <div className="flex items-center gap-1.5">
                           {inCartItem ? (
-                            <div className="flex items-center gap-1 bg-pink-50 dark:bg-pink-950/60 p-1 rounded-xl border border-pink-200 dark:border-pink-900">
+                            <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 p-1 rounded-md border border-stone-200 dark:border-stone-700">
                               <button
                                 type="button"
                                 onClick={() => {
                                   const idx = cart.findIndex(c => c.product.id === product.id);
                                   if (idx > -1) handleUpdateCartQuantity(idx, -1);
                                 }}
-                                className="w-6 h-6 rounded-lg bg-white dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-xs hover:bg-slate-100"
+                                className="w-6 h-6 rounded-md bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-xs hover:bg-slate-100"
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
-                              <span className="w-5 text-center font-bold text-xs text-[#681841] dark:text-pink-300">
+                              <span className="w-5 text-center font-bold text-xs text-stone-900 dark:text-stone-100">
                                 {inCartItem.quantity}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
-                                className="w-6 h-6 rounded-lg bg-[#681841] text-white flex items-center justify-center shadow-xs hover:bg-[#571436]"
+                                className="w-6 h-6 rounded-md bg-rose-950 text-white flex items-center justify-center shadow-xs hover:bg-rose-900"
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
@@ -781,7 +781,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                                 }}
                                 disabled={isOutOfStock}
                                 title="Añadir nota especial (ej. sin cebolla)"
-                                className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                                className="p-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
                               >
                                 <MessageSquare className="w-3.5 h-3.5" />
                               </button>
@@ -789,7 +789,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
                                 disabled={isOutOfStock}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#681841] hover:bg-[#571436] disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-rose-950 hover:bg-rose-900 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 <span>Añadir</span>
@@ -802,7 +802,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                         <button
                           type="button"
                           onClick={() => openProductDetail(product)}
-                          className="text-[11px] font-semibold text-pink-700 dark:text-pink-300 bg-pink-50 dark:bg-pink-950/60 border border-pink-200 dark:border-pink-900 px-2.5 py-1 rounded-lg hover:bg-pink-100 transition cursor-pointer"
+                          className="text-[11px] font-semibold text-stone-800 dark:text-stone-200 bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 px-2.5 py-1 rounded-md hover:bg-stone-200 transition cursor-pointer"
                         >
                           Ver detalle
                         </button>
@@ -817,10 +817,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
         {/* Existing Consumption Summary on this Table */}
         {existingItemsCount > 0 && (
-          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+          <div className="p-4 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-[#681841] dark:text-pink-400" />
+                <Receipt className="w-4 h-4 text-stone-700 dark:text-stone-300" />
                 <div>
                   <h4 className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white">
                     Consumo Acumulado en Mesa {table.number}
@@ -831,7 +831,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 </div>
               </div>
               <div className="text-right">
-                <span className="font-mono font-black text-sm text-[#681841] dark:text-pink-300 block">
+                <span className="font-mono font-black text-sm text-stone-900 dark:text-stone-100 block">
                   {formatCOP(existingTaxInclusiveTotal)}
                 </span>
                 <span className="text-[10px] text-slate-400 font-semibold block">
@@ -854,7 +854,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                           {it.name}
                         </span>
                         {it.notes && (
-                          <p className="text-[10px] text-pink-600 dark:text-pink-400 italic">
+                          <p className="text-[10px] text-stone-500 dark:text-stone-400 italic">
                             Nota: {it.notes}
                           </p>
                         )}
@@ -895,10 +895,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="flex-1 py-3 px-4 rounded-2xl bg-[#681841] hover:bg-[#571436] text-white font-extrabold text-sm shadow-md shadow-[#681841]/25 flex items-center justify-between transition cursor-pointer"
+              className="flex-1 py-3 px-4 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-extrabold text-sm shadow-xs flex items-center justify-between transition cursor-pointer"
             >
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-xl bg-white/20 flex items-center justify-center font-bold text-xs">
+                <div className="w-7 h-7 rounded-md bg-white/20 flex items-center justify-center font-bold text-xs">
                   {cartItemsCount}
                 </div>
                 <span>Ver Mi Pedido ({cartItemsCount})</span>
@@ -912,14 +912,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsCallWaiterModalOpen(true)}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition cursor-pointer shadow-xs ${
+                  className={`py-2.5 px-3 rounded-md font-bold text-xs flex items-center justify-center gap-1.5 border transition cursor-pointer shadow-xs ${
                     isWaiterCurrentlyCalled
                       ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
                       : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-900/70 hover:bg-amber-100'
                   }`}
                 >
                   <BellRing className="w-4 h-4" />
-                  <span>Llamar al Mesero</span>
+                  <span>{isWaiterCurrentlyCalled ? 'Mesero en camino...' : 'Llamar al Mesero'}</span>
                 </button>
               )}
 
@@ -927,14 +927,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsRequestBillModalOpen(true)}
-                  className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition cursor-pointer shadow-xs ${
+                  className={`py-2.5 px-3 rounded-md font-bold text-xs flex items-center justify-center gap-1.5 border transition cursor-pointer shadow-xs ${
                     isBillCurrentlyRequested
-                      ? 'bg-purple-100 text-purple-900 border-purple-300 animate-pulse'
-                      : 'bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-900/70 hover:bg-purple-100'
+                      ? 'bg-stone-200 text-stone-900 border-stone-400 animate-pulse'
+                      : 'bg-stone-900 text-white border-stone-800 hover:bg-stone-800'
                   }`}
                 >
                   <CreditCard className="w-4 h-4" />
-                  <span>Pedir la Cuenta</span>
+                  <span>{isBillCurrentlyRequested ? 'Cuenta pedida' : 'Pedir la Cuenta'}</span>
                 </button>
               )}
             </div>
@@ -1049,12 +1049,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             </div>
 
             {existingItemsCount > 0 ? (
-              <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/50 space-y-1">
+              <div className="p-3 rounded-md bg-stone-100 dark:bg-stone-850 border border-stone-200 dark:border-stone-700 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-purple-900 dark:text-purple-200">
+                  <span className="text-xs font-semibold text-stone-900 dark:text-stone-100">
                     Total a pagar:
                   </span>
-                  <span className="font-mono font-black text-base text-[#681841] dark:text-pink-300">
+                  <span className="font-mono font-black text-base text-stone-900 dark:text-stone-100">
                     {formatCOP(existingTaxInclusiveTotal)}
                   </span>
                 </div>
@@ -1076,9 +1076,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setPaymentMethodChoice('tarjeta')}
-                  className={`p-2.5 rounded-xl border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
+                  className={`p-2.5 rounded-md border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethodChoice === 'tarjeta'
-                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 ring-2 ring-purple-500/20'
+                      ? 'border-stone-900 bg-stone-900 text-white'
                       : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                   }`}
                 >
@@ -1089,9 +1089,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setPaymentMethodChoice('efectivo')}
-                  className={`p-2.5 rounded-xl border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
+                  className={`p-2.5 rounded-md border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethodChoice === 'efectivo'
-                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 ring-2 ring-purple-500/20'
+                      ? 'border-stone-900 bg-stone-900 text-white'
                       : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                   }`}
                 >
@@ -1102,9 +1102,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setPaymentMethodChoice('transferencia')}
-                  className={`p-2.5 rounded-xl border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
+                  className={`p-2.5 rounded-md border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethodChoice === 'transferencia'
-                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 ring-2 ring-purple-500/20'
+                      ? 'border-stone-900 bg-stone-900 text-white'
                       : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                   }`}
                 >
@@ -1124,7 +1124,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   value={cashAmountNote}
                   onChange={(e) => setCashAmountNote(e.target.value)}
                   placeholder="Ej. $50.000 o $100.000"
-                  className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                  className="w-full p-2.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
             )}
@@ -1133,14 +1133,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsRequestBillModalOpen(false)}
-                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs"
+                className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleConfirmRequestBill}
-                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-md shadow-purple-600/20 flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2 rounded-md bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <CreditCard className="w-3.5 h-3.5" />
                 <span>Solicitar la Cuenta</span>
@@ -1153,12 +1153,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       {/* Cart Drawer Modal */}
       {isCartOpen && canOrder && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[85vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-t-lg sm:rounded-lg shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[85vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200">
             
             {/* Drawer Header */}
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ShoppingBag className="w-5 h-5 text-[#681841] dark:text-pink-400" />
+                <ShoppingBag className="w-5 h-5 text-rose-950 dark:text-rose-400" />
                 <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
                   Mi Pedido · Mesa {table.number}
                 </h3>
@@ -1166,7 +1166,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCartOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1183,7 +1183,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Ej. Juan, María, Carlos..."
-                className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                className="w-full px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
               />
             </div>
 
@@ -1193,7 +1193,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 {cart.map((item, idx) => (
                   <div key={`${item.product.id}-${idx}`} className="py-2.5 flex items-center justify-between gap-3">
                     {/* Item Image Thumbnail */}
-                    <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border border-slate-200 dark:border-slate-700">
+                    <div className="w-12 h-12 rounded-md overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 border border-slate-200 dark:border-slate-700">
                       <img
                         src={item.product.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=120&q=80'}
                         alt={item.product.name}
@@ -1209,7 +1209,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                         {formatCOP(getTaxInclusivePrice(item.product.price))} c/u (Imp. incl.)
                       </span>
                       {item.notes && (
-                        <p className="text-[10px] text-pink-600 dark:text-pink-400 italic truncate">
+                        <p className="text-[10px] text-stone-500 dark:text-stone-400 italic truncate">
                           Nota: {item.notes}
                         </p>
                       )}
@@ -1219,7 +1219,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleUpdateCartQuantity(idx, -1)}
-                        className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        className="w-7 h-7 rounded-md border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -1229,7 +1229,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleUpdateCartQuantity(idx, 1)}
-                        className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        className="w-7 h-7 rounded-md border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -1253,7 +1253,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-bold text-slate-700 dark:text-slate-200">Total a pedir:</span>
-                  <span className="font-mono font-black text-lg text-[#681841] dark:text-pink-300">
+                  <span className="font-mono font-black text-lg text-rose-950 dark:text-rose-300">
                     {formatCOP(cartTaxInclusiveTotal)}
                   </span>
                 </div>
@@ -1266,7 +1266,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <button
                 type="button"
                 onClick={handleSendOrder}
-                className="w-full py-3 px-4 rounded-2xl bg-[#681841] hover:bg-[#571436] text-white font-extrabold text-sm shadow-md shadow-[#681841]/25 flex items-center justify-center gap-2 transition cursor-pointer"
+                className="w-full py-3 px-4 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-extrabold text-sm shadow-xs flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <Send className="w-4 h-4" />
                 <span>Enviar Pedido Directo a Cocina</span>
@@ -1280,14 +1280,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       {/* Item Custom Note Modal */}
       {activeItemForNote && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-lg p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
             <div className="flex items-center justify-between">
               <h4 className="font-bold text-sm text-slate-900 dark:text-white">
                 Nota para {activeItemForNote.name}
               </h4>
               <button
                 onClick={() => setActiveItemForNote(null)}
-                className="p-1 text-slate-400 hover:text-slate-600"
+                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1298,14 +1298,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               value={itemNoteText}
               onChange={(e) => setItemNoteText(e.target.value)}
               placeholder="Ej. Sin cebolla, término medio, hielo aparte..."
-              className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-[#681841]/50"
+              className="w-full p-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-rose-900/50"
             />
 
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setActiveItemForNote(null)}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs"
+                className="px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer"
               >
                 Cancelar
               </button>
@@ -1315,7 +1315,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   handleAddToCart(activeItemForNote, itemNoteText);
                   setActiveItemForNote(null);
                 }}
-                className="px-4 py-1.5 rounded-xl bg-[#681841] text-white font-bold text-xs shadow-xs"
+                className="px-4 py-1.5 rounded-md bg-rose-950 text-white font-bold text-xs shadow-xs hover:bg-rose-900 cursor-pointer"
               >
                 Añadir al Pedido
               </button>
@@ -1327,7 +1327,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       {/* DISH PHOTO & DETAIL MODAL */}
       {selectedProductForDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
             {/* Dish Image Banner */}
             <div className="relative h-56 sm:h-64 w-full bg-slate-100 dark:bg-slate-800">
               <img
@@ -1349,7 +1349,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               </button>
 
               <div className="absolute bottom-3 left-4 right-4 text-white">
-                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-pink-600/90 backdrop-blur-xs inline-block mb-1">
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-stone-900/90 border border-stone-700 backdrop-blur-xs inline-block mb-1">
                   {selectedProductForDetail.category}
                 </span>
                 <h3 className="text-xl font-black leading-tight drop-shadow-sm">
@@ -1369,7 +1369,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     Base: {formatCOP(selectedProductForDetail.price)} + Imp. ({taxRate}%): {formatCOP(getTaxInclusivePrice(selectedProductForDetail.price) - selectedProductForDetail.price)}
                   </span>
                 </div>
-                <span className="font-mono font-black text-xl text-[#681841] dark:text-pink-300">
+                <span className="font-mono font-black text-xl text-stone-900 dark:text-stone-100">
                   {formatCOP(getTaxInclusivePrice(selectedProductForDetail.price))}
                 </span>
               </div>
@@ -1379,14 +1379,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   <h5 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Descripción e Ingredientes
                   </h5>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed bg-slate-50 dark:bg-slate-800/60 p-3 rounded-md border border-slate-100 dark:border-slate-800">
                     {selectedProductForDetail.description}
                   </p>
                 </div>
               ) : null}
 
               {selectedProductForDetail.stock <= 0 ? (
-                <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-900 text-center">
+                <div className="p-3 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-900 text-center">
                   Este producto se encuentra temporalmente agotado.
                 </div>
               ) : canOrder ? (
@@ -1400,7 +1400,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       value={detailNotes}
                       onChange={(e) => setDetailNotes(e.target.value)}
                       placeholder="Ej. Sin picante, término 3/4, salsa aparte..."
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400"
+                      className="w-full px-3 py-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400"
                     />
                   </div>
 
@@ -1408,11 +1408,11 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                       Cantidad:
                     </span>
-                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-md">
                       <button
                         type="button"
                         onClick={() => setDetailQuantity(Math.max(1, detailQuantity - 1))}
-                        className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold shadow-xs hover:bg-slate-50 cursor-pointer"
+                        className="w-7 h-7 rounded-md bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold shadow-xs hover:bg-slate-50 cursor-pointer"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
@@ -1422,7 +1422,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       <button
                         type="button"
                         onClick={() => setDetailQuantity(detailQuantity + 1)}
-                        className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold shadow-xs hover:bg-slate-50 cursor-pointer"
+                        className="w-7 h-7 rounded-md bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 font-bold shadow-xs hover:bg-slate-50 cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </button>
@@ -1430,8 +1430,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="p-3.5 rounded-2xl bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-900/60 text-center">
-                  <p className="text-xs font-bold text-[#681841] dark:text-pink-300">
+                <div className="p-3.5 rounded-md bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-center">
+                  <p className="text-xs font-bold text-stone-900 dark:text-stone-100">
                     Modo Carta y Menú Digital
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1446,7 +1446,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedProductForDetail(null)}
-                className="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                className="px-4 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               >
                 Cerrar
               </button>
@@ -1460,7 +1460,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     }
                     setSelectedProductForDetail(null);
                   }}
-                  className="flex-1 py-2.5 px-4 rounded-2xl bg-[#681841] hover:bg-[#571436] text-white font-extrabold text-xs shadow-md shadow-[#681841]/20 flex items-center justify-center gap-2 transition cursor-pointer"
+                  className="flex-1 py-2.5 px-4 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-extrabold text-xs shadow-xs flex items-center justify-center gap-2 transition cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>

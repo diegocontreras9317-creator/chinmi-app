@@ -205,12 +205,12 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-lg shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200">
         
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-pink-50/50 dark:bg-slate-850">
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-stone-50/50 dark:bg-slate-850">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-pink-100 dark:bg-pink-950/80 text-[#681841] dark:text-pink-300 flex items-center justify-center font-black">
+            <div className="w-10 h-10 rounded-md bg-stone-100 dark:bg-stone-800 text-rose-950 dark:text-rose-300 border border-stone-200 dark:border-stone-700 flex items-center justify-center font-black">
               <Package className="w-5 h-5" />
             </div>
             <div>
@@ -225,7 +225,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -235,7 +235,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
           
           {error && (
-            <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <div className="p-3 rounded-md bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -253,7 +253,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Ej. Limón Tahití, Tomate Chonto, Hierbabuena..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-[#e64980] outline-hidden"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
               />
             </div>
 
@@ -271,7 +271,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                       setCustomCategory('');
                     }
                   }}
-                  className="text-[11px] font-bold text-pink-600 dark:text-pink-400 hover:underline cursor-pointer flex items-center gap-1"
+                  className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer flex items-center gap-1"
                 >
                   {isCustomCategory ? '← Elegir de la lista' : '+ Personalizada'}
                 </button>
@@ -286,7 +286,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                     value={customCategory}
                     onChange={(e) => setCustomCategory(e.target.value)}
                     placeholder="Escribe la categoría (Ej. Panadería, Especias, Pastelería...)"
-                    className="w-full px-3 py-2 rounded-xl border border-pink-400 dark:border-pink-500 bg-pink-50/40 dark:bg-pink-950/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-[#e64980] outline-hidden"
+                    className="w-full px-3 py-2 rounded-md border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
                   />
                   <p className="text-[10px] text-slate-400">
                     💡 Categoría personalizada para este insumo.
@@ -302,14 +302,14 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                       setCategory(e.target.value as PerishableCategory);
                     }
                   }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-[#e64980] outline-hidden cursor-pointer"
+                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden cursor-pointer"
                 >
                   {PERISHABLE_CATEGORIES.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>
                   ))}
-                  <option value="__custom__" className="text-pink-600 font-bold">
+                  <option value="__custom__" className="text-rose-900 font-bold">
                     ✨ + Añadir categoría personalizada...
                   </option>
                 </select>
@@ -361,23 +361,23 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 min="0"
                 value={minStock}
                 onChange={(e) => setMinStock(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
               />
             </div>
           </div>
 
           {/* DATES: Entry date & Expiration date */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-md bg-stone-50 dark:bg-slate-800/40 border border-stone-200 dark:border-slate-700">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                <label className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-stone-600 dark:text-stone-400" />
                   <span>Fecha de Ingreso *</span>
                 </label>
                 <button
                   type="button"
                   onClick={() => setEntryDate(getTodayIso())}
-                  className="text-[10px] text-pink-600 dark:text-pink-400 font-bold hover:underline cursor-pointer"
+                  className="text-[10px] text-rose-900 dark:text-rose-400 font-bold hover:underline cursor-pointer"
                 >
                   Poner Hoy
                 </button>
@@ -387,7 +387,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 required
                 value={entryDate}
                 onChange={(e) => setEntryDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-amber-300/70 dark:border-amber-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
               />
               <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">
                 Día que llegó al restaurante o bar.
@@ -396,11 +396,11 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <label className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
                   <span>Fecha de Caducidad / Vence *</span>
                 </label>
-                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
                   daysRemaining < 0
                     ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
                     : daysRemaining <= 2
@@ -419,7 +419,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 required
                 value={expiryDate}
                 onChange={(e) => setExpiryDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-rose-300/70 dark:border-rose-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
               />
               <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">
                 Fecha límite de consumo sugerida.
@@ -430,13 +430,13 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
           {/* Alarm Configuration & Location */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                 Anticipación de Alarma (Días antes de vencer)
               </label>
               <select
                 value={alarmDaysBeforeExpiry}
                 onChange={(e) => setAlarmDaysBeforeExpiry(parseInt(e.target.value, 10))}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
               >
                 <option value={1}>1 día antes (Urgente)</option>
                 <option value={2}>2 días antes</option>
@@ -449,7 +449,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-pink-600" />
+                  <MapPin className="w-3.5 h-3.5 text-stone-500" />
                   <span>Ubicación / Nevera / Bodega</span>
                 </label>
                 <button
@@ -461,7 +461,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                       setCustomLocation('');
                     }
                   }}
-                  className="text-[11px] font-bold text-pink-600 dark:text-pink-400 hover:underline cursor-pointer flex items-center gap-1"
+                  className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer flex items-center gap-1"
                 >
                   {isCustomLocation ? '← Elegir de la lista' : '+ Personalizada'}
                 </button>
@@ -476,7 +476,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                     value={customLocation}
                     onChange={(e) => setCustomLocation(e.target.value)}
                     placeholder="Escribe la ubicación (Ej. Nevera de Postres, Barra Terraza...)"
-                    className="w-full px-3 py-2 rounded-xl border border-pink-400 dark:border-pink-500 bg-pink-50/40 dark:bg-pink-950/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-[#e64980] outline-hidden"
+                    className="w-full px-3 py-2 rounded-md border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
                   />
                   <p className="text-[10px] text-slate-400">
                     💡 Ubicación personalizada de almacenamiento.
@@ -492,14 +492,14 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                       setLocation(e.target.value);
                     }
                   }}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium cursor-pointer"
+                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium cursor-pointer"
                 >
                   {STORAGE_LOCATIONS.map((loc) => (
                     <option key={loc} value={loc}>
                       {loc}
                     </option>
                   ))}
-                  <option value="__custom__" className="text-pink-600 font-bold">
+                  <option value="__custom__" className="text-rose-900 font-bold">
                     ✨ + Añadir ubicación personalizada...
                   </option>
                 </select>
@@ -519,7 +519,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 value={supplier}
                 onChange={(e) => setSupplier(e.target.value)}
                 placeholder="Ej. Abastos, Fruver del Sol..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
               />
             </div>
 
@@ -533,7 +533,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 value={batchNumber}
                 onChange={(e) => setBatchNumber(e.target.value)}
                 placeholder="LOT-2026-X"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
               />
             </div>
 
@@ -549,7 +549,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 value={costPerUnit}
                 onChange={(e) => setCostPerUnit(parseFloat(e.target.value) || 0)}
                 placeholder="0"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
               />
             </div>
           </div>
@@ -558,7 +558,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
           <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
               <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <ImageIcon className="w-3.5 h-3.5 text-pink-600" />
+                <ImageIcon className="w-3.5 h-3.5 text-stone-500" />
                 <span>Fotografía / Imagen del Insumo</span>
               </label>
               <input
@@ -573,7 +573,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isCompressing}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-600 hover:bg-pink-700 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
               >
                 <Camera className="w-3.5 h-3.5" />
                 <span>{imageUrl ? 'Cambiar foto' : 'Subir foto'}</span>
@@ -581,11 +581,11 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
             </div>
 
             {imageUrl && (
-              <div className="flex items-center gap-3 p-2 rounded-xl bg-pink-50/50 dark:bg-pink-950/20 border border-pink-200 dark:border-pink-900/40">
+              <div className="flex items-center gap-3 p-2 rounded-md bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800">
                 <img
                   src={imageUrl}
                   alt="Vista previa"
-                  className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-slate-700"
+                  className="w-12 h-12 rounded-md object-cover border border-slate-200 dark:border-slate-700"
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
@@ -611,10 +611,10 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                   key={label}
                   type="button"
                   onClick={() => setImageUrl(url)}
-                  className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition cursor-pointer shrink-0 ${
+                  className={`px-2 py-1 rounded-md text-[10px] font-semibold border transition cursor-pointer shrink-0 ${
                     imageUrl === url
-                      ? 'bg-pink-100 dark:bg-pink-950/70 text-[#681841] dark:text-pink-300 border-pink-400'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                      ? 'bg-rose-950 text-white border-rose-900'
+                      : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-stone-700'
                   }`}
                 >
                   {label}
@@ -627,7 +627,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
               value={imageUrl}
               onChange={(e) => setImageUrl(e.target.value)}
               placeholder="O pega un enlace web (https://...)"
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white mt-1 text-xs"
+              className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white mt-1 text-xs"
             />
           </div>
 
@@ -641,7 +641,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Ej. Mantener con hielo, lavar antes de cortar, usar prioritariamente para cócteles de la carta de noche..."
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+              className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
             />
           </div>
 
@@ -650,13 +650,13 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              className="px-4 py-2 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-6 py-2 rounded-xl bg-[#681841] hover:bg-[#571436] text-white font-extrabold shadow-md shadow-[#681841]/25 transition cursor-pointer"
+              className="px-6 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-extrabold shadow-xs transition cursor-pointer"
             >
               {editingItem ? 'Guardar Cambios' : 'Registrar Insumo Fresco'}
             </button>

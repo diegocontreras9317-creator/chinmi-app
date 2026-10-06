@@ -11,7 +11,7 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   return (
     <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
       <div className="relative mb-6">
-        <div className="w-16 h-16 rounded-full border-4 border-pink-200 dark:border-pink-950 border-t-[#681841] dark:border-t-pink-500 animate-spin" />
+        <div className="w-16 h-16 rounded-full border-4 border-slate-200 dark:border-slate-800 border-t-rose-900 dark:border-t-rose-700 animate-spin" />
         <div className="absolute inset-0 flex items-center justify-center">
           <ChinmiLogo size="sm" variant="icon" />
         </div>

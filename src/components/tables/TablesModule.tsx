@@ -170,13 +170,13 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
     <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-6 space-y-3 sm:space-y-6 w-full max-w-full overflow-x-hidden">
       
       {/* Friendly Guide Banner with Role Context */}
-      <div className="p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-pink-50/70 dark:bg-slate-900 border border-pink-200/80 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 shadow-xs">
+      <div className="p-3 sm:p-4 rounded-md bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3">
         <div className="flex items-center gap-2 sm:gap-2.5">
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-pink-100 dark:bg-pink-950/60 text-[#681841] dark:text-pink-300 flex items-center justify-center shrink-0">
-            <Smile className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e64980]" />
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-300 flex items-center justify-center shrink-0">
+            <Smile className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-900 dark:text-rose-300" />
           </div>
           <div>
-            <p className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-300 font-medium">
+            <p className="text-[11px] sm:text-xs text-gray-800 dark:text-gray-200 font-medium">
               {isGerente && (
                 <><strong>Modo Gerente (Control Total):</strong> Administra mesas, modifica precios de carta, revisa ventas y gestiona permisos de usuario.</>
               )}
@@ -190,86 +190,86 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                 <><strong>Modo Barman (Solo Barra y Bebidas):</strong> Revisa comandas de bebidas y actualiza el despacho de barra.</>
               )}
             </p>
-            <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              🟢 Verde = Libre · 🔴 Rojo = Ocupada · 🟣 Morado = Pidiendo cuenta
+            <p className="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              🟢 Verde = Libre · 🍷 Vinotinto = Ocupada · 🟠 Ámbar = Pidiendo cuenta
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-[10px] sm:text-[11px] font-semibold text-slate-500 dark:text-slate-400 self-end sm:self-auto">
-          <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500" /> Libre</span>
-          <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-red-500" /> Ocupada</span>
-          <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-purple-500" /> Cuenta</span>
+        <div className="flex items-center gap-2.5 text-[10px] sm:text-[11px] font-semibold text-gray-600 dark:text-gray-400 self-end sm:self-auto">
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-xs bg-emerald-700" /> Libre</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-xs bg-rose-900" /> Ocupada</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-xs bg-amber-700" /> Cuenta</span>
         </div>
       </div>
 
-      {/* Top Metrics Row with Red Ocupadas Card */}
+      {/* Top Metrics Row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
-        <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+        <div className="p-3.5 sm:p-4 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between text-[11px] sm:text-xs text-gray-500 dark:text-gray-400">
             <span className="font-semibold">Ocupación Actual</span>
-            <span className="font-bold text-slate-700 dark:text-slate-300">{occupancyRate}%</span>
+            <span className="font-bold text-gray-800 dark:text-gray-200">{occupancyRate}%</span>
           </div>
           <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1.5 sm:gap-2">
-            <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
-              {occupiedCount + billingCount} <span className="text-[10px] sm:text-xs font-normal text-slate-400">/ {totalTables}</span>
+            <span className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 dark:text-white font-mono">
+              {occupiedCount + billingCount} <span className="text-[10px] sm:text-xs font-normal text-gray-500">/ {totalTables}</span>
             </span>
           </div>
-          <div className="w-full bg-slate-100 dark:bg-slate-800 h-1 sm:h-1.5 rounded-full mt-1.5 sm:mt-2 overflow-hidden">
+          <div className="w-full bg-gray-100 dark:bg-gray-800 h-1 sm:h-1.5 rounded-xs mt-1.5 sm:mt-2 overflow-hidden">
             <div
-              className="bg-[#e64980] h-full rounded-full transition-all duration-500"
+              className="bg-rose-900 dark:bg-rose-800 h-full rounded-xs transition-all duration-500"
               style={{ width: `${occupancyRate}%` }}
             />
           </div>
         </div>
 
-        <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+        <div className="p-3.5 sm:p-4 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between text-[11px] sm:text-xs text-gray-500 dark:text-gray-400">
             <span className="font-semibold">Mesas Libres</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="w-2 h-2 rounded-xs bg-emerald-700" />
           </div>
-          <p className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1.5 sm:mt-2">
+          <p className="text-xl sm:text-2xl font-bold tracking-tight text-emerald-800 dark:text-emerald-400 mt-1.5 sm:mt-2 font-mono">
             {freeCount}
           </p>
-          <p className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5 sm:mt-1">Disponibles</p>
+          <p className="text-[10px] sm:text-[11px] text-gray-500 mt-0.5 sm:mt-1">Disponibles</p>
         </div>
 
-        {/* Mesas Ocupadas en Rojo */}
-        <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-red-50/60 dark:bg-red-950/30 border-2 border-red-300 dark:border-red-900/60 shadow-xs">
-          <div className="flex items-center justify-between text-[11px] sm:text-xs text-red-700 dark:text-red-300">
-            <span className="font-bold">Mesas Ocupadas</span>
-            <span className="w-2 sm:w-2.5 h-2 sm:h-2.5 rounded-full bg-red-500 shadow-xs" />
+        {/* Mesas Ocupadas */}
+        <div className="p-3.5 sm:p-4 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between text-[11px] sm:text-xs text-gray-500 dark:text-gray-400">
+            <span className="font-semibold">Mesas Ocupadas</span>
+            <span className="w-2 h-2 rounded-xs bg-rose-900" />
           </div>
-          <p className="text-xl sm:text-2xl font-black text-red-600 dark:text-red-400 mt-1.5 sm:mt-2">
+          <p className="text-xl sm:text-2xl font-bold tracking-tight text-rose-900 dark:text-rose-300 mt-1.5 sm:mt-2 font-mono">
             {occupiedCount}
           </p>
-          <p className="text-[10px] sm:text-[11px] text-red-500/90 dark:text-red-400/80 mt-0.5 sm:mt-1 font-medium">Consumiendo ahora</p>
+          <p className="text-[10px] sm:text-[11px] text-gray-500 mt-0.5 sm:mt-1 font-medium">Consumiendo ahora</p>
         </div>
 
-        <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+        <div className="p-3.5 sm:p-4 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
+          <div className="flex items-center justify-between text-[11px] sm:text-xs text-gray-500 dark:text-gray-400">
             <span className="font-semibold">Pidiendo Cuenta</span>
-            <span className="w-2 h-2 rounded-full bg-purple-500" />
+            <span className="w-2 h-2 rounded-xs bg-amber-700" />
           </div>
-          <p className="text-xl sm:text-2xl font-black text-purple-600 dark:text-purple-400 mt-1.5 sm:mt-2">
+          <p className="text-xl sm:text-2xl font-bold tracking-tight text-amber-800 dark:text-amber-400 mt-1.5 sm:mt-2 font-mono">
             {billingCount}
           </p>
-          <p className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5 sm:mt-1">Listas para cobrar</p>
+          <p className="text-[10px] sm:text-[11px] text-gray-500 mt-0.5 sm:mt-1">Listas para cobrar</p>
         </div>
 
-        <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs col-span-2 sm:col-span-1">
-          <div className="flex items-center justify-between text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+        <div className="p-3.5 sm:p-4 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 col-span-2 sm:col-span-1">
+          <div className="flex items-center justify-between text-[11px] sm:text-xs text-gray-500 dark:text-gray-400">
             <span className="font-semibold">Comanda Activa</span>
-            <Receipt className="w-3.5 h-3.5 text-[#e64980]" />
+            <Receipt className="w-3.5 h-3.5 text-gray-700 dark:text-gray-300" />
           </div>
-          <p className="text-xl sm:text-2xl font-black text-[#681841] dark:text-pink-400 mt-1.5 sm:mt-2 font-mono truncate">
+          <p className="text-xl sm:text-2xl font-bold tracking-tight text-rose-900 dark:text-rose-300 mt-1.5 sm:mt-2 font-mono truncate">
             {formatCOP(activeOrdersAmount)}
           </p>
-          <p className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5 sm:mt-1">Pendiente de cobro</p>
+          <p className="text-[10px] sm:text-[11px] text-gray-500 mt-0.5 sm:mt-1">Pendiente de cobro</p>
         </div>
       </div>
 
       {/* Action Header & Filters Bar */}
-      <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-2.5 sm:space-y-3 lg:space-y-0 lg:flex lg:items-center lg:justify-between lg:gap-4 w-full max-w-full">
+      <div className="bg-white dark:bg-gray-900 p-3 sm:p-4 rounded-md border border-gray-200 dark:border-gray-800 space-y-2.5 sm:space-y-3 lg:space-y-0 lg:flex lg:items-center lg:justify-between lg:gap-4 w-full max-w-full">
         
         {/* Zone Selector */}
         <div 
@@ -278,15 +278,15 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
         >
           <button
             onClick={() => setSelectedZone('Todas las Zonas')}
-            className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
               selectedZone === 'Todas las Zonas'
-                ? 'bg-[#681841] text-white shadow-xs font-bold'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                ? 'bg-rose-900 hover:bg-rose-800 text-white font-bold'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
             }`}
           >
             <span>Todas las Zonas</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-              selectedZone === 'Todas las Zonas' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-bold ${
+              selectedZone === 'Todas las Zonas' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
             }`}>
               {totalTables}
             </span>
@@ -298,15 +298,15 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
               <button
                 key={zone}
                 onClick={() => setSelectedZone(zone)}
-                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
                   isSel
-                    ? 'bg-[#681841] text-white shadow-xs font-bold'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-rose-900 hover:bg-rose-800 text-white font-bold'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
                 <span>{zone}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  isSel ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-bold ${
+                  isSel ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                 }`}>
                   {countInZone}
                 </span>
@@ -315,56 +315,56 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
           })}
         </div>
 
-        {/* Status Pills & Add Table Action */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-2.5 pt-2 sm:pt-2.5 border-t border-slate-100 dark:border-slate-800/80 lg:pt-0 lg:border-t-0 w-full lg:w-auto min-w-0">
+        {/* Status Filters & Add Table Action */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-2.5 pt-2 sm:pt-2.5 border-t border-gray-100 dark:border-gray-800 lg:pt-0 lg:border-t-0 w-full lg:w-auto min-w-0">
           
           <div 
             ref={statusScrollRef}
-            className="w-full sm:w-auto max-w-full overflow-x-auto touch-pan-x overscroll-x-contain scrollbar-none flex items-center bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-xs font-medium cursor-grab active:cursor-grabbing select-none"
+            className="w-full sm:w-auto max-w-full overflow-x-auto touch-pan-x overscroll-x-contain scrollbar-none flex items-center bg-gray-100 dark:bg-gray-800 p-1 rounded-md text-xs font-medium cursor-grab active:cursor-grabbing select-none border border-gray-200 dark:border-gray-700"
           >
             <button
               onClick={() => setSelectedStatus('all')}
-              className={`flex-1 sm:flex-initial px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition cursor-pointer whitespace-nowrap shrink-0 text-center text-[11px] sm:text-xs ${
+              className={`flex-1 sm:flex-initial px-2.5 py-1.5 rounded-md transition cursor-pointer whitespace-nowrap shrink-0 text-center text-[11px] sm:text-xs ${
                 selectedStatus === 'all'
-                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-bold'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
               }`}
             >
               Todas ({totalTables})
             </button>
             <button
               onClick={() => setSelectedStatus('libre')}
-              className={`flex-1 sm:flex-initial px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap shrink-0 text-[11px] sm:text-xs ${
+              className={`flex-1 sm:flex-initial px-2.5 py-1.5 rounded-md transition cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 text-[11px] sm:text-xs ${
                 selectedStatus === 'libre'
-                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-white dark:bg-gray-900 text-emerald-800 dark:text-emerald-400 font-bold'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
               }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+              <span className="w-1.5 h-1.5 rounded-xs bg-emerald-700 shrink-0" />
               <span>Libres</span>
               <span className="text-[10px] opacity-75">({freeCount})</span>
             </button>
             <button
               onClick={() => setSelectedStatus('ocupada')}
-              className={`flex-1 sm:flex-initial px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap shrink-0 text-[11px] sm:text-xs ${
+              className={`flex-1 sm:flex-initial px-2.5 py-1.5 rounded-md transition cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 text-[11px] sm:text-xs ${
                 selectedStatus === 'ocupada'
-                  ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-red-400 font-bold shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-white dark:bg-gray-900 text-rose-900 dark:text-rose-300 font-bold'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
               }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+              <span className="w-1.5 h-1.5 rounded-xs bg-rose-900 shrink-0" />
               <span>Ocupadas</span>
               <span className="text-[10px] opacity-75">({occupiedCount})</span>
             </button>
             <button
               onClick={() => setSelectedStatus('cuenta')}
-              className={`flex-1 sm:flex-initial px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg transition cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap shrink-0 text-[11px] sm:text-xs ${
+              className={`flex-1 sm:flex-initial px-2.5 py-1.5 rounded-md transition cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 text-[11px] sm:text-xs ${
                 selectedStatus === 'cuenta'
-                  ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 font-bold shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-white dark:bg-gray-900 text-amber-800 dark:text-amber-400 font-bold'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
               }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
+              <span className="w-1.5 h-1.5 rounded-xs bg-amber-700 shrink-0" />
               <span>Cuenta</span>
               <span className="text-[10px] opacity-75">({billingCount})</span>
             </button>
@@ -372,16 +372,16 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
 
           {/* Action Buttons: Size Selector, QR & Nueva Mesa */}
           <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 shrink-0 flex-wrap sm:flex-nowrap w-full sm:w-auto">
-            {/* Selector de Tamaño: Grande, Mediano, Pequeño */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 sm:p-1 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs">
+            {/* Selector de Tamaño */}
+            <div className="flex items-center bg-gray-100 dark:bg-gray-800 p-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs">
               <button
                 type="button"
                 onClick={() => setCardSize('sm')}
-                title="Vista pequeña (compacta)"
-                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-bold transition cursor-pointer ${
+                title="Vista pequeña"
+                className={`px-2.5 py-1 rounded-md text-[10px] sm:text-xs font-bold transition cursor-pointer ${
                   cardSize === 'sm'
-                    ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white'
+                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
                 Pequeño
@@ -389,11 +389,11 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
               <button
                 type="button"
                 onClick={() => setCardSize('md')}
-                title="Vista mediana (estándar)"
-                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-bold transition cursor-pointer ${
+                title="Vista mediana"
+                className={`px-2.5 py-1 rounded-md text-[10px] sm:text-xs font-bold transition cursor-pointer ${
                   cardSize === 'md'
-                    ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white'
+                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
                 Mediano
@@ -401,11 +401,11 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
               <button
                 type="button"
                 onClick={() => setCardSize('lg')}
-                title="Vista grande (táctil)"
-                className={`px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-bold transition cursor-pointer ${
+                title="Vista grande"
+                className={`px-2.5 py-1 rounded-md text-[10px] sm:text-xs font-bold transition cursor-pointer ${
                   cardSize === 'lg'
-                    ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-xs'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white'
+                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
                 Grande
@@ -416,10 +416,10 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
               <button
                 type="button"
                 onClick={() => setTableForQr(tables[0])}
-                className="flex items-center justify-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-pink-200 dark:border-pink-900/60 bg-pink-50/70 dark:bg-pink-950/40 hover:bg-pink-100 dark:hover:bg-pink-900/50 text-[#681841] dark:text-pink-300 text-[11px] sm:text-xs font-bold transition cursor-pointer shadow-2xs"
+                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-[11px] sm:text-xs font-bold transition cursor-pointer"
                 title="Ver códigos QR y cartas digitales de mesas"
               >
-                <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-700 dark:text-gray-300" />
                 <span className="hidden sm:inline">Códigos QR</span>
                 <span className="sm:hidden">QR</span>
               </button>
@@ -436,7 +436,7 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                   setTableToEdit(null);
                   setIsNewTableOpen(true);
                 }}
-                className="flex items-center justify-center gap-1 sm:gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-[11px] sm:text-xs font-bold shadow-md shadow-pink-500/20 transition cursor-pointer"
+                className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-[11px] sm:text-xs font-bold transition cursor-pointer border border-rose-950"
               >
                 <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 <span className="whitespace-nowrap">Nueva Mesa</span>
@@ -514,25 +514,25 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
             // Styling per status
             const statusConfig = {
               libre: {
-                border: 'border-emerald-300 dark:border-emerald-800/80 hover:border-emerald-500 bg-white dark:bg-slate-900',
-                numberBg: 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-slate-200 dark:border-slate-700',
-                badgeBg: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60',
+                border: 'border-zinc-200 dark:border-zinc-800 hover:border-emerald-700 bg-white dark:bg-zinc-900',
+                numberBg: 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700',
+                badgeBg: 'bg-emerald-950/20 text-emerald-800 dark:text-emerald-300 border border-emerald-900/40',
                 label: 'Libre',
                 dot: 'bg-emerald-500'
               },
               ocupada: {
-                border: 'border-red-500 dark:border-red-600 hover:border-red-600 bg-red-50/70 dark:bg-red-950/40 shadow-sm ring-2 ring-red-400/40 dark:ring-red-900/50',
-                numberBg: 'bg-red-600 text-white border-red-700 shadow-xs font-black',
-                badgeBg: 'bg-red-600 text-white font-extrabold shadow-xs',
+                border: 'border-zinc-700 dark:border-zinc-700 hover:border-zinc-500 bg-zinc-900 text-zinc-100 dark:bg-zinc-900',
+                numberBg: 'bg-zinc-100 text-zinc-950 font-bold border-zinc-300',
+                badgeBg: 'bg-zinc-800 text-zinc-100 border border-zinc-700 font-semibold',
                 label: 'Ocupada',
-                dot: 'bg-white'
+                dot: 'bg-zinc-300'
               },
               cuenta: {
-                border: 'border-purple-400 dark:border-purple-700/80 hover:border-purple-500 shadow-md ring-1 ring-purple-400 bg-purple-50/30 dark:bg-purple-950/20',
-                numberBg: 'bg-purple-600 text-white border-purple-700 shadow-xs font-black',
-                badgeBg: 'bg-purple-100 dark:bg-purple-950/60 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-900/60',
+                border: 'border-amber-800/80 dark:border-amber-700/80 hover:border-amber-600 bg-amber-950/20 dark:bg-amber-950/40 text-amber-200',
+                numberBg: 'bg-amber-800 text-white font-bold border-amber-900',
+                badgeBg: 'bg-amber-950/40 text-amber-300 border border-amber-800/60 font-semibold',
                 label: 'Pidiendo Cuenta',
-                dot: 'bg-purple-500 animate-pulse'
+                dot: 'bg-amber-500'
               }
             }[table.status];
 
@@ -773,9 +773,9 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                           setTableForQr(table);
                         }}
                         title="Ver código QR de la mesa para pedidos"
-                        className="px-3 py-1.5 rounded-xl text-xs font-bold text-[#681841] dark:text-pink-300 bg-pink-50 dark:bg-pink-950/50 hover:bg-pink-100 dark:hover:bg-pink-900/60 border border-pink-200/80 dark:border-pink-900/60 transition flex items-center gap-1.5 cursor-pointer"
+                        className="px-3 py-1.5 rounded-md text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
                       >
-                        <QrCode className="w-4 h-4" />
+                        <QrCode className="w-4 h-4 text-rose-900 dark:text-rose-400" />
                         <span>Carta QR</span>
                       </button>
                     </div>
@@ -935,9 +935,9 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                         setTableForQr(table);
                       }}
                       title="Ver código QR de la mesa para pedidos"
-                      className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg text-xs font-bold text-[#681841] dark:text-pink-300 bg-pink-50 dark:bg-pink-950/50 hover:bg-pink-100 dark:hover:bg-pink-900/60 border border-pink-200/80 dark:border-pink-900/60 transition flex items-center gap-1 cursor-pointer"
+                      className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1 cursor-pointer shadow-xs"
                     >
-                      <QrCode className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
+                      <QrCode className="w-3 sm:w-3.5 h-3 sm:h-3.5 text-rose-900 dark:text-rose-400" />
                       <span className="text-[9px] sm:text-[10px]">QR</span>
                     </button>
                   </div>

@@ -106,24 +106,24 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-2xl relative space-y-5">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-lg p-6 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-xl relative space-y-5">
         
         {/* Close Button */}
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          className="absolute top-4 right-4 p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Google Header */}
         <div className="text-center space-y-2 pt-1">
-          <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm mx-auto flex items-center justify-center">
+          <div className="w-12 h-12 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs mx-auto flex items-center justify-center">
             <GoogleIcon className="w-6 h-6" />
           </div>
 
-          <h2 className="text-lg font-black text-slate-900 dark:text-white">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">
             {defaultMode === 'register' ? 'Vincular tu cuenta de Google' : 'Iniciar sesión con Google'}
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
@@ -132,7 +132,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         </div>
 
         {error && (
-          <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-xs font-semibold">
+          <div className="p-3 rounded-md bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-xs font-semibold">
             {error}
           </div>
         )}
@@ -150,7 +150,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               setError(res.error);
             }
           }}
-          className="w-full py-3.5 px-4 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs sm:text-sm font-extrabold transition shadow-sm flex items-center justify-center gap-2.5 cursor-pointer"
+          className="w-full py-3 px-4 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs sm:text-sm font-semibold transition shadow-xs flex items-center justify-center gap-2.5 cursor-pointer"
         >
           <GoogleIcon className="w-5 h-5 shrink-0" />
           <span>Abrir ventana de inicio de sesión con Google</span>
@@ -173,7 +173,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                 value={googleEmail}
                 onChange={(e) => setGoogleEmail(e.target.value)}
                 placeholder="ejemplo@gmail.com"
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                className="w-full pl-9 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900 focus:border-rose-900"
                 autoFocus
               />
             </div>
@@ -191,7 +191,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                 value={googleName}
                 onChange={(e) => setGoogleName(e.target.value)}
                 placeholder="Ej. Juan Pérez"
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                className="w-full pl-9 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900 focus:border-rose-900"
               />
             </div>
           </div>
@@ -207,7 +207,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
                 placeholder="Ej. Terraza & Cocteles"
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                className="w-full pl-9 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900 focus:border-rose-900"
               />
             </div>
           </div>
@@ -216,7 +216,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs font-bold shadow-md shadow-pink-500/20 transition cursor-pointer flex items-center justify-center gap-2"
+              className="w-full py-3 px-4 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-xs font-bold shadow-xs transition cursor-pointer flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <span className="inline-block animate-spin">⏳</span>

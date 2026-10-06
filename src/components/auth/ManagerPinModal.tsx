@@ -68,14 +68,14 @@ export const ManagerPinModal: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
       <div 
-        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col"
+        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-lg shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-pink-50/50 dark:bg-slate-850 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-stone-50 dark:bg-slate-850 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-pink-100 dark:bg-pink-950/70 text-[#681841] dark:text-pink-300 flex items-center justify-center shrink-0">
-              <Lock className="w-4 h-4 text-[#e64980]" />
+            <div className="w-9 h-9 rounded-md bg-stone-100 dark:bg-slate-800 text-rose-900 dark:text-rose-300 border border-stone-200 dark:border-slate-700 flex items-center justify-center shrink-0">
+              <Lock className="w-4 h-4 text-rose-900 dark:text-rose-400" />
             </div>
             <div>
               <h2 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -89,7 +89,7 @@ export const ManagerPinModal: React.FC = () => {
           <button
             type="button"
             onClick={closePinModal}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -105,7 +105,7 @@ export const ManagerPinModal: React.FC = () => {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Clave de Acceso / PIN
               </label>
               <div className="relative">
@@ -123,12 +123,12 @@ export const ManagerPinModal: React.FC = () => {
                   }}
                   placeholder="••••"
                   autoComplete="off"
-                  className={`w-full pl-9 pr-10 py-3 rounded-2xl border text-center text-xl font-mono tracking-widest font-black focus:outline-hidden transition ${
+                  className={`w-full pl-9 pr-10 py-3 rounded-md border text-center text-xl font-mono tracking-widest font-black focus:outline-hidden transition ${
                     error
                       ? 'border-rose-400 bg-rose-50/50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 focus:ring-2 focus:ring-rose-500'
                       : success
                       ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300'
-                      : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-[#e64980]'
+                      : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-rose-900'
                   }`}
                 />
                 <button
@@ -143,7 +143,7 @@ export const ManagerPinModal: React.FC = () => {
 
             {/* Error Message */}
             {error && (
-              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 animate-in fade-in">
+              <div className="p-2.5 rounded-md bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 animate-in fade-in">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
               </div>
@@ -151,7 +151,7 @@ export const ManagerPinModal: React.FC = () => {
 
             {/* Success Feedback */}
             {success && (
-              <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2 animate-in fade-in">
+              <div className="p-2.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2 animate-in fade-in">
                 <Check className="w-4 h-4 shrink-0" />
                 <span>¡Clave verificada! Accediendo...</span>
               </div>
@@ -165,7 +165,7 @@ export const ManagerPinModal: React.FC = () => {
                     key={num}
                     type="button"
                     onClick={() => handleKeypadPress(num)}
-                    className="py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold text-base transition active:scale-95 cursor-pointer shadow-2xs"
+                    className="py-2.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold text-base transition active:scale-95 cursor-pointer shadow-2xs"
                   >
                     {num}
                   </button>
@@ -173,21 +173,21 @@ export const ManagerPinModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleKeypadPress('clear')}
-                  className="py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 font-semibold text-xs transition active:scale-95 cursor-pointer"
+                  className="py-2.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 font-semibold text-xs transition active:scale-95 cursor-pointer"
                 >
                   Borrar
                 </button>
                 <button
                   type="button"
                   onClick={() => handleKeypadPress('0')}
-                  className="py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold text-base transition active:scale-95 cursor-pointer shadow-2xs"
+                  className="py-2.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-bold text-base transition active:scale-95 cursor-pointer shadow-2xs"
                 >
                   0
                 </button>
                 <button
                   type="button"
                   onClick={() => handleKeypadPress('backspace')}
-                  className="py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 font-semibold text-xs transition active:scale-95 cursor-pointer"
+                  className="py-2.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 font-semibold text-xs transition active:scale-95 cursor-pointer"
                 >
                   ⌫
                 </button>
@@ -195,14 +195,14 @@ export const ManagerPinModal: React.FC = () => {
             </div>
 
             {/* Helpful Demo Hint */}
-            <div className="p-2.5 rounded-xl bg-pink-50/60 dark:bg-slate-800/60 border border-pink-200/60 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
+            <div className="p-2.5 rounded-md bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
               <span>
-                💡 Clave de fábrica por defecto: <strong className="font-mono text-[#681841] dark:text-pink-300 font-extrabold">{managerPin}</strong>
+                💡 Clave de fábrica por defecto: <strong className="font-mono text-rose-900 dark:text-rose-300 font-bold">{managerPin}</strong>
               </span>
               <button
                 type="button"
                 onClick={() => setPin(managerPin)}
-                className="text-[10px] font-bold text-[#e64980] hover:underline cursor-pointer ml-1 shrink-0"
+                className="text-[10px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer ml-1 shrink-0"
               >
                 Autocompletar
               </button>
@@ -213,13 +213,13 @@ export const ManagerPinModal: React.FC = () => {
               <button
                 type="button"
                 onClick={closePinModal}
-                className="w-1/2 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                className="w-1/2 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="w-1/2 py-2.5 rounded-xl bg-[#681841] hover:bg-[#571436] text-white font-bold text-xs shadow-md shadow-[#681841]/20 transition cursor-pointer flex items-center justify-center gap-1.5"
+                className="w-1/2 py-2.5 rounded-md bg-rose-900 hover:bg-rose-800 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>Verificar Clave</span>

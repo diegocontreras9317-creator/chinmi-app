@@ -300,7 +300,7 @@ export const WompiPaymentWidget: React.FC<WompiPaymentWidgetProps> = ({
                 : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'
             }`}
           >
-            <Smartphone className="w-5 h-5 text-pink-600 dark:text-pink-400" />
+            <Smartphone className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             <span className="text-xs">Nequi</span>
             <span className="text-[9px] text-slate-400">Push App</span>
           </button>
@@ -408,29 +408,29 @@ export const WompiPaymentWidget: React.FC<WompiPaymentWidgetProps> = ({
 
           {/* Nequi Fields */}
           {method === 'nequi' && (
-            <div className="space-y-3 bg-pink-50/50 dark:bg-pink-950/20 p-4 rounded-xl border border-pink-200 dark:border-pink-900/50 text-xs">
+            <div className="space-y-3 bg-purple-50/50 dark:bg-purple-950/20 p-4 rounded-xl border border-purple-200 dark:border-purple-900/50 text-xs">
               <div className="flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-pink-600 dark:text-pink-400" />
-                <span className="font-bold text-pink-950 dark:text-pink-100">
+                <Smartphone className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                <span className="font-bold text-purple-950 dark:text-purple-100">
                   Cobro Directo a Nequi Colombia
                 </span>
               </div>
-              <p className="text-[11px] text-pink-800 dark:text-pink-300">
+              <p className="text-[11px] text-purple-800 dark:text-purple-300">
                 Al hacer clic en pagar, te enviaremos una notificación push a tu app de Nequi para que apruebes el débito en tu celular.
               </p>
               <div>
-                <label className="block font-bold text-pink-900 dark:text-pink-200 mb-1">
+                <label className="block font-bold text-purple-900 dark:text-purple-200 mb-1">
                   Número Telefónico Registrado en Nequi:
                 </label>
                 <div className="flex items-center gap-2">
-                  <span className="px-3 py-2 rounded-xl bg-pink-100 dark:bg-pink-900/60 font-bold text-pink-900 dark:text-pink-200">
+                  <span className="px-3 py-2 rounded-xl bg-purple-100 dark:bg-purple-900/60 font-bold text-purple-900 dark:text-purple-200">
                     +57
                   </span>
                   <input
                     type="tel"
                     value={nequiPhone}
                     onChange={(e) => setNequiPhone(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-xl border border-pink-200 dark:border-pink-800 bg-white dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-white"
+                    className="flex-1 px-3 py-2 rounded-xl border border-purple-200 dark:border-purple-800 bg-white dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-white"
                     placeholder="300 000 0000"
                   />
                 </div>

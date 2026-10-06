@@ -26,19 +26,19 @@ interface EmployeeManagementModalProps {
 }
 
 const AVATAR_COLOR_MAP: Record<string, { bg: string; text: string }> = {
-  purple: { bg: 'from-purple-600 to-indigo-700', text: 'text-purple-200' },
-  pink: { bg: 'from-[#681841] to-[#e64980]', text: 'text-pink-200' },
-  emerald: { bg: 'from-emerald-600 to-teal-700', text: 'text-emerald-200' },
-  blue: { bg: 'from-blue-600 to-cyan-700', text: 'text-blue-200' },
-  amber: { bg: 'from-amber-600 to-orange-700', text: 'text-amber-200' },
-  rose: { bg: 'from-rose-600 to-red-700', text: 'text-rose-200' }
+  purple: { bg: 'from-stone-800 to-stone-950', text: 'text-stone-200' },
+  pink: { bg: 'from-stone-900 to-rose-950', text: 'text-rose-200' },
+  emerald: { bg: 'from-emerald-900 to-stone-900', text: 'text-emerald-200' },
+  blue: { bg: 'from-slate-800 to-stone-900', text: 'text-slate-200' },
+  amber: { bg: 'from-amber-900 to-stone-900', text: 'text-amber-200' },
+  rose: { bg: 'from-rose-950 to-stone-900', text: 'text-rose-200' }
 };
 
 const ROLE_ICONS: Record<EmpleadoRol, React.ReactNode> = {
-  Admin: <ShieldCheck className="w-4 h-4 text-purple-600 dark:text-purple-400" />,
-  Cajero: <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />,
-  Mesero: <UtensilsCrossed className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
-  Barman: <Wine className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+  Admin: <ShieldCheck className="w-4 h-4 text-stone-700 dark:text-stone-300" />,
+  Cajero: <CreditCard className="w-4 h-4 text-slate-700 dark:text-slate-300" />,
+  Mesero: <UtensilsCrossed className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />,
+  Barman: <Wine className="w-4 h-4 text-amber-700 dark:text-amber-400" />
 };
 
 export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = ({
@@ -159,13 +159,13 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
       <div
-        className="relative w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="relative w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-pink-100 dark:bg-pink-950/60 text-[#681841] dark:text-pink-300 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700 flex items-center justify-center">
               <Users className="w-5 h-5" />
             </div>
             <div>
@@ -181,7 +181,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            className="p-2 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -189,7 +189,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
 
         {/* Success Alert Banner */}
         {successMsg && (
-          <div className="px-5 py-2.5 bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-xs">
+          <div className="px-5 py-2.5 bg-emerald-700 text-white font-bold text-xs flex items-center gap-2 shadow-xs">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMsg}</span>
           </div>
@@ -200,23 +200,23 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
           
           {/* If form is open */}
           {isEditing ? (
-            <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/60 space-y-4">
+            <div className="p-4 sm:p-5 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/60 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-pink-500" />
+                  <Users className="w-4 h-4 text-stone-600 dark:text-stone-400" />
                   <span>{editingId ? 'Editar Empleado' : 'Crear Nuevo Empleado'}</span>
                 </h3>
                 <button
                   type="button"
                   onClick={handleCancelForm}
-                  className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-semibold"
+                  className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-semibold cursor-pointer"
                 >
                   Volver a la lista
                 </button>
               </div>
 
               {errorMsg && (
-                <div className="p-3 rounded-xl bg-rose-100 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                <div className="p-3 rounded-md bg-rose-100 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{errorMsg}</span>
                 </div>
@@ -234,7 +234,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                       value={nombre}
                       onChange={e => setNombre(e.target.value)}
                       placeholder="Ej. Andrés Ramírez"
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                      className="w-full px-3.5 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
                     />
                   </div>
 
@@ -245,7 +245,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                     <select
                       value={rol}
                       onChange={e => setRol(e.target.value as EmpleadoRol)}
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs sm:text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                      className="w-full px-3.5 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs sm:text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 cursor-pointer"
                     >
                       <option value="Mesero">Mesero (Mesas, comandas y platos)</option>
                       <option value="Cajero">Cajero (Mesas, comandas y cobro)</option>
@@ -273,18 +273,18 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                       value={pin}
                       onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
                       placeholder="Ej. 1234 (Déjalo vacío para acceso directo sin clave)"
-                      className="w-full pl-3.5 pr-10 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tracking-widest text-sm focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                      className="w-full pl-3.5 pr-10 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tracking-widest text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPin(!showPin)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                     >
                       {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Este PIN se solicitará en la pantalla de bloqueo estilo Netflix al hacer clic en este perfil.
+                    Este PIN se solicitará en la pantalla de selección de usuario al hacer clic en este perfil.
                   </p>
                 </div>
 
@@ -299,8 +299,8 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                         key={col}
                         type="button"
                         onClick={() => setAvatarColor(col)}
-                        className={`w-8 h-8 rounded-xl bg-gradient-to-br ${AVATAR_COLOR_MAP[col].bg} transition cursor-pointer ${
-                          avatarColor === col ? 'ring-2 ring-pink-500 scale-110 shadow-sm' : 'opacity-70 hover:opacity-100'
+                        className={`w-8 h-8 rounded-md bg-gradient-to-br ${AVATAR_COLOR_MAP[col].bg} border border-stone-700/60 transition cursor-pointer ${
+                          avatarColor === col ? 'ring-2 ring-rose-900 scale-105 shadow-xs' : 'opacity-70 hover:opacity-100'
                         }`}
                       />
                     ))}
@@ -311,14 +311,14 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                   <button
                     type="button"
                     onClick={handleCancelForm}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 transition"
+                    className="px-4 py-2 rounded-md text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 transition cursor-pointer"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={isSubmitting || !nombre.trim()}
-                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs font-black shadow-md shadow-pink-500/20 transition cursor-pointer disabled:opacity-40"
+                    className="px-5 py-2.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold transition cursor-pointer disabled:opacity-40 shadow-xs"
                   >
                     {isSubmitting ? 'Guardando...' : editingId ? 'Actualizar Empleado' : 'Guardar Empleado'}
                   </button>
@@ -339,7 +339,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
               <button
                 type="button"
                 onClick={handleOpenCreate}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] text-white text-xs font-black shadow-md shadow-pink-500/20 hover:opacity-95 transition cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold transition cursor-pointer shadow-xs"
               >
                 <Plus className="w-4 h-4" />
                 <span>Agregar Empleado</span>
@@ -357,14 +357,14 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
               return (
                 <div
                   key={emp.id}
-                  className={`p-3 sm:p-3.5 rounded-2xl border transition flex items-center justify-between gap-3 ${
+                  className={`p-3 sm:p-3.5 rounded-md border transition flex items-center justify-between gap-3 ${
                     isActive
-                      ? 'border-pink-300 dark:border-pink-900/80 bg-pink-50/50 dark:bg-pink-950/20'
+                      ? 'border-rose-900/60 bg-rose-950/10 dark:bg-rose-950/20'
                       : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850/60'
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${colorInfo.bg} flex items-center justify-center text-white font-black text-sm shrink-0 shadow-sm`}>
+                    <div className={`w-10 h-10 rounded-md bg-gradient-to-br ${colorInfo.bg} border border-stone-700/60 flex items-center justify-center text-white font-black text-sm shrink-0 shadow-xs`}>
                       {emp.nombre.slice(0, 2).toUpperCase()}
                     </div>
 
@@ -374,7 +374,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                           {emp.nombre}
                         </p>
                         {isActive && (
-                          <span className="text-[9px] uppercase tracking-wider font-black px-1.5 py-0.5 rounded-sm bg-pink-600 text-white">
+                          <span className="text-[9px] uppercase tracking-wider font-black px-1.5 py-0.5 rounded-xs bg-rose-950 text-rose-200 border border-rose-900">
                             Tú
                           </span>
                         )}
@@ -406,7 +406,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                     <button
                       type="button"
                       onClick={() => handleOpenEdit(emp)}
-                      className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                      className="p-2 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                       title="Editar empleado"
                     >
                       <Edit2 className="w-4 h-4" />
@@ -414,7 +414,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                     <button
                       type="button"
                       onClick={() => handleDelete(emp.id, emp.nombre)}
-                      className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                      className="p-2 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
                       title="Eliminar empleado"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -435,7 +435,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition"
+            className="px-4 py-1.5 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition cursor-pointer"
           >
             Cerrar
           </button>

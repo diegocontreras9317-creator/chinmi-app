@@ -50,12 +50,12 @@ export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
   }[size];
 
   const renderEmblem = () => (
-    <div className={`relative shrink-0 flex items-center justify-center rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-md shadow-pink-900/15 border-2 border-[#e64980] dark:border-pink-500 ring-2 ring-pink-200/70 dark:ring-pink-950/60 transition-transform duration-200 p-0.5 ${iconDimensions}`}>
+    <div className={`relative shrink-0 flex items-center justify-center rounded-lg overflow-hidden bg-white dark:bg-slate-900 shadow-xs border border-slate-200 dark:border-slate-800 transition-transform duration-200 p-0.5 ${iconDimensions}`}>
       {!imgFailed && effectiveLogoUrl ? (
         <img
           src={effectiveLogoUrl}
           alt="Logo GastroBar"
-          className="w-full h-full object-cover rounded-xl select-none"
+          className="w-full h-full object-cover rounded-md select-none"
           referrerPolicy="no-referrer"
           onError={() => setImgFailed(true)}
         />
@@ -69,21 +69,21 @@ export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
           <defs>
             {/* Cocktail Liquid Gradient */}
             <linearGradient id="cocktailGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#f06595" />
-              <stop offset="50%" stopColor="#e64980" />
-              <stop offset="100%" stopColor="#d6336c" />
+              <stop offset="0%" stopColor="#881337" />
+              <stop offset="50%" stopColor="#4c0519" />
+              <stop offset="100%" stopColor="#1c1917" />
             </linearGradient>
 
             {/* Deep Wine Burgundy Gradient */}
             <linearGradient id="wineGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#7a1c49" />
-              <stop offset="100%" stopColor="#4f1131" />
+              <stop offset="0%" stopColor="#4c0519" />
+              <stop offset="100%" stopColor="#1c1917" />
             </linearGradient>
 
             {/* Double Circle Frame Stroke */}
             <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#4b5059" />
-              <stop offset="100%" stopColor="#2c2f35" />
+              <stop offset="0%" stopColor="#57534e" />
+              <stop offset="100%" stopColor="#292524" />
             </linearGradient>
           </defs>
 
@@ -93,13 +93,13 @@ export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
 
           {/* Atomic / Intelligence Nodes Base */}
           <g transform="translate(200, 275)">
-            <ellipse cx="0" cy="0" rx="58" ry="24" stroke="#681841" strokeWidth="4.5" transform="rotate(-22)" />
-            <ellipse cx="0" cy="0" rx="58" ry="24" stroke="#681841" strokeWidth="4.5" transform="rotate(25)" />
+            <ellipse cx="0" cy="0" rx="58" ry="24" stroke="#4c0519" strokeWidth="4.5" transform="rotate(-22)" />
+            <ellipse cx="0" cy="0" rx="58" ry="24" stroke="#4c0519" strokeWidth="4.5" transform="rotate(25)" />
             
-            <circle cx="-50" cy="-18" r="8" fill="#681841" />
-            <circle cx="50" cy="18" r="8" fill="#681841" />
-            <circle cx="-47" cy="22" r="8" fill="#681841" />
-            <circle cx="47" cy="-22" r="8" fill="#681841" />
+            <circle cx="-50" cy="-18" r="8" fill="#4c0519" />
+            <circle cx="50" cy="18" r="8" fill="#4c0519" />
+            <circle cx="-47" cy="22" r="8" fill="#4c0519" />
+            <circle cx="47" cy="-22" r="8" fill="#4c0519" />
 
             {/* Core Central Node */}
             <circle cx="0" cy="0" r="15" fill="url(#wineGrad)" stroke="#ffffff" strokeWidth="2" />
@@ -111,19 +111,19 @@ export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
           {/* Martini Triangle Outline */}
           <path
             d="M 125, 110 L 275, 110 L 205, 185 C 202, 188 198, 188 195, 185 Z"
-            stroke="#681841"
+            stroke="#4c0519"
             strokeWidth="7"
             strokeLinejoin="round"
             strokeLinecap="round"
           />
 
-          {/* Cocktail Pink Drink Liquid */}
+          {/* Cocktail Liquid */}
           <path d="M 143, 124 Q 200, 140 257, 124 L 200, 182 Z" fill="url(#cocktailGrad)" />
 
           {/* Spiral Peel Twist Garnish */}
           <path
             d="M 262, 110 C 266, 96 280, 94 286, 102 C 291, 110 274, 118 266, 114"
-            stroke="#681841"
+            stroke="#4c0519"
             strokeWidth="5"
             strokeLinecap="round"
           />
@@ -143,15 +143,15 @@ export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
         <div>
           <div
             className={`font-sans tracking-normal uppercase ${titleSizes} ${
-              lightText ? 'text-white' : 'text-slate-800 dark:text-white'
+              lightText ? 'text-white' : 'text-slate-900 dark:text-white'
             }`}
           >
-            CHINMI <span className="text-[#e64980]">APP</span>
+            CHINMI <span className="text-rose-900 dark:text-rose-400">APP</span>
           </div>
           {showSubtitle && (
             <p
               className={`uppercase mt-0.5 font-medium ${subtitleSizes} ${
-                lightText ? 'text-pink-200/80' : 'text-slate-500 dark:text-slate-400'
+                lightText ? 'text-stone-300' : 'text-stone-500 dark:text-stone-400'
               }`}
             >
               GESTIÓN INTELIGENTE PARA RESTAURANTES Y BARES
@@ -175,14 +175,14 @@ export const ChinmiLogo: React.FC<ChinmiLogoProps> = ({
           >
             CHINMI
           </span>
-          <span className={`uppercase font-extrabold text-[#e64980] shrink-0 ${titleSizes}`}>
+          <span className={`uppercase font-extrabold text-rose-900 dark:text-rose-400 shrink-0 ${titleSizes}`}>
             APP
           </span>
         </div>
         {showSubtitle && (
           <p
             className={`uppercase mt-0.5 sm:mt-1 font-semibold tracking-wider truncate ${subtitleSizes} ${
-              lightText ? 'text-pink-200/80' : 'text-slate-500 dark:text-slate-400'
+              lightText ? 'text-stone-300' : 'text-stone-500 dark:text-stone-400'
             }`}
           >
             <span className="hidden xl:inline">GESTIÓN INTELIGENTE PARA RESTAURANTES Y BARES</span>

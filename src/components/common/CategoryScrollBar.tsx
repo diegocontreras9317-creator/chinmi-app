@@ -5,7 +5,7 @@ interface CategoryScrollBarProps {
   categories: string[];
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
-  accentColor?: 'orange' | 'dark' | 'pink';
+  accentColor?: 'orange' | 'dark' | 'pink' | 'vinotinto';
   className?: string;
 }
 
@@ -86,7 +86,8 @@ export const CategoryScrollBar: React.FC<CategoryScrollBarProps> = ({
   const activeStyles = {
     orange: 'bg-orange-600 text-white shadow-xs',
     dark: 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs',
-    pink: 'bg-[#681841] text-white shadow-xs'
+    pink: 'bg-rose-900 hover:bg-rose-800 text-white shadow-xs',
+    vinotinto: 'bg-rose-900 hover:bg-rose-800 text-white shadow-xs'
   }[accentColor];
 
   return (

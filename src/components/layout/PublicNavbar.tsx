@@ -48,7 +48,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
               isPublicBranding={true}
             />
           </button>
-          <span className="hidden lg:inline-flex text-[11px] font-bold px-2.5 py-1 rounded-full bg-pink-100/70 dark:bg-pink-950/60 text-[#681841] dark:text-pink-300 border border-pink-200/80 dark:border-pink-900/60 shrink-0">
+          <span className="hidden lg:inline-flex text-[11px] font-bold px-2.5 py-1 rounded-md bg-stone-100 dark:bg-stone-900 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-800 shrink-0">
             🇨🇴 Precios en COP$
           </span>
         </div>
@@ -61,13 +61,13 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
             <button
               type="button"
               onClick={() => onNavigateTab('pricing')}
-              className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
+              className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition cursor-pointer shrink-0 ${
                 activeTab === 'pricing'
-                  ? 'bg-pink-50 dark:bg-pink-950/50 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/60'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  ? 'bg-rose-950 text-white border border-rose-900'
+                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white hover:bg-stone-100 dark:hover:bg-stone-800'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5 text-[#e64980]" />
+              <Sparkles className="w-3.5 h-3.5 text-rose-300" />
               <span>Planes y Precios</span>
             </button>
           )}
@@ -76,14 +76,14 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
           <button
             type="button"
             onClick={toggleTheme}
-            className="p-1.5 sm:p-2 md:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-xs transition cursor-pointer shrink-0"
+            className="p-1.5 sm:p-2 md:p-2.5 rounded-md border border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 shadow-xs transition cursor-pointer shrink-0"
             aria-label="Cambiar tema claro u oscuro"
             title="Cambiar tema"
           >
             {theme === 'dark' ? (
               <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
             ) : (
-              <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+              <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-stone-600" />
             )}
           </button>
 
@@ -96,13 +96,13 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
                 type="button"
                 onClick={() => onNavigateTab('login')}
                 title="Acceder / Iniciar Sesión"
-                className={`flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer shrink-0 ${
+                className={`flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-md text-xs font-bold transition cursor-pointer shrink-0 ${
                   activeTab === 'login'
-                    ? 'bg-[#681841] text-white shadow-xs'
-                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+                    ? 'bg-rose-900 text-white shadow-xs'
+                    : 'text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200 dark:border-stone-800'
                 }`}
               >
-                <User className="w-4 h-4 text-[#e64980] dark:text-pink-400 shrink-0" />
+                <User className="w-4 h-4 text-rose-800 dark:text-rose-300 shrink-0" />
                 <span className="hidden md:inline">Acceder</span>
               </button>
 
@@ -110,7 +110,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('register')}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs font-extrabold shadow-sm shadow-pink-500/20 transition cursor-pointer shrink-0"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-xs font-bold shadow-xs transition cursor-pointer shrink-0"
               >
                 <span>Probar Gratis</span>
                 <ArrowRight className="w-3.5 h-3.5" />

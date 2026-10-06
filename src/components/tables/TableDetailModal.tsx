@@ -287,7 +287,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
               <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {formattedOpenedTime && (
                   <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-[#e64980]" />
+                    <Clock className="w-3 h-3 text-stone-500" />
                     Abierta a las {formattedOpenedTime}
                   </span>
                 )}
@@ -299,13 +299,13 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
 
           {/* Quick status pill buttons & QR */}
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-            <div className="hidden sm:flex items-center bg-slate-200/70 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+            <div className="hidden sm:flex items-center bg-slate-200/70 dark:bg-slate-800 p-1 rounded-md text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => handleStatusChange('libre')}
-                className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
                   table.status === 'libre'
-                    ? 'bg-emerald-500 text-white shadow-xs font-bold'
+                    ? 'bg-emerald-600 text-white shadow-xs font-bold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
@@ -314,9 +314,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleStatusChange('ocupada')}
-                className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
                   table.status === 'ocupada'
-                    ? 'bg-red-600 text-white shadow-xs font-bold'
+                    ? 'bg-rose-900 text-white shadow-xs font-bold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
@@ -325,9 +325,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleStatusChange('cuenta')}
-                className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md transition cursor-pointer ${
                   table.status === 'cuenta'
-                    ? 'bg-purple-600 text-white shadow-xs font-bold'
+                    ? 'bg-purple-900 text-white shadow-xs font-bold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                 }`}
               >
@@ -339,7 +339,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
               type="button"
               onClick={() => setIsQrModalOpen(true)}
               title="Ver código QR de la mesa para clientes"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-pink-200 dark:border-pink-900/60 bg-pink-50 dark:bg-pink-950/40 hover:bg-pink-100 dark:hover:bg-pink-900/60 text-[#681841] dark:text-pink-300 text-xs font-bold transition cursor-pointer shrink-0"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-stone-50 dark:bg-slate-800 hover:bg-stone-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold transition cursor-pointer shrink-0"
             >
               <QrCode className="w-3.5 h-3.5" />
               <span className="hidden md:inline">QR Carta</span>
@@ -724,7 +724,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                     type="button"
                     onClick={handleSaveAndUpdateComanda}
                     disabled={isLoading}
-                    className="flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs font-extrabold shadow-md shadow-pink-500/20 transition cursor-pointer disabled:opacity-40 w-full sm:w-auto"
+                    className="flex items-center justify-center gap-1.5 px-4 py-3 sm:py-2.5 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-40 w-full sm:w-auto"
                     title="Guardar comanda y sincronizar inmediatamente con Firebase"
                   >
                     {isLoading ? (

@@ -74,12 +74,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <ChinmiLogo variant="horizontal" size="sm" showSubtitle={false} logoUrl={config.logoUrl} />
               </button>
-              <span className="hidden 2xl:inline-block text-[11px] font-semibold px-2.5 py-1 rounded-full bg-pink-50 dark:bg-pink-950/60 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/60 shrink-0">
+              <span className="hidden 2xl:inline-block text-[11px] font-semibold px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shrink-0">
                 {config.businessName}
               </span>
             </div>
 
-            {/* 3. Contenedor con Scroll Horizontal (Fallback) y espaciados responsivos (gap-1.5 md:gap-4) */}
+            {/* 3. Contenedor con Scroll Horizontal (Fallback) y espaciados responsivos */}
             <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4 overflow-x-auto whitespace-nowrap scrollbar-hide w-full justify-end flex-1 min-w-0 py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               
               {/* 1. Actualizar (Cloud Sync) */}
@@ -87,17 +87,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 id="cloud-sync-status-btn"
                 onClick={syncNow}
                 title={cloudStatus === 'syncing' ? 'Sincronizando con la nube...' : 'Actualizar y sincronizar datos'}
-                className="flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
+                className="flex items-center gap-1 p-1.5 sm:px-2.5 sm:py-1.5 rounded-md text-xs font-medium border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
               >
                 <span className="relative flex h-2 w-2">
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                    cloudStatus === 'syncing' ? 'bg-pink-400' : 'bg-emerald-400'
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-xs opacity-75 ${
+                    cloudStatus === 'syncing' ? 'bg-amber-400' : 'bg-emerald-400'
                   }`} />
-                  <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                    cloudStatus === 'syncing' ? 'bg-[#e64980]' : 'bg-emerald-500'
+                  <span className={`relative inline-flex rounded-xs h-2 w-2 ${
+                    cloudStatus === 'syncing' ? 'bg-amber-500' : 'bg-emerald-500'
                   }`} />
                 </span>
-                <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${cloudStatus === 'syncing' ? 'animate-spin text-[#e64980]' : 'text-slate-500'}`} />
+                <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${cloudStatus === 'syncing' ? 'animate-spin text-rose-900 dark:text-rose-400' : 'text-slate-500'}`} />
                 <span className="hidden md:inline text-[11px] font-bold">
                   {cloudStatus === 'syncing' ? 'Actualizando...' : 'Actualizar'}
                 </span>
@@ -106,7 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {/* 2. Subir a PRO */}
               {isGerente && (
                 user?.plan === 'pro' ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] sm:text-xs font-extrabold bg-gradient-to-r from-[#681841] to-[#e64980] text-white shadow-xs shrink-0">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] sm:text-xs font-bold bg-rose-900 text-white shadow-xs shrink-0">
                     <Sparkles className="w-3 h-3 fill-white" />
                     <span className="hidden md:inline">PRO ⭐</span>
                     <span className="md:hidden">PRO</span>
@@ -115,9 +115,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <button
                     id="btn-upgrade-pro-nav"
                     onClick={onOpenSubscription}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] sm:text-xs font-extrabold bg-pink-50 dark:bg-pink-950/40 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/80 hover:bg-pink-100 dark:hover:bg-pink-950 transition cursor-pointer shrink-0 whitespace-nowrap"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] sm:text-xs font-bold bg-rose-900 hover:bg-rose-800 text-white border border-rose-950 transition cursor-pointer shrink-0 whitespace-nowrap"
                   >
-                    <Sparkles className="w-3 h-3 text-[#e64980]" />
+                    <Sparkles className="w-3 h-3 text-rose-200" />
                     <span className="hidden md:inline">Subir a PRO</span>
                     <span className="md:hidden">PRO</span>
                   </button>
@@ -163,17 +163,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {/* Popup de Notificaciones */}
                 {showNotifications && (
                   <div
-                    className="absolute right-0 mt-2 w-72 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 py-3 px-3 z-50 animate-in fade-in slide-in-from-top-2 text-xs"
+                    className="absolute right-0 mt-2 w-72 sm:w-96 bg-white dark:bg-slate-900 rounded-md shadow-2xl border border-slate-200 dark:border-slate-800 py-3 px-3 z-50 animate-in fade-in slide-in-from-top-2 text-xs"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 px-1">
                       <div className="flex items-center gap-2">
-                        <BellRing className="w-4 h-4 text-[#e64980]" />
-                        <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                        <BellRing className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                        <span className="font-bold text-sm text-slate-900 dark:text-white">
                           Llamadas de Clientes
                         </span>
                       </div>
-                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-950 text-[#681841] dark:text-pink-300">
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 dark:bg-slate-800 text-rose-900 dark:text-rose-300 border border-stone-200 dark:border-slate-700">
                         {callingTables.length} activas
                       </span>
                     </div>
@@ -193,20 +193,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                           return (
                             <div
                               key={tbl.id}
-                              className={`p-2.5 rounded-xl border flex flex-col gap-1.5 ${
+                              className={`p-2.5 rounded-md border flex flex-col gap-1.5 ${
                                 isBill
-                                  ? 'bg-purple-50/60 dark:bg-purple-950/40 border-purple-200 dark:border-purple-900'
+                                  ? 'bg-stone-50 dark:bg-slate-800/80 border-stone-200 dark:border-slate-700'
                                   : 'bg-amber-50/60 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900'
                               }`}
                             >
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-black text-xs text-slate-900 dark:text-white">
+                                  <span className="font-bold text-xs text-slate-900 dark:text-white">
                                     Mesa {tbl.number} ({tbl.zone})
                                   </span>
                                   <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
                                     isBill
-                                      ? 'bg-purple-200 dark:bg-purple-900 text-purple-800 dark:text-purple-200'
+                                      ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-200'
                                       : 'bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200'
                                   }`}>
                                     {isBill ? '💳 Pide Cuenta' : '🛎️ Llama Mesero'}
@@ -224,7 +224,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => dismissWaiterCall(tbl.id)}
-                                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                                  className="px-2 py-1 rounded-md text-[10px] font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
                                 >
                                   Marcar Atendido
                                 </button>
@@ -235,8 +235,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                                     setActiveTab('tables');
                                     setShowNotifications(false);
                                   }}
-                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold text-white transition cursor-pointer ${
-                                    isBill ? 'bg-purple-600 hover:bg-purple-700' : 'bg-amber-600 hover:bg-amber-700'
+                                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold text-white transition cursor-pointer ${
+                                    isBill ? 'bg-rose-900 hover:bg-rose-800' : 'bg-amber-600 hover:bg-amber-700'
                                   }`}
                                 >
                                   Ir a Mesa
@@ -256,7 +256,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 id="btn-theme-toggle"
                 onClick={toggleTheme}
                 title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo noche (oscuro)'}
-                className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
+                className="p-1.5 sm:p-2 rounded-md text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
               >
                 {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
               </button>
@@ -268,9 +268,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   id="btn-open-employees"
                   onClick={onOpenEmployees}
                   title="Configuración de Empleados y Roles"
-                  className="hidden lg:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800/80 bg-purple-50 dark:bg-purple-950/40 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-800 dark:text-purple-300 text-xs font-black transition cursor-pointer shrink-0 shadow-xs"
+                  className="hidden lg:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-stone-50 dark:bg-slate-800 hover:bg-stone-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold transition cursor-pointer shrink-0 shadow-xs"
                 >
-                  <Users className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <Users className="w-4 h-4 text-rose-900 dark:text-rose-400 shrink-0" />
                   <span>Empleados</span>
                 </button>
               )}
@@ -281,17 +281,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 id="btn-user-avatar-action"
                 onClick={bloquearPantalla}
                 title={`Bloquear pantalla / Cambiar de usuario (${empleadoActivo ? empleadoActivo.nombre : user?.name || 'Usuario'})`}
-                className="flex items-center gap-1.5 sm:gap-2 p-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-pink-50/60 dark:hover:bg-pink-950/40 hover:border-pink-300 dark:hover:border-pink-800/80 cursor-pointer hover:opacity-80 transition-all hover:ring-2 hover:ring-[#e64980] active:scale-95 shrink-0 shadow-xs group"
+                className="flex items-center gap-1.5 sm:gap-2 p-1 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-stone-100 dark:hover:bg-stone-800/60 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all active:scale-95 shrink-0 shadow-xs group"
               >
                 <div className="relative shrink-0">
                   {user?.avatar ? (
                     <img
                       src={user.avatar}
                       alt={user?.name || 'Usuario'}
-                      className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover border border-slate-300 dark:border-slate-700 group-hover:border-[#e64980] transition-colors shrink-0"
+                      className="w-7 h-7 sm:w-8 sm:h-8 rounded-md object-cover border border-slate-300 dark:border-slate-700 group-hover:border-slate-400 transition-colors shrink-0"
                     />
                   ) : (
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-tr from-[#681841] to-[#e64980] text-white flex items-center justify-center font-black text-xs sm:text-sm shadow-xs shrink-0 select-none">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-rose-950 text-white flex items-center justify-center font-bold text-xs sm:text-sm shadow-xs shrink-0 select-none">
                       {(empleadoActivo?.nombre || user?.name || 'U').charAt(0).toUpperCase()}
                     </div>
                   )}
@@ -299,10 +299,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
 
                 <div className="hidden lg:block text-left text-xs pr-1">
-                  <p className="font-semibold text-slate-900 dark:text-white leading-tight group-hover:text-[#681841] dark:group-hover:text-pink-300 transition-colors">
+                  <p className="font-semibold text-slate-900 dark:text-white leading-tight group-hover:text-rose-900 dark:group-hover:text-rose-300 transition-colors">
                     {empleadoActivo ? empleadoActivo.nombre : user?.name}
                   </p>
-                  <p className="text-[10px] text-[#681841] dark:text-pink-400 font-bold capitalize">
+                  <p className="text-[10px] text-rose-900 dark:text-rose-400 font-bold capitalize">
                     {empleadoActivo ? `${empleadoActivo.rol} (Activo)` : (currentRoleConfig?.label || user?.role)}
                   </p>
                 </div>
@@ -314,19 +314,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* FILA INFERIOR: Control de Mesas, Carta, Despensa e Historial (Visible en MÓVIL, TABLET y DESKTOP) */}
           <div className="py-1.5 sm:py-2 flex items-center justify-center w-full">
             {isGerente ? (
-              <nav className="grid grid-cols-4 w-full md:w-auto md:flex md:items-center gap-1 md:gap-2 bg-slate-100/90 dark:bg-slate-800/80 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+              <nav className="grid grid-cols-4 w-full md:w-auto md:flex md:items-center gap-1 md:gap-2 bg-zinc-100 dark:bg-zinc-900 p-1 rounded-md border border-zinc-200 dark:border-zinc-800">
                 
                 {/* 1. Control de Mesas */}
                 <button
                   id="nav-tab-tables"
                   onClick={() => setActiveTab('tables')}
-                  className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-2 px-1 sm:px-2 md:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-extrabold transition-all cursor-pointer w-full md:w-auto ${
+                  className={`flex flex-col md:flex-row items-center justify-center gap-1 px-2 md:px-5 py-2 rounded-md text-[10px] sm:text-xs md:text-sm font-bold transition-all cursor-pointer w-full md:w-auto ${
                     activeTab === 'tables'
-                      ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-md border-b-2 border-[#e64980]'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 font-bold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                   }`}
                 >
-                  <UtensilsCrossed className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${activeTab === 'tables' ? 'text-[#e64980]' : ''}`} />
+                  <UtensilsCrossed className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span className="hidden md:inline">Control de Mesas</span>
                   <span className="md:hidden truncate">Mesas</span>
                 </button>
@@ -335,13 +335,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   id="nav-tab-inventory"
                   onClick={() => setActiveTab('inventory')}
-                  className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-2 px-1 sm:px-2 md:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-extrabold transition-all cursor-pointer w-full md:w-auto ${
+                  className={`flex flex-col md:flex-row items-center justify-center gap-1 px-2 md:px-5 py-2 rounded-md text-[10px] sm:text-xs md:text-sm font-bold transition-all cursor-pointer w-full md:w-auto ${
                     activeTab === 'inventory'
-                      ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-md border-b-2 border-[#e64980]'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 font-bold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                   }`}
                 >
-                  <Package className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${activeTab === 'inventory' ? 'text-[#e64980]' : ''}`} />
+                  <Package className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span className="hidden md:inline">Carta & Menú</span>
                   <span className="md:hidden truncate">Carta</span>
                 </button>
@@ -350,16 +350,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   id="nav-tab-perishables"
                   onClick={() => setActiveTab('perishables')}
-                  className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-2 px-1 sm:px-2 md:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-extrabold transition-all cursor-pointer w-full md:w-auto relative ${
+                  className={`flex flex-col md:flex-row items-center justify-center gap-1 px-2 md:px-5 py-2 rounded-md text-[10px] sm:text-xs md:text-sm font-bold transition-all cursor-pointer w-full md:w-auto relative ${
                     activeTab === 'perishables'
-                      ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-md border-b-2 border-[#e64980]'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 font-bold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                   }`}
                 >
                   <div className="relative flex items-center justify-center">
-                    <Apple className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${activeTab === 'perishables' ? 'text-[#e64980]' : ''}`} />
+                    <Apple className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                     {perishableAlarmCount > 0 && (
-                      <span className="md:hidden absolute -top-1.5 -right-2 px-1 py-0.2 rounded-full text-[8px] font-black bg-rose-500 text-white animate-pulse">
+                      <span className="md:hidden absolute -top-1.5 -right-2 px-1 py-0.2 rounded-md text-[8px] font-bold bg-amber-600 text-white">
                         {perishableAlarmCount}
                       </span>
                     )}
@@ -367,7 +367,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="hidden md:inline">Despensa & Insumos</span>
                   <span className="md:hidden truncate">Despensa</span>
                   {perishableAlarmCount > 0 && (
-                    <span className="hidden md:inline px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
+                    <span className="hidden md:inline px-1.5 py-0.2 rounded-md text-[10px] font-bold bg-amber-600 text-white">
                       {perishableAlarmCount}
                     </span>
                   )}
@@ -377,29 +377,29 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   id="nav-tab-sales"
                   onClick={() => setActiveTab('sales')}
-                  className={`flex flex-col md:flex-row items-center justify-center gap-0.5 md:gap-2 px-1 sm:px-2 md:px-5 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs md:text-sm font-extrabold transition-all cursor-pointer w-full md:w-auto ${
+                  className={`flex flex-col md:flex-row items-center justify-center gap-1 px-2 md:px-5 py-2 rounded-md text-[10px] sm:text-xs md:text-sm font-bold transition-all cursor-pointer w-full md:w-auto ${
                     activeTab === 'sales'
-                      ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-md border-b-2 border-[#e64980]'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 font-bold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
                   }`}
                 >
-                  <Receipt className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${activeTab === 'sales' ? 'text-[#e64980]' : ''}`} />
-                  <span className="hidden md:inline">Historial de Ventas</span>
-                  <span className="md:hidden truncate">Historial</span>
+                  <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  <span className="hidden md:inline">Historial Ventas</span>
+                  <span className="md:hidden truncate">Ventas</span>
                 </button>
               </nav>
             ) : (
               <div className="flex items-center justify-between w-full md:w-auto md:justify-start gap-2">
-                <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60">
-                  <UtensilsCrossed className="w-4 h-4 text-[#e64980]" />
-                  <span className="text-xs sm:text-sm font-extrabold text-slate-800 dark:text-slate-200">
+                <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-md bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60">
+                  <UtensilsCrossed className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                  <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
                     Control de Mesas
                   </span>
                 </div>
-                <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-bold bg-pink-100/80 dark:bg-pink-950/60 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/60">
-                  {user?.role === 'cajero' && <CreditCard className="w-3.5 h-3.5 text-[#e64980]" />}
+                <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-semibold bg-stone-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                  {user?.role === 'cajero' && <CreditCard className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />}
                   {user?.role === 'camarero' && <UtensilsCrossed className="w-3.5 h-3.5 text-emerald-600" />}
-                  {user?.role === 'barman' && <Sparkles className="w-3.5 h-3.5 text-[#e64980]" />}
+                  {user?.role === 'barman' && <Sparkles className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />}
                   <span>{currentRoleConfig?.label}</span>
                 </span>
               </div>

@@ -208,14 +208,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
       <div 
-        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh]"
+        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-lg shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-pink-100 dark:bg-pink-950/50 flex items-center justify-center text-[#681841] dark:text-pink-300">
-              <Settings className="w-4 h-4 text-[#e64980]" />
+            <div className="w-8 h-8 rounded-md bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-rose-950 dark:text-rose-300 border border-stone-200 dark:border-stone-700">
+              <Settings className="w-4 h-4 text-stone-700 dark:text-stone-300" />
             </div>
             <div>
               <h2 className="font-bold text-base text-slate-900 dark:text-white">
@@ -228,7 +228,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -241,7 +241,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={() => setActiveTab('general')}
             className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
               activeTab === 'general'
-                ? 'border-[#e64980] text-[#681841] dark:text-pink-300'
+                ? 'border-rose-900 text-rose-950 dark:text-rose-300'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
@@ -253,7 +253,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={() => setActiveTab('qr')}
             className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
               activeTab === 'qr'
-                ? 'border-[#e64980] text-[#681841] dark:text-pink-300'
+                ? 'border-rose-900 text-rose-950 dark:text-rose-300'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
@@ -265,13 +265,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={() => setActiveTab('team')}
             className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
               activeTab === 'team'
-                ? 'border-[#e64980] text-[#681841] dark:text-pink-300'
+                ? 'border-rose-900 text-rose-950 dark:text-rose-300'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
             <span>Personal & Permisos (Roles)</span>
-            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-pink-100 dark:bg-pink-950 text-[#681841] dark:text-pink-300 text-[10px] font-extrabold">
+            <span className="ml-1 px-1.5 py-0.2 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-[10px] font-extrabold border border-stone-200 dark:border-stone-700">
               {teamMembers.length}
             </span>
           </button>
@@ -280,16 +280,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={() => setActiveTab('security')}
             className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
               activeTab === 'security'
-                ? 'border-[#e64980] text-[#681841] dark:text-pink-300'
+                ? 'border-rose-900 text-rose-950 dark:text-rose-300'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <Lock className="w-3.5 h-3.5" />
             <span>Clave de Acceso Gerente</span>
-            <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+            <span className={`ml-1 px-1.5 py-0.2 rounded-md text-[10px] font-extrabold border ${
               isPinProtectionEnabled
-                ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
             }`}>
               {isPinProtectionEnabled ? 'Protegido' : 'Libre'}
             </span>
@@ -301,15 +301,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <form onSubmit={handleSave} className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
             
             {savedSuccess && (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900">
+              <div className="p-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900">
                 <Check className="w-4 h-4" />
                 <span>Configuración actualizada correctamente.</span>
               </div>
             )}
 
             {/* Provisional App Name */}
-            <div className="p-4 rounded-2xl bg-pink-50/50 dark:bg-slate-800/60 border border-pink-200/70 dark:border-slate-700 space-y-2">
-              <label className="block text-xs font-bold text-[#681841] dark:text-pink-300">
+            <div className="p-4 rounded-md bg-stone-50/50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 space-y-2">
+              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
                 Nombre de la Aplicación (Variable de Marca)
               </label>
               <input
@@ -318,7 +318,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 value={appName}
                 onChange={(e) => setAppName(e.target.value)}
                 placeholder="AppGenerica"
-                className="w-full px-3 py-2 rounded-xl border border-pink-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm font-bold focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm font-bold focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
               />
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Personaliza el nombre de software que verán tus empleados y clientes.
@@ -326,7 +326,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* Logo and Brand Image */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
+            <div className="p-4 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -340,7 +340,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setLogoUrl('/src/assets/images/regenerated_image_1790196085462.png')}
-                    className="text-[10px] text-pink-600 dark:text-pink-400 hover:underline font-semibold cursor-pointer"
+                    className="text-[10px] text-rose-900 dark:text-rose-400 hover:underline font-semibold cursor-pointer"
                   >
                     Restablecer original
                   </button>
@@ -348,19 +348,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               <div className="flex items-center gap-3.5">
-                <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-pink-400 dark:border-pink-500 shadow-md bg-white dark:bg-slate-900 shrink-0 flex items-center justify-center p-0.5">
+                <div className="w-16 h-16 rounded-md overflow-hidden border border-slate-300 dark:border-slate-700 shadow-xs bg-white dark:bg-slate-900 shrink-0 flex items-center justify-center p-0.5">
                   <img
                     src={logoUrl || '/src/assets/images/regenerated_image_1790196085462.png'}
                     alt="Logo actual"
-                    className="w-full h-full object-cover rounded-[14px]"
+                    className="w-full h-full object-cover rounded-md"
                     referrerPolicy="no-referrer"
                   />
                 </div>
 
                 <div className="flex-1 space-y-2">
                   <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-50 dark:bg-pink-950/60 text-[#681841] dark:text-pink-300 border border-pink-200 dark:border-pink-900/60 hover:bg-pink-100 dark:hover:bg-pink-900/40 font-bold text-xs cursor-pointer transition">
-                      <Upload className="w-3.5 h-3.5 text-[#e64980]" />
+                    <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-100 dark:bg-stone-900 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-800 hover:bg-stone-200 dark:hover:bg-stone-800 font-bold text-xs cursor-pointer transition">
+                      <Upload className="w-3.5 h-3.5 text-stone-700 dark:text-stone-300" />
                       <span>Subir archivo de logo</span>
                       <input
                         type="file"
@@ -388,7 +388,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={logoUrl}
                     onChange={(e) => setLogoUrl(e.target.value)}
                     placeholder="O introduce una URL de imagen (https://...)"
-                    className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                    className="w-full px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                   />
                 </div>
               </div>
@@ -406,7 +406,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   placeholder="Ej. Chinmi Terraza Bar"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
               </div>
 
@@ -419,7 +419,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   value={businessTaxId}
                   onChange={(e) => setBusinessTaxId(e.target.value)}
                   placeholder="901.234.567-8"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-mono focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-mono focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
               </div>
             </div>
@@ -434,7 +434,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   value={businessAddress}
                   onChange={(e) => setBusinessAddress(e.target.value)}
                   placeholder="Cra. 43A # 1-50, El Poblado"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
               </div>
 
@@ -447,7 +447,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   value={businessPhone}
                   onChange={(e) => setBusinessPhone(e.target.value)}
                   placeholder="+57 300 123 4567"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
               </div>
             </div>
@@ -461,7 +461,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <select
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 >
                   <option value="COP$">Peso Colombiano (COP$)</option>
                   <option value="$">Dólar ($)</option>
@@ -478,7 +478,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <select
                   value={defaultTaxRate}
                   onChange={(e) => setDefaultTaxRate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 >
                   <option value="8">8% (Impoconsumo Restaurantes/Bares Colombia)</option>
                   <option value="19">19% (IVA General Colombia)</option>
@@ -517,13 +517,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="px-4 py-2 rounded-md text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 rounded-xl bg-[#681841] hover:bg-[#571436] text-white font-bold text-xs shadow-md shadow-[#681841]/20 transition cursor-pointer"
+                className="px-5 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs shadow-xs transition cursor-pointer"
               >
                 Guardar Configuración
               </button>
@@ -534,9 +534,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           /* === TAB: OPCIONES CÓDIGOS QR & CARTA DIGITAL === */
           <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
             {/* Header info */}
-            <div className="p-4 rounded-2xl bg-pink-50/60 dark:bg-slate-850 border border-pink-200/80 dark:border-slate-800 space-y-2">
+            <div className="p-4 rounded-md bg-stone-50 dark:bg-slate-850 border border-stone-200 dark:border-slate-800 space-y-2">
               <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm">
-                <QrCode className="w-4 h-4 text-[#e64980]" />
+                <QrCode className="w-4 h-4 text-rose-900 dark:text-rose-400" />
                 <span>Control de la Carta QR para los Clientes</span>
               </div>
               <p className="text-slate-500 dark:text-slate-400 leading-relaxed text-xs">
@@ -558,13 +558,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     setAllowCallWaiter(true);
                     setAllowRequestBill(true);
                   }}
-                  className={`p-3 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                  className={`p-3 rounded-md border text-left transition cursor-pointer flex flex-col justify-between ${
                     !menuOnlyMode && allowOrdering && allowCallWaiter && allowRequestBill
-                      ? 'border-[#681841] bg-pink-50 dark:bg-pink-950/40 ring-2 ring-[#681841]/20'
+                      ? 'border-rose-900 bg-rose-950/10 dark:bg-rose-950/30'
                       : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
                   }`}
                 >
-                  <span className="font-black text-xs text-[#681841] dark:text-pink-300">
+                  <span className="font-black text-xs text-rose-950 dark:text-rose-300">
                     🚀 Pedidos + Mesero
                   </span>
                   <span className="text-[10px] text-slate-500 mt-1">
@@ -580,13 +580,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     setAllowCallWaiter(true);
                     setAllowRequestBill(true);
                   }}
-                  className={`p-3 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                  className={`p-3 rounded-md border text-left transition cursor-pointer flex flex-col justify-between ${
                     menuOnlyMode && allowCallWaiter && allowRequestBill
-                      ? 'border-[#681841] bg-pink-50 dark:bg-pink-950/40 ring-2 ring-[#681841]/20'
+                      ? 'border-rose-900 bg-rose-950/10 dark:bg-rose-950/30'
                       : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
                   }`}
                 >
-                  <span className="font-black text-xs text-[#681841] dark:text-pink-300">
+                  <span className="font-black text-xs text-rose-950 dark:text-rose-300">
                     📖 Solo Menú + Mesero
                   </span>
                   <span className="text-[10px] text-slate-500 mt-1">
@@ -602,13 +602,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     setAllowCallWaiter(false);
                     setAllowRequestBill(false);
                   }}
-                  className={`p-3 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
+                  className={`p-3 rounded-md border text-left transition cursor-pointer flex flex-col justify-between ${
                     menuOnlyMode && !allowCallWaiter && !allowRequestBill
-                      ? 'border-[#681841] bg-pink-50 dark:bg-pink-950/40 ring-2 ring-[#681841]/20'
+                      ? 'border-rose-900 bg-rose-950/10 dark:bg-rose-950/30'
                       : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
                   }`}
                 >
-                  <span className="font-black text-xs text-[#681841] dark:text-pink-300">
+                  <span className="font-black text-xs text-rose-950 dark:text-rose-300">
                     🔒 Solo Ver Menú
                   </span>
                   <span className="text-[10px] text-slate-500 mt-1">
@@ -625,12 +625,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </h4>
 
               {/* 1. Solo Menú */}
-              <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
+              <div className="p-3.5 rounded-md border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
                 <div className="space-y-0.5">
                   <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
                     <span>Modo Solo Ver Menú (Informativo)</span>
                     {menuOnlyMode && (
-                      <span className="px-2 py-0.2 rounded-full bg-pink-100 dark:bg-pink-950 text-pink-700 dark:text-pink-300 text-[10px] font-black">
+                      <span className="px-2 py-0.2 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-[10px] font-black border border-stone-200 dark:border-stone-700">
                         Activo
                       </span>
                     )}
@@ -650,17 +650,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     }}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-[#681841]"></div>
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-rose-950"></div>
                 </label>
               </div>
 
               {/* 2. Permitir hacer pedidos */}
-              <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
+              <div className="p-3.5 rounded-md border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
                 <div className="space-y-0.5">
                   <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
                     <span>Hacer Pedidos Directo a Cocina</span>
                     {allowOrdering && !menuOnlyMode && (
-                      <span className="px-2 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-black">
+                      <span className="px-2 py-0.2 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-black">
                         Habilitado
                       </span>
                     )}
@@ -677,12 +677,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) => setAllowOrdering(e.target.checked)}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-[#681841] peer-disabled:opacity-40"></div>
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-rose-950 peer-disabled:opacity-40"></div>
                 </label>
               </div>
 
               {/* 3. Llamar al mesero */}
-              <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
+              <div className="p-3.5 rounded-md border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
                 <div className="space-y-0.5">
                   <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
                     <BellRing className="w-3.5 h-3.5 text-amber-500" />
@@ -699,15 +699,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) => setAllowCallWaiter(e.target.checked)}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-[#681841]"></div>
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-rose-950"></div>
                 </label>
               </div>
 
               {/* 4. Pedir cuenta */}
-              <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
+              <div className="p-3.5 rounded-md border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 bg-white dark:bg-slate-900">
                 <div className="space-y-0.5">
                   <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5 text-purple-500" />
+                    <CreditCard className="w-3.5 h-3.5 text-slate-500" />
                     <span>Botón "Pedir la Cuenta"</span>
                   </div>
                   <p className="text-[11px] text-slate-500">
@@ -721,7 +721,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) => setAllowRequestBill(e.target.checked)}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-[#681841]"></div>
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-rose-950"></div>
                 </label>
               </div>
             </div>
@@ -731,14 +731,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                className="px-4 py-2 rounded-md text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancelar
               </button>
               <button
-                type="button"
+                type="submit"
                 onClick={handleSave}
-                className="px-5 py-2 rounded-xl bg-[#681841] hover:bg-[#571436] text-white font-bold text-xs shadow-md shadow-[#681841]/20 transition cursor-pointer"
+                className="px-5 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs shadow-xs transition cursor-pointer"
               >
                 Guardar Configuración QR
               </button>
@@ -756,14 +756,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             {/* Guía Clara de Control de Acceso según la solicitud */}
-            <div className="p-4 rounded-2xl bg-pink-50/60 dark:bg-slate-800/60 border border-pink-200/80 dark:border-slate-700 space-y-3">
+            <div className="p-4 rounded-md bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 space-y-3">
               <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold">
-                <ShieldCheck className="w-4 h-4 text-[#e64980]" />
+                <ShieldCheck className="w-4 h-4 text-stone-700 dark:text-stone-300" />
                 <span>Esquema de Permisos y Roles de Personal</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
-                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-pink-200 dark:border-slate-700">
-                  <div className="flex items-center gap-1.5 font-bold text-[#681841] dark:text-pink-300">
+                <div className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-700">
+                  <div className="flex items-center gap-1.5 font-bold text-rose-950 dark:text-rose-300">
                     <span>👑</span>
                     <span>Gerente</span>
                   </div>
@@ -773,7 +773,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-blue-200 dark:border-slate-700">
+                <div className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700">
                   <div className="flex items-center gap-1.5 font-bold text-blue-600 dark:text-blue-400">
                     <span>💳</span>
                     <span>Cajero</span>
@@ -798,10 +798,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* Formulario para Agregar Nuevo Colaborador */}
-            <form onSubmit={handleAddMember} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
+            <form onSubmit={handleAddMember} className="p-4 rounded-md bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <UserPlus className="w-3.5 h-3.5 text-[#e64980]" />
+                  <UserPlus className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
                   Agregar nuevo miembro del personal
                 </span>
                 <span className="text-[10px] text-slate-400 font-medium">Asigna su función</span>
@@ -814,7 +814,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   value={newMemberName}
                   onChange={(e) => setNewMemberName(e.target.value)}
                   placeholder="Nombre (ej. Mariana López)"
-                  className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
 
                 <input
@@ -823,13 +823,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   value={newMemberEmail}
                   onChange={(e) => setNewMemberEmail(e.target.value)}
                   placeholder="Email de acceso"
-                  className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
 
                 <select
                   value={newMemberRole}
                   onChange={(e) => setNewMemberRole(e.target.value as UserRole)}
-                  className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 >
                   <option value="cajero">💳 Cajero (Mesas y Cobro)</option>
                   <option value="camarero">👩‍🍳 Camarero (Mesas y Pedidos)</option>
@@ -841,7 +841,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#681841] hover:bg-[#571436] text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+                  className="px-4 py-2 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
                   <span>Agregar al Equipo</span>
@@ -863,13 +863,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   return (
                     <div
                       key={member.id}
-                      className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+                      className="p-3 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
                     >
                       <div className="flex items-center gap-3">
                         <img
                           src={member.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80'}
                           alt={member.name}
-                          className="w-9 h-9 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                          className="w-9 h-9 rounded-md object-cover border border-slate-200 dark:border-slate-700 shrink-0"
                         />
                         <div>
                           <div className="flex items-center gap-2">
@@ -877,7 +877,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               {member.name}
                             </span>
                             {isCurrentLogged && (
-                              <span className="text-[10px] font-bold px-2 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              <span className="text-[10px] font-bold px-2 py-0.2 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                                 Tú
                               </span>
                             )}
@@ -892,7 +892,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <select
                           value={member.role}
                           onChange={(e) => handleRoleChange(member.id, e.target.value as UserRole)}
-                          className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                          className="px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                         >
                           <option value="gerente">👑 Gerente (Control Total)</option>
                           <option value="cajero">💳 Cajero (Mesas y Cobro)</option>
@@ -905,7 +905,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             type="button"
                             onClick={() => handleRemoveMember(member.id, member.name)}
                             title="Eliminar usuario del equipo"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -921,7 +921,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-5 py-2 rounded-xl bg-[#681841] hover:bg-[#571436] text-white font-bold text-xs shadow-md shadow-[#681841]/20 transition cursor-pointer"
+                className="px-5 py-2 rounded-md bg-rose-900 hover:bg-rose-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
               >
                 Listo
               </button>
@@ -933,23 +933,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
             
             {securitySuccess && (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900 animate-in fade-in">
+              <div className="p-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900 animate-in fade-in">
                 <Check className="w-4 h-4 shrink-0" />
                 <span>{securitySuccess}</span>
               </div>
             )}
 
             {securityError && (
-              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-2 border border-rose-200 dark:border-rose-900 animate-in fade-in">
+              <div className="p-3 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-2 border border-rose-200 dark:border-rose-900 animate-in fade-in">
                 <ShieldAlert className="w-4 h-4 shrink-0" />
                 <span>{securityError}</span>
               </div>
             )}
 
             {/* Banner Informativo */}
-            <div className="p-4 rounded-2xl bg-pink-50/60 dark:bg-slate-800/60 border border-pink-200/80 dark:border-slate-700 space-y-2">
+            <div className="p-4 rounded-md bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 space-y-2">
               <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold">
-                <Lock className="w-4 h-4 text-[#e64980]" />
+                <Lock className="w-4 h-4 text-stone-700 dark:text-stone-300" />
                 <span>Protección de Acceso y Control Administrativo</span>
               </div>
               <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
@@ -958,7 +958,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* Tarjeta de Clave Actual */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="p-4 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <span className="font-bold text-slate-900 dark:text-white text-xs block">
                   Clave de Acceso Configurada
@@ -969,7 +969,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="px-3.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-bold text-sm tracking-widest text-[#681841] dark:text-pink-300 flex items-center gap-2">
+                <div className="px-3.5 py-1.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-bold text-sm tracking-widest text-stone-900 dark:text-stone-100 flex items-center gap-2">
                   <span>{showCurrentPin ? managerPin : '••••'}</span>
                   <button
                     type="button"
@@ -981,7 +981,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
 
-                <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${
+                <span className={`px-2 py-1 rounded-md text-[10px] font-bold ${
                   isPinProtectionEnabled
                     ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
                     : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
@@ -992,10 +992,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* Formulario: Establecer / Cambiar Clave */}
-            <form onSubmit={handleSavePin} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
+            <form onSubmit={handleSavePin} className="p-4 rounded-md bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5 text-[#e64980]" />
+                  <KeyRound className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
                   Poner / Cambiar Clave de Acceso
                 </span>
                 <span className="text-[10px] text-slate-400">Mínimo 4 caracteres o dígitos</span>
@@ -1016,7 +1016,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         setNewPin(e.target.value);
                       }}
                       placeholder="Ej. 1234 o miClave2026"
-                      className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono font-bold focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                      className="w-full px-3 py-2 pr-9 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono font-bold focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                     />
                     <button
                       type="button"
@@ -1041,7 +1041,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       setConfirmPin(e.target.value);
                     }}
                     placeholder="Repite la clave exactamente igual"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono font-bold focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                    className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono font-bold focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                   />
                 </div>
               </div>
@@ -1058,7 +1058,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#681841] hover:bg-[#571436] text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+                  className="px-4 py-2 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>Guardar Clave de Acceso</span>
@@ -1067,7 +1067,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </form>
 
             {/* Opciones de Seguridad y Exigencia de Clave */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="p-4 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
               <span className="font-bold text-slate-900 dark:text-white text-xs block">
                 Comportamiento de Seguridad
               </span>
@@ -1085,7 +1085,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     );
                     setTimeout(() => setSecuritySuccess(null), 2500);
                   }}
-                  className="w-4 h-4 mt-0.5 rounded text-[#e64980] focus:ring-[#e64980] accent-[#681841] cursor-pointer"
+                  className="w-4 h-4 mt-0.5 rounded-sm text-rose-900 focus:ring-rose-900 accent-rose-900 cursor-pointer"
                 />
                 <div>
                   <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs">
@@ -1099,7 +1099,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* Probador Rápido de Clave */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2.5">
+            <div className="p-4 rounded-md bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2.5">
               <span className="font-bold text-slate-900 dark:text-white text-xs block">
                 Comprobador de Clave
               </span>
@@ -1113,18 +1113,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   value={testPinInput}
                   onChange={(e) => setTestPinInput(e.target.value)}
                   placeholder="Introduce la clave para probar..."
-                  className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono focus:outline-hidden focus:ring-2 focus:ring-[#e64980]"
+                  className="flex-1 px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
                 <button
                   type="submit"
-                  className="px-3.5 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-bold text-xs transition cursor-pointer"
+                  className="px-3.5 py-2 rounded-md bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-bold text-xs transition cursor-pointer"
                 >
                   Probar
                 </button>
               </form>
 
               {testPinResult === 'correct' && (
-                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold flex items-center gap-1.5 animate-in fade-in">
+                <div className="p-2 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold flex items-center gap-1.5 animate-in fade-in">
                   <Check className="w-3.5 h-3.5" />
                   <span>¡Clave correcta! Acceso autorizado.</span>
                 </div>
@@ -1143,7 +1143,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-5 py-2 rounded-xl bg-[#681841] hover:bg-[#571436] text-white font-bold text-xs shadow-md shadow-[#681841]/20 transition cursor-pointer"
+                className="px-5 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs shadow-xs transition cursor-pointer"
               >
                 Listo
               </button>

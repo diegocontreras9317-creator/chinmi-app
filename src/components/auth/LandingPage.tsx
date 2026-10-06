@@ -129,7 +129,7 @@ export const LandingPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#fdf2f6] via-white to-slate-50 dark:from-[#191116] dark:via-slate-900 dark:to-slate-950 text-slate-900 dark:text-slate-100 flex flex-col justify-between selection:bg-[#e64980] selection:text-white">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col justify-between selection:bg-rose-900 selection:text-white">
       
       {/* 1. Header con PublicNavbar (Logo Oficial Estático de Chinmi SaaS) */}
       <PublicNavbar
@@ -146,7 +146,7 @@ export const LandingPage: React.FC = () => {
         
         {/* LOGO EN GRANDE EN LA PÁGINA PRINCIPAL (ESTRICTAMENTE ESTÁTICO DE CHINMI APP) */}
         <div className="mb-6 flex flex-col items-center justify-center animate-fade-in group">
-          <div className="p-3 sm:p-4 rounded-3xl bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-pink-200/80 dark:border-pink-900/50 shadow-2xl shadow-pink-500/10 ring-4 ring-pink-100/50 dark:ring-pink-950/30 transition-all duration-300 group-hover:scale-105 group-hover:shadow-pink-500/20">
+          <div className="p-3 sm:p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs transition-all duration-300">
             <ChinmiLogo
               variant="stacked"
               size="xl"
@@ -158,13 +158,13 @@ export const LandingPage: React.FC = () => {
         </div>
 
         <div className="text-center space-y-3 mb-6 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-pink-100 dark:bg-pink-950/60 border border-pink-300/60 dark:border-pink-800/60 text-[#681841] dark:text-pink-300 text-xs font-bold shadow-xs">
-            <Smile className="w-4 h-4 text-[#e64980]" />
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-md bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-stone-800 dark:text-stone-200 text-xs font-semibold">
+            <Smile className="w-4 h-4 text-rose-900 dark:text-rose-400" />
             <span>Fácil, rápido y sin complicaciones para tu equipo</span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
-            Control de mesas y comandas, <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#681841] via-[#d6336c] to-[#e64980]">sin enredos</span>.
+            Control de mesas y comandas, <span className="text-rose-900 dark:text-rose-400">sin enredos</span>.
           </h1>
 
           <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 font-normal max-w-xl mx-auto leading-relaxed">
@@ -174,18 +174,18 @@ export const LandingPage: React.FC = () => {
 
         {/* 3. Selector de Pestañas Amigable (Menú Principal Claro) */}
         <div className="w-full max-w-xl mb-6">
-          <div className="flex p-1.5 rounded-2xl bg-slate-200/70 dark:bg-slate-800/80 backdrop-blur border border-slate-300/50 dark:border-slate-700/60 shadow-xs">
+          <div className="flex p-1 rounded-md bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-xs">
             <button
               type="button"
               id="tab-btn-demo"
               onClick={() => setActiveTab('demo')}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`flex-1 py-2 px-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeTab === 'demo'
-                  ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-rose-900 text-white shadow-xs'
+                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'
               }`}
             >
-              <PlayCircle className="w-4 h-4 text-[#e64980]" />
+              <PlayCircle className="w-4 h-4" />
               <span>Probar Demo</span>
             </button>
 
@@ -193,13 +193,13 @@ export const LandingPage: React.FC = () => {
               type="button"
               id="tab-btn-register"
               onClick={() => setActiveTab('register')}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`flex-1 py-2 px-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeTab === 'register'
-                  ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-rose-900 text-white shadow-xs'
+                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'
               }`}
             >
-              <Sparkles className="w-4 h-4 text-[#e64980]" />
+              <Sparkles className="w-4 h-4" />
               <span>Crear Cuenta</span>
             </button>
 
@@ -207,13 +207,13 @@ export const LandingPage: React.FC = () => {
               type="button"
               id="tab-btn-login"
               onClick={() => setActiveTab('login')}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              className={`flex-1 py-2 px-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeTab === 'login'
-                  ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-rose-900 text-white shadow-xs'
+                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'
               }`}
             >
-              <Lock className="w-4 h-4 text-[#e64980]" />
+              <Lock className="w-4 h-4" />
               <span>Iniciar Sesión</span>
             </button>
 
@@ -221,10 +221,10 @@ export const LandingPage: React.FC = () => {
               type="button"
               id="tab-btn-pricing"
               onClick={() => setActiveTab('pricing')}
-              className={`hidden sm:flex py-2.5 px-3 rounded-xl text-xs font-bold transition-all items-center justify-center gap-1.5 cursor-pointer ${
+              className={`hidden sm:flex py-2 px-3 rounded-md text-xs font-bold transition-all items-center justify-center gap-1.5 cursor-pointer ${
                 activeTab === 'pricing'
-                  ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'bg-rose-900 text-white shadow-xs'
+                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-white'
               }`}
             >
               <span>Precios</span>
@@ -237,7 +237,7 @@ export const LandingPage: React.FC = () => {
 
           {/* === PESTAÑA 1: DEMO EN 1 CLIC === */}
           {activeTab === 'demo' && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl shadow-pink-500/5 space-y-6">
+            <div className="bg-white dark:bg-slate-900 rounded-lg p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xs space-y-6">
               
               <div className="text-center space-y-1">
                 <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
@@ -264,20 +264,20 @@ export const LandingPage: React.FC = () => {
                       loginAsDemoRole('gerente');
                     }
                   }}
-                  className="w-full p-4 rounded-2xl bg-pink-50/60 dark:bg-slate-800/80 hover:bg-pink-100/70 dark:hover:bg-slate-800 border-2 border-pink-200/80 dark:border-pink-900/50 hover:border-[#681841] transition cursor-pointer flex items-center justify-between text-left group gap-3"
+                  className="w-full p-4 rounded-md bg-stone-50 dark:bg-slate-800/80 hover:bg-stone-100 dark:hover:bg-slate-800 border border-stone-200 dark:border-slate-700 hover:border-stone-400 transition cursor-pointer flex items-center justify-between text-left group gap-3 shadow-xs"
                 >
                   <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                    <span className="text-3xl p-2 rounded-xl bg-white dark:bg-slate-900 shadow-xs shrink-0">👨‍💼</span>
+                    <span className="text-3xl p-2 rounded-md bg-white dark:bg-slate-900 shadow-xs shrink-0 border border-slate-200 dark:border-slate-800">👨‍💼</span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center flex-wrap gap-1.5 sm:gap-2">
-                        <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
                           Carlos (Gerente)
                         </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#681841] text-white shrink-0">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-900 text-white shrink-0">
                           Control Total
                         </span>
                         {isPinProtectionEnabled && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-100 dark:bg-pink-950 text-[#681841] dark:text-pink-300 flex items-center gap-1 border border-pink-200 dark:border-pink-900 shrink-0">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 flex items-center gap-1 border border-stone-300 dark:border-stone-700 shrink-0">
                             <Lock className="w-2.5 h-2.5" /> Clave Requerida
                           </span>
                         )}
@@ -287,23 +287,23 @@ export const LandingPage: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <ArrowRight className="w-5 h-5 text-[#681841] dark:text-pink-400 group-hover:translate-x-1 transition shrink-0" />
+                  <ArrowRight className="w-5 h-5 text-rose-900 dark:text-rose-400 group-hover:translate-x-1 transition shrink-0" />
                 </button>
 
                 {/* Cajero / Caja */}
                 <button
                   type="button"
                   onClick={() => loginAsDemoRole('cajero')}
-                  className="w-full p-4 rounded-2xl bg-blue-50/60 dark:bg-slate-800/80 hover:bg-blue-100/70 dark:hover:bg-slate-800 border-2 border-blue-200/80 dark:border-blue-900/50 hover:border-blue-500 transition cursor-pointer flex items-center justify-between text-left group gap-3"
+                  className="w-full p-4 rounded-md bg-stone-50 dark:bg-slate-800/80 hover:bg-stone-100 dark:hover:bg-slate-800 border border-stone-200 dark:border-slate-700 hover:border-stone-400 transition cursor-pointer flex items-center justify-between text-left group gap-3 shadow-xs"
                 >
                   <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                    <span className="text-3xl p-2 rounded-xl bg-white dark:bg-slate-900 shadow-xs shrink-0">💳</span>
+                    <span className="text-3xl p-2 rounded-md bg-white dark:bg-slate-900 shadow-xs shrink-0 border border-slate-200 dark:border-slate-800">💳</span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center flex-wrap gap-1.5 sm:gap-2">
-                        <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
                           Sofía (Caja)
                         </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white shrink-0">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-stone-800 text-white shrink-0">
                           Solo Mesas y Cobro
                         </span>
                       </div>
@@ -312,23 +312,23 @@ export const LandingPage: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <ArrowRight className="w-5 h-5 text-blue-600 dark:text-blue-400 group-hover:translate-x-1 transition shrink-0" />
+                  <ArrowRight className="w-5 h-5 text-stone-700 dark:text-stone-400 group-hover:translate-x-1 transition shrink-0" />
                 </button>
 
                 {/* Camarera */}
                 <button
                   type="button"
                   onClick={() => loginAsDemoRole('camarero')}
-                  className="w-full p-4 rounded-2xl bg-emerald-50/60 dark:bg-slate-800/80 hover:bg-emerald-100/70 dark:hover:bg-slate-800 border-2 border-emerald-200/80 dark:border-emerald-900/50 hover:border-emerald-500 transition cursor-pointer flex items-center justify-between text-left group gap-3"
+                  className="w-full p-4 rounded-md bg-stone-50 dark:bg-slate-800/80 hover:bg-stone-100 dark:hover:bg-slate-800 border border-stone-200 dark:border-slate-700 hover:border-stone-400 transition cursor-pointer flex items-center justify-between text-left group gap-3 shadow-xs"
                 >
                   <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                    <span className="text-3xl p-2 rounded-xl bg-white dark:bg-slate-900 shadow-xs shrink-0">👩‍🍳</span>
+                    <span className="text-3xl p-2 rounded-md bg-white dark:bg-slate-900 shadow-xs shrink-0 border border-slate-200 dark:border-slate-800">👩‍🍳</span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center flex-wrap gap-1.5 sm:gap-2">
-                        <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
                           Elena (Camarera)
                         </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shrink-0">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-800 text-white shrink-0">
                           Solo Mesas y Pedidos
                         </span>
                       </div>
@@ -337,23 +337,23 @@ export const LandingPage: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <ArrowRight className="w-5 h-5 text-emerald-600 dark:text-emerald-400 group-hover:translate-x-1 transition shrink-0" />
+                  <ArrowRight className="w-5 h-5 text-emerald-800 dark:text-emerald-400 group-hover:translate-x-1 transition shrink-0" />
                 </button>
 
                 {/* Barman */}
                 <button
                   type="button"
                   onClick={() => loginAsDemoRole('barman')}
-                  className="w-full p-4 rounded-2xl bg-rose-50/60 dark:bg-slate-800/80 hover:bg-rose-100/70 dark:hover:bg-slate-800 border-2 border-rose-200/80 dark:border-rose-950/60 hover:border-[#e64980] transition cursor-pointer flex items-center justify-between text-left group gap-3"
+                  className="w-full p-4 rounded-md bg-stone-50 dark:bg-slate-800/80 hover:bg-stone-100 dark:hover:bg-slate-800 border border-stone-200 dark:border-slate-700 hover:border-stone-400 transition cursor-pointer flex items-center justify-between text-left group gap-3 shadow-xs"
                 >
                   <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                    <span className="text-3xl p-2 rounded-xl bg-white dark:bg-slate-900 shadow-xs shrink-0">🍸</span>
+                    <span className="text-3xl p-2 rounded-md bg-white dark:bg-slate-900 shadow-xs shrink-0 border border-slate-200 dark:border-slate-800">🍸</span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center flex-wrap gap-1.5 sm:gap-2">
-                        <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white truncate">
                           Mateo (Barman)
                         </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#e64980] text-white shrink-0">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-950 text-white shrink-0">
                           Barra & Coctelería
                         </span>
                       </div>
@@ -362,29 +362,29 @@ export const LandingPage: React.FC = () => {
                       </p>
                     </div>
                   </div>
-                  <ArrowRight className="w-5 h-5 text-[#e64980] group-hover:translate-x-1 transition shrink-0" />
+                  <ArrowRight className="w-5 h-5 text-rose-900 dark:text-rose-400 group-hover:translate-x-1 transition shrink-0" />
                 </button>
               </div>
 
               {/* Guía Visual Rápida de Estados de Mesas */}
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+              <div className="p-4 rounded-md bg-stone-50 dark:bg-slate-850 border border-stone-200 dark:border-slate-800">
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">
                   ¿Cómo reconocerás las mesas en el salón?
                 </p>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800">
-                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 mb-1" />
+                  <div className="p-2 rounded-md bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800">
+                    <span className="inline-block w-2.5 h-2.5 rounded-xs bg-emerald-600 mb-1" />
                     <p className="font-bold text-emerald-800 dark:text-emerald-300 text-[11px]">Libre</p>
                     <p className="text-[10px] text-slate-500">Lista para sentar</p>
                   </div>
-                  <div className="p-2 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800">
-                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 mb-1" />
-                    <p className="font-bold text-red-800 dark:text-red-300 text-[11px]">Ocupada</p>
+                  <div className="p-2 rounded-md bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800">
+                    <span className="inline-block w-2.5 h-2.5 rounded-xs bg-rose-900 mb-1" />
+                    <p className="font-bold text-rose-900 dark:text-rose-300 text-[11px]">Ocupada</p>
                     <p className="text-[10px] text-slate-500">Consumiendo</p>
                   </div>
-                  <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800">
-                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 mb-1" />
-                    <p className="font-bold text-purple-800 dark:text-purple-300 text-[11px]">Cuenta</p>
+                  <div className="p-2 rounded-md bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800">
+                    <span className="inline-block w-2.5 h-2.5 rounded-xs bg-amber-600 mb-1" />
+                    <p className="font-bold text-amber-800 dark:text-amber-300 text-[11px]">Cuenta</p>
                     <p className="text-[10px] text-slate-500">Pidiendo cobro</p>
                   </div>
                 </div>
@@ -394,7 +394,7 @@ export const LandingPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('register')}
-                  className="text-xs text-[#681841] dark:text-pink-400 font-semibold hover:underline cursor-pointer"
+                  className="text-xs text-rose-900 dark:text-rose-400 font-semibold hover:underline cursor-pointer"
                 >
                   ¿Quieres crear tu cuenta propia? Haz clic aquí gratis →
                 </button>
@@ -405,7 +405,7 @@ export const LandingPage: React.FC = () => {
 
           {/* === PESTAÑA 2: CREAR CUENTA GRATIS === */}
           {activeTab === 'register' && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl shadow-pink-500/5 space-y-5">
+            <div className="bg-white dark:bg-slate-900 rounded-lg p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
               
               <div className="text-center space-y-1">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-extrabold">
@@ -447,7 +447,7 @@ export const LandingPage: React.FC = () => {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="Ej. Carmen Rodríguez"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                      className="w-full pl-9 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
                     />
                   </div>
                 </div>
@@ -464,7 +464,7 @@ export const LandingPage: React.FC = () => {
                       value={businessName}
                       onChange={(e) => setBusinessName(e.target.value)}
                       placeholder="Ej. Chinmi Terraza Bar"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                      className="w-full pl-9 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
                     />
                   </div>
                 </div>
@@ -481,7 +481,7 @@ export const LandingPage: React.FC = () => {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@tunegocio.com"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                      className="w-full pl-9 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
                     />
                   </div>
                 </div>
@@ -498,13 +498,13 @@ export const LandingPage: React.FC = () => {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                      className="w-full pl-9 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900 focus:border-rose-900"
                     />
                   </div>
                 </div>
 
                 {/* Beneficios del Plan Gratuito */}
-                <div className="p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/40 text-xs text-emerald-800 dark:text-emerald-300">
+                <div className="p-3 rounded-md bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800 text-xs text-stone-800 dark:text-stone-300">
                   <div className="flex items-center gap-2 font-bold">
                     <Check className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>Tu cuenta incluye Plan Gratuito ($0 COP para siempre)</span>
@@ -517,7 +517,7 @@ export const LandingPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs sm:text-sm font-bold shadow-md shadow-pink-500/20 transition cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full py-3 px-4 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <span className="inline-block animate-spin">⏳</span>
@@ -539,7 +539,7 @@ export const LandingPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleOpenGoogle('register')}
-                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                    className="py-2.5 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                   >
                     <GoogleIcon className="w-4 h-4" />
                     <span>Google</span>
@@ -552,7 +552,7 @@ export const LandingPage: React.FC = () => {
                       const res = await loginWithFacebook();
                       if (!res.success && res.error) setFormError(res.error);
                     }}
-                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                    className="py-2.5 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                   >
                     <FacebookIcon className="w-4 h-4" />
                     <span>Facebook</span>
@@ -570,7 +570,7 @@ export const LandingPage: React.FC = () => {
                   }}
                   className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
                 >
-                  ¿Ya tienes una cuenta? <strong className="text-[#681841] dark:text-pink-400">Inicia sesión aquí</strong>
+                  ¿Ya tienes una cuenta? <strong className="text-rose-900 dark:text-rose-400">Inicia sesión aquí</strong>
                 </button>
               </div>
 
@@ -579,10 +579,10 @@ export const LandingPage: React.FC = () => {
 
           {/* === PESTAÑA 3: INICIAR SESIÓN === */}
           {activeTab === 'login' && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl shadow-pink-500/5 space-y-5">
+            <div className="bg-white dark:bg-slate-900 rounded-lg p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
               
               <div className="text-center space-y-1">
-                <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
                   Bienvenido de vuelta
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
@@ -591,14 +591,14 @@ export const LandingPage: React.FC = () => {
               </div>
 
               {formError && (
-                <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-xs font-semibold flex items-center gap-2.5">
+                <div className="p-3.5 rounded-md bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-xs font-semibold flex items-center gap-2.5">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{formError}</span>
                 </div>
               )}
 
               {formSuccess && (
-                <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2.5">
+                <div className="p-3.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2.5">
                   <Check className="w-4 h-4 shrink-0" />
                   <span>{formSuccess}</span>
                 </div>
@@ -618,7 +618,7 @@ export const LandingPage: React.FC = () => {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="admin@tunegocio.com"
-                      className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                      className="w-full pl-10 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900 focus:border-rose-900"
                     />
                   </div>
                 </div>
@@ -631,7 +631,7 @@ export const LandingPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setIsForgotPasswordOpen(true)}
-                      className="text-[11px] font-bold text-[#681841] dark:text-pink-400 hover:underline transition cursor-pointer"
+                      className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline transition cursor-pointer"
                     >
                       ¿Olvidaste tu contraseña?
                     </button>
@@ -644,7 +644,7 @@ export const LandingPage: React.FC = () => {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-[#e64980]/50 focus:border-[#e64980]"
+                      className="w-full pl-10 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900 focus:border-rose-900"
                     />
                   </div>
                 </div>
@@ -652,7 +652,7 @@ export const LandingPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white text-xs sm:text-sm font-bold shadow-md shadow-pink-500/20 transition cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full py-3 px-4 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <span className="inline-block animate-spin">⏳</span>
@@ -685,7 +685,7 @@ export const LandingPage: React.FC = () => {
                         }
                       }
                     }}
-                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                    className="py-2.5 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                   >
                     <GoogleIcon className="w-4 h-4" />
                     <span>Google</span>
@@ -699,7 +699,7 @@ export const LandingPage: React.FC = () => {
                       const res = await loginWithFacebook();
                       if (!res.success && res.error) setFormError(res.error);
                     }}
-                    className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                    className="py-2.5 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-100 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                   >
                     <FacebookIcon className="w-4 h-4" />
                     <span>Facebook</span>
@@ -717,7 +717,7 @@ export const LandingPage: React.FC = () => {
                   }}
                   className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
                 >
-                  ¿No tienes cuenta todavía? <strong className="text-[#681841] dark:text-pink-400">Regístrate aquí gratis</strong>
+                  ¿No tienes cuenta todavía? <strong className="text-rose-900 dark:text-rose-400">Regístrate aquí gratis</strong>
                 </button>
               </div>
 
@@ -726,7 +726,7 @@ export const LandingPage: React.FC = () => {
 
           {/* === PESTAÑA 4: PRECIOS TRANSPARENTES === */}
           {activeTab === 'pricing' && (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl shadow-pink-500/5 space-y-6">
+            <div className="bg-white dark:bg-slate-900 rounded-lg p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xs space-y-6">
               
               <div className="text-center space-y-1">
                 <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
@@ -739,21 +739,21 @@ export const LandingPage: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 {/* Gratis */}
-                <div className="p-5 sm:p-6 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 flex flex-col justify-between">
+                <div className="p-5 sm:p-6 rounded-md border border-slate-200 dark:border-slate-700 bg-stone-50/50 dark:bg-slate-800/30 flex flex-col justify-between shadow-xs">
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-stone-200 dark:bg-slate-700 text-stone-800 dark:text-slate-300">
                         Básico Limitado
                       </span>
                       <span className="text-[11px] font-semibold text-slate-400">
                         Para empezar
                       </span>
                     </div>
-                    <h3 className="text-lg font-black text-slate-900 dark:text-white mt-2">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-2">
                       Plan Gratuito
                     </h3>
                     <div className="mt-1 flex items-baseline gap-1">
-                      <span className="text-3xl font-black text-slate-900 dark:text-white font-mono">
+                      <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono">
                         $0 COP
                       </span>
                       <span className="text-xs text-slate-400">/ para siempre</span>
@@ -798,33 +798,33 @@ export const LandingPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setActiveTab('register')}
-                    className="mt-6 w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition cursor-pointer"
+                    className="mt-6 w-full py-2.5 rounded-md bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs transition cursor-pointer shadow-xs"
                   >
                     Comenzar con Plan Gratis
                   </button>
                 </div>
 
                 {/* Pro */}
-                <div className="p-5 sm:p-6 rounded-2xl border-2 border-[#681841] bg-pink-50/50 dark:bg-pink-950/30 flex flex-col justify-between shadow-md relative">
-                  <span className="absolute -top-3 right-5 text-[10px] font-black uppercase tracking-wider px-3 py-0.5 rounded-full bg-gradient-to-r from-[#681841] to-[#e64980] text-white shadow-xs">
+                <div className="p-5 sm:p-6 rounded-md border-2 border-rose-900 bg-stone-50/70 dark:bg-stone-950/40 flex flex-col justify-between shadow-xs relative">
+                  <span className="absolute -top-3 right-5 text-[10px] font-bold uppercase tracking-wider px-3 py-0.5 rounded-md bg-rose-900 text-white shadow-xs">
                     Recomendado ⭐ Todo Ilimitado
                   </span>
 
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#681841] text-white">
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-rose-900 text-white">
                         Hostelería PRO
                       </span>
-                      <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                      <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
                         Ahorro hasta 20% anual
                       </span>
                     </div>
-                    <h3 className="text-lg font-black text-slate-900 dark:text-white mt-2 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-[#e64980]" />
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-2 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-rose-900 dark:text-rose-400" />
                       Plan PRO
                     </h3>
                     <div className="mt-1 flex items-baseline gap-1">
-                      <p className="text-3xl font-black text-[#681841] dark:text-pink-400 font-mono">
+                      <p className="text-3xl font-bold text-rose-900 dark:text-rose-400 font-mono">
                         $89.000 COP
                       </p>
                       <span className="text-xs text-slate-500">/ mes</span>
@@ -834,7 +834,7 @@ export const LandingPage: React.FC = () => {
                     </p>
 
                     {/* Pro features list */}
-                    <div className="mt-4 pt-3 border-t border-pink-200 dark:border-pink-900/60 space-y-2 text-xs text-slate-800 dark:text-slate-200 font-medium">
+                    <div className="mt-4 pt-3 border-t border-stone-200 dark:border-stone-800 space-y-2 text-xs text-slate-800 dark:text-slate-200 font-medium">
                       <div className="flex items-center gap-2">
                         <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span><strong>Mesas ilimitadas</strong> (sin ningún tope de aforo)</span>
@@ -872,7 +872,7 @@ export const LandingPage: React.FC = () => {
                       setWantPro(true);
                       setActiveTab('register');
                     }}
-                    className="mt-6 w-full py-2.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] text-white font-bold text-xs shadow-md transition cursor-pointer flex items-center justify-center gap-2"
+                    className="mt-6 w-full py-2.5 rounded-md bg-rose-900 hover:bg-rose-800 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center justify-center gap-2"
                   >
                     <span>Activar Plan PRO</span>
                     <ArrowRight className="w-4 h-4" />

@@ -228,7 +228,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-[#681841] text-white flex items-center justify-center shadow-md shadow-[#681841]/20 shrink-0">
+            <div className="w-10 h-10 rounded-md bg-rose-950 text-white flex items-center justify-center shadow-xs shrink-0">
               <Apple className="w-5 h-5" />
             </div>
             <div className="min-w-0">
@@ -293,7 +293,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
               setEditingItem(null);
               setIsNewModalOpen(true);
             }}
-            className="flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-[#681841] hover:bg-[#571436] text-white text-xs font-black shadow-md shadow-[#681841]/25 transition cursor-pointer flex-1 sm:flex-initial whitespace-nowrap"
+            className="flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold transition cursor-pointer flex-1 sm:flex-initial whitespace-nowrap shadow-xs"
           >
             <Plus className="w-4 h-4" />
             <span>+ Nuevo Insumo</span>
@@ -463,7 +463,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
       </div>
 
       {/* FILTER & SEARCH BAR */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-3 shadow-xs">
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-md border border-slate-200 dark:border-slate-800 space-y-3 shadow-xs">
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
           
           {/* Search Input */}
@@ -474,7 +474,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Buscar por verdura, fruta, licor/bar, lote, ubicación o proveedor..."
-              className="w-full pl-10 pr-4 py-2 text-xs rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-850 text-slate-900 dark:text-white placeholder:text-slate-400 outline-hidden focus:ring-2 focus:ring-[#e64980]"
+              className="w-full pl-10 pr-4 py-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-850 text-slate-900 dark:text-white placeholder:text-slate-400 outline-hidden focus:ring-2 focus:ring-rose-900"
             />
             {searchTerm && (
               <button
@@ -503,14 +503,14 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             </select>
 
             {/* View Mode Toggle */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700 shrink-0">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-md border border-slate-200 dark:border-slate-700 shrink-0">
               <button
                 type="button"
                 onClick={() => setViewMode('grid')}
                 title="Vista en tarjetas"
-                className={`p-1.5 rounded-xl transition cursor-pointer ${
+                className={`p-1.5 rounded-md transition cursor-pointer ${
                   viewMode === 'grid'
-                    ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-xs'
+                    ? 'bg-white dark:bg-slate-900 text-rose-950 dark:text-rose-300 font-bold shadow-xs'
                     : 'text-slate-500'
                 }`}
               >
@@ -520,9 +520,9 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                 type="button"
                 onClick={() => setViewMode('table')}
                 title="Vista en tabla"
-                className={`p-1.5 rounded-xl transition cursor-pointer ${
+                className={`p-1.5 rounded-md transition cursor-pointer ${
                   viewMode === 'table'
-                    ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-xs'
+                    ? 'bg-white dark:bg-slate-900 text-rose-950 dark:text-rose-300 font-bold shadow-xs'
                     : 'text-slate-500'
                 }`}
               >
@@ -532,14 +532,14 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
             {/* Selector de Tamaño: Grande, Mediano, Pequeño */}
             {viewMode === 'grid' && (
-              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs shrink-0">
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-md border border-slate-200 dark:border-slate-700 text-xs shrink-0">
                 <button
                   type="button"
                   onClick={() => setCardSize('sm')}
                   title="Ver despensa en tamaño pequeño (compacta)"
-                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
                     cardSize === 'sm'
-                      ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-xs'
+                      ? 'bg-white dark:bg-slate-900 text-rose-950 dark:text-rose-300 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
@@ -549,9 +549,9 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                   type="button"
                   onClick={() => setCardSize('md')}
                   title="Ver despensa en tamaño mediano (estándar)"
-                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
                     cardSize === 'md'
-                      ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-xs'
+                      ? 'bg-white dark:bg-slate-900 text-rose-950 dark:text-rose-300 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
@@ -561,9 +561,9 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                   type="button"
                   onClick={() => setCardSize('lg')}
                   title="Ver despensa en tamaño grande (amplia)"
-                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition cursor-pointer ${
                     cardSize === 'lg'
-                      ? 'bg-white dark:bg-slate-900 text-[#681841] dark:text-pink-300 shadow-xs'
+                      ? 'bg-white dark:bg-slate-900 text-rose-950 dark:text-rose-300 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
@@ -582,9 +582,9 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
           <button
             type="button"
             onClick={() => setStatusFilter('all')}
-            className={`px-3 py-1 rounded-xl font-bold transition cursor-pointer shrink-0 ${
+            className={`px-3 py-1 rounded-md font-bold transition cursor-pointer shrink-0 ${
               statusFilter === 'all'
-                ? 'bg-[#681841] text-white shadow-xs'
+                ? 'bg-rose-950 text-white shadow-xs'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
             }`}
           >
@@ -640,7 +640,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
       {/* ITEMS DISPLAY */}
       {filteredItems.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-3">
-          <div className="w-14 h-14 mx-auto rounded-3xl bg-pink-100 dark:bg-pink-950 text-[#681841] dark:text-pink-300 flex items-center justify-center">
+          <div className="w-14 h-14 mx-auto rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 flex items-center justify-center">
             <Apple className="w-7 h-7" />
           </div>
           <h3 className="text-base font-bold text-slate-900 dark:text-white">
@@ -657,7 +657,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
               setEditingItem(null);
               setIsNewModalOpen(true);
             }}
-            className="px-4 py-2 rounded-2xl bg-[#681841] text-white text-xs font-bold shadow-md cursor-pointer"
+            className="px-4 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold shadow-xs cursor-pointer transition-colors"
           >
             + Registrar Primer Alimento
           </button>
@@ -729,14 +729,14 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                         {item.name}
                       </h4>
                       <p className="text-[10px] text-slate-400 truncate flex items-center gap-0.5 mt-0.5">
-                        <MapPin className="w-2.5 h-2.5 text-pink-500 shrink-0" />
+                        <MapPin className="w-2.5 h-2.5 text-stone-500 shrink-0" />
                         <span className="truncate">{item.location}</span>
                       </p>
                     </div>
 
                     {/* Stock & Expiry */}
-                    <div className="mt-2 p-1.5 rounded-lg bg-slate-50 dark:bg-slate-850 flex items-center justify-between text-xs">
-                      <span className="font-mono font-black text-xs text-[#681841] dark:text-pink-300">
+                    <div className="mt-2 p-1.5 rounded-md bg-slate-50 dark:bg-slate-850 flex items-center justify-between text-xs">
+                      <span className="font-mono font-black text-xs text-stone-900 dark:text-stone-100">
                         {item.quantity} <span className="text-[10px] font-normal">{item.unit}</span>
                       </span>
                       <span className={`text-[10px] font-bold ${
@@ -849,8 +849,8 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                           {item.name}
                         </h4>
                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1.5">
-                          <span className="flex items-center gap-1 bg-pink-50 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300 px-2.5 py-0.5 rounded-lg font-medium">
-                            <MapPin className="w-3.5 h-3.5 text-pink-600" />
+                          <span className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 px-2.5 py-0.5 rounded-md font-medium border border-stone-200 dark:border-stone-700">
+                            <MapPin className="w-3.5 h-3.5 text-stone-600 dark:text-stone-400" />
                             <span>{item.location}</span>
                           </span>
                           {item.supplier && (
@@ -862,13 +862,13 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                       </div>
 
                       {/* Stock Grande */}
-                      <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between p-3.5 rounded-md bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800">
                         <div>
                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                             Existencias en Despensa
                           </span>
                           <div className="flex items-baseline gap-1.5 mt-0.5">
-                            <span className="text-3xl font-black font-mono text-[#681841] dark:text-pink-300">
+                            <span className="text-3xl font-black font-mono text-stone-900 dark:text-stone-100">
                               {item.quantity}
                             </span>
                             <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
@@ -1040,20 +1040,20 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                       </h4>
                       <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
                         <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-pink-600" />
+                          <MapPin className="w-3 h-3 text-stone-500" />
                           <span className="truncate max-w-[170px]">{item.location}</span>
                         </span>
                       </div>
                     </div>
 
                     {/* Inventory Level & Units */}
-                    <div className="flex items-baseline justify-between p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800">
+                    <div className="flex items-baseline justify-between p-2.5 rounded-md bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800">
                       <div>
                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                           Stock Disponible
                         </span>
                         <div className="flex items-baseline gap-1 mt-0.5">
-                          <span className="text-xl font-black font-mono text-[#681841] dark:text-pink-300">
+                          <span className="text-xl font-black font-mono text-stone-900 dark:text-stone-100">
                             {item.quantity}
                           </span>
                           <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -1237,7 +1237,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
                       <td className="py-3 px-3 text-slate-600 dark:text-slate-300">
                         <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-pink-600" />
+                          <MapPin className="w-3 h-3 text-stone-500" />
                           <span>{item.location}</span>
                         </span>
                       </td>
@@ -1251,14 +1251,14 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                       </td>
 
                       <td className="py-3 px-3">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-black ${badge.badgeColor}`}>
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-black ${badge.badgeColor}`}>
                           <span>{badge.emoji}</span>
                           <span>{badge.label}</span>
                         </span>
                       </td>
 
                       <td className="py-3 px-3 text-right">
-                        <span className="font-mono font-black text-sm text-[#681841] dark:text-pink-300">
+                        <span className="font-mono font-black text-sm text-stone-900 dark:text-stone-100">
                           {item.quantity} {item.unit}
                         </span>
                         {isLowStock && (

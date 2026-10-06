@@ -25,62 +25,62 @@ interface ProfileSelectionScreenProps {
 
 const AVATAR_COLOR_MAP: Record<string, { bg: string; text: string; border: string; glow: string }> = {
   purple: {
-    bg: 'from-purple-600 to-indigo-700',
-    text: 'text-purple-200',
-    border: 'border-purple-400/40',
-    glow: 'shadow-purple-500/30'
+    bg: 'from-stone-800 to-stone-900',
+    text: 'text-stone-200',
+    border: 'border-stone-700',
+    glow: 'shadow-xs'
   },
   pink: {
-    bg: 'from-[#681841] to-[#e64980]',
-    text: 'text-pink-200',
-    border: 'border-pink-400/40',
-    glow: 'shadow-pink-500/30'
+    bg: 'from-stone-900 to-rose-950',
+    text: 'text-rose-200',
+    border: 'border-rose-900/60',
+    glow: 'shadow-xs'
   },
   emerald: {
-    bg: 'from-emerald-600 to-teal-700',
+    bg: 'from-emerald-950 to-stone-900',
     text: 'text-emerald-200',
-    border: 'border-emerald-400/40',
-    glow: 'shadow-emerald-500/30'
+    border: 'border-emerald-800/60',
+    glow: 'shadow-xs'
   },
   blue: {
-    bg: 'from-blue-600 to-cyan-700',
-    text: 'text-blue-200',
-    border: 'border-blue-400/40',
-    glow: 'shadow-blue-500/30'
+    bg: 'from-slate-900 to-stone-900',
+    text: 'text-slate-200',
+    border: 'border-slate-700',
+    glow: 'shadow-xs'
   },
   amber: {
-    bg: 'from-amber-600 to-orange-700',
+    bg: 'from-amber-950 to-stone-900',
     text: 'text-amber-200',
-    border: 'border-amber-400/40',
-    glow: 'shadow-amber-500/30'
+    border: 'border-amber-900/60',
+    glow: 'shadow-xs'
   },
   rose: {
-    bg: 'from-rose-600 to-red-700',
+    bg: 'from-rose-950 to-stone-900',
     text: 'text-rose-200',
-    border: 'border-rose-400/40',
-    glow: 'shadow-rose-500/30'
+    border: 'border-rose-900/60',
+    glow: 'shadow-xs'
   }
 };
 
 const ROLE_BADGES: Record<EmpleadoRol, { label: string; badge: string; icon: React.ReactNode }> = {
   Admin: {
     label: 'Administrador',
-    badge: 'bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+    badge: 'bg-stone-800 text-stone-200 border-stone-700',
     icon: <ShieldCheck className="w-3.5 h-3.5" />
   },
   Cajero: {
     label: 'Cajero / Cobro',
-    badge: 'bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+    badge: 'bg-stone-800 text-stone-200 border-stone-700',
     icon: <CreditCard className="w-3.5 h-3.5" />
   },
   Mesero: {
     label: 'Mesero / Salón',
-    badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+    badge: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60',
     icon: <UtensilsCrossed className="w-3.5 h-3.5" />
   },
   Barman: {
     label: 'Barman / Barra',
-    badge: 'bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+    badge: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
     icon: <Wine className="w-3.5 h-3.5" />
   }
 };
@@ -231,11 +231,11 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
       <div className="my-auto py-8 flex flex-col items-center justify-center max-w-4xl mx-auto w-full text-center">
         
         <div className="mb-8 sm:mb-12 space-y-2">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-pink-950/60 border border-pink-800/50 text-pink-300 text-xs font-bold shadow-sm">
-            <Sparkles className="w-3.5 h-3.5 text-pink-400" />
-            <span>Control de Acceso Multitenant</span>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-stone-900 border border-stone-800 text-stone-300 text-xs font-semibold shadow-xs">
+            <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+            <span>Control de Acceso Terminal</span>
           </div>
-          <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
+          <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white">
             ¿Quién está atendiendo?
           </h1>
           <p className="text-sm sm:text-base text-slate-400 max-w-md mx-auto">
@@ -264,34 +264,34 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                 className="group flex flex-col items-center gap-3 transition-transform duration-200 hover:scale-105 active:scale-95 cursor-pointer focus:outline-hidden"
               >
                 {/* Netflix-style Rounded Square Avatar */}
-                <div className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-3xl bg-gradient-to-br ${colorScheme.bg} border-2 ${colorScheme.border} flex items-center justify-center shadow-xl ${colorScheme.glow} group-hover:border-white transition-all overflow-hidden`}>
+                <div className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-lg bg-gradient-to-br ${colorScheme.bg} border ${colorScheme.border} flex items-center justify-center shadow-xs group-hover:border-white transition-all overflow-hidden`}>
                   <span className="text-3xl sm:text-5xl font-black text-white tracking-wider">
                     {initials}
                   </span>
 
                   {/* Lock Indicator Icon */}
                   {hasPin ? (
-                    <div className="absolute top-2 right-2 p-1.5 rounded-full bg-black/50 text-amber-300 backdrop-blur-xs">
+                    <div className="absolute top-2 right-2 p-1.5 rounded-md bg-black/50 text-amber-300 backdrop-blur-xs">
                       <Lock className="w-3.5 h-3.5" />
                     </div>
                   ) : (
-                    <div className="absolute top-2 right-2 p-1.5 rounded-full bg-black/40 text-emerald-300 backdrop-blur-xs">
+                    <div className="absolute top-2 right-2 p-1.5 rounded-md bg-black/40 text-emerald-300 backdrop-blur-xs">
                       <Check className="w-3.5 h-3.5" />
                     </div>
                   )}
 
                   {/* Bottom subtle role tag inside avatar on hover */}
-                  <div className="absolute inset-x-0 bottom-0 bg-black/40 py-1 text-[10px] font-bold text-slate-200 uppercase tracking-wider backdrop-blur-xs">
+                  <div className="absolute inset-x-0 bottom-0 bg-black/50 py-1 text-[10px] font-bold text-slate-200 uppercase tracking-wider backdrop-blur-xs">
                     {emp.rol}
                   </div>
                 </div>
 
                 {/* Name & Role Badge */}
                 <div className="text-center space-y-1">
-                  <p className="text-base sm:text-lg font-black text-slate-200 group-hover:text-white transition">
+                  <p className="text-base sm:text-lg font-bold text-slate-200 group-hover:text-white transition">
                     {emp.nombre}
                   </p>
-                  <span className={`inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full border ${roleInfo.badge}`}>
+                  <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-md border ${roleInfo.badge}`}>
                     {roleInfo.icon}
                     <span>{roleInfo.label}</span>
                   </span>
@@ -306,9 +306,9 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
             onClick={() => setIsQuickAddOpen(true)}
             className="group flex flex-col items-center gap-3 transition-transform duration-200 hover:scale-105 active:scale-95 cursor-pointer focus:outline-hidden"
           >
-            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-3xl border-2 border-dashed border-slate-700 group-hover:border-pink-500 bg-slate-900/60 flex flex-col items-center justify-center text-slate-400 group-hover:text-pink-400 transition-all">
+            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-lg border border-dashed border-slate-700 group-hover:border-rose-500 bg-slate-900/60 flex flex-col items-center justify-center text-slate-400 group-hover:text-rose-400 transition-all">
               <Plus className="w-8 h-8 sm:w-10 sm:h-10 mb-1" />
-              <span className="text-[11px] font-extrabold">Nuevo Perfil</span>
+              <span className="text-[11px] font-bold">Nuevo Perfil</span>
             </div>
             <div className="text-center">
               <p className="text-sm font-bold text-slate-400 group-hover:text-slate-200">
@@ -335,28 +335,28 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
       {selectedEmpForPin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div
-            className="relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl text-center space-y-5"
+            className="relative w-full max-w-sm bg-slate-900 border border-slate-800 rounded-lg p-6 shadow-2xl text-center space-y-5"
             onClick={e => e.stopPropagation()}
           >
             {/* Close Button */}
             <button
               type="button"
               onClick={() => setSelectedEmpForPin(null)}
-              className="absolute top-4 right-4 p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
+              className="absolute top-4 right-4 p-2 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
             {/* Profile Avatar & Title */}
             <div className="space-y-2">
-              <div className={`w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br ${AVATAR_COLOR_MAP[selectedEmpForPin.avatarColor || 'purple']?.bg} border border-white/20 flex items-center justify-center text-white text-2xl font-black shadow-lg`}>
+              <div className={`w-16 h-16 mx-auto rounded-lg bg-gradient-to-br ${AVATAR_COLOR_MAP[selectedEmpForPin.avatarColor || 'purple']?.bg} border border-white/20 flex items-center justify-center text-white text-2xl font-black shadow-xs`}>
                 {selectedEmpForPin.nombre.slice(0, 2).toUpperCase()}
               </div>
-              <h3 className="text-xl font-black text-white">
+              <h3 className="text-xl font-bold text-white">
                 {selectedEmpForPin.nombre}
               </h3>
               <p className="text-xs text-slate-400 flex items-center justify-center gap-1">
-                <KeyRound className="w-3.5 h-3.5 text-pink-400" />
+                <KeyRound className="w-3.5 h-3.5 text-rose-400" />
                 <span>Introduce tu PIN numérico de acceso</span>
               </p>
             </div>
@@ -368,9 +368,9 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                 return (
                   <div
                     key={idx}
-                    className={`w-4 h-4 rounded-full border-2 transition-all duration-150 ${
+                    className={`w-3.5 h-3.5 rounded-full border transition-all duration-150 ${
                       isFilled
-                        ? 'bg-pink-500 border-pink-400 scale-110 shadow-sm shadow-pink-500/50'
+                        ? 'bg-rose-600 border-rose-500 scale-110 shadow-xs'
                         : 'bg-slate-800 border-slate-600'
                     }`}
                   />
@@ -380,7 +380,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
 
             {/* Error Message */}
             {pinError && (
-              <div className="p-2 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs font-bold flex items-center justify-center gap-1.5 animate-shake">
+              <div className="p-2 rounded-md bg-rose-950/80 border border-rose-800 text-rose-300 text-xs font-bold flex items-center justify-center gap-1.5 animate-shake">
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
                 <span>{pinError}</span>
               </div>
@@ -393,7 +393,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                   key={num}
                   type="button"
                   onClick={() => handleKeyPress(num)}
-                  className="h-14 rounded-2xl bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-xl font-black text-white transition cursor-pointer border border-slate-700/60 shadow-sm"
+                  className="h-12 rounded-md bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition cursor-pointer border border-slate-700/60 shadow-xs"
                 >
                   {num}
                 </button>
@@ -402,7 +402,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
               <button
                 type="button"
                 onClick={handleClear}
-                className="h-14 rounded-2xl bg-slate-850 hover:bg-slate-800 active:scale-95 text-xs font-extrabold text-slate-400 hover:text-white transition cursor-pointer border border-slate-800"
+                className="h-12 rounded-md bg-slate-850 hover:bg-slate-800 active:scale-95 text-xs font-bold text-slate-400 hover:text-white transition cursor-pointer border border-slate-800"
               >
                 Limpiar
               </button>
@@ -410,7 +410,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
               <button
                 type="button"
                 onClick={() => handleKeyPress('0')}
-                className="h-14 rounded-2xl bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-xl font-black text-white transition cursor-pointer border border-slate-700/60 shadow-sm"
+                className="h-12 rounded-md bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-lg font-bold text-white transition cursor-pointer border border-slate-700/60 shadow-xs"
               >
                 0
               </button>
@@ -418,7 +418,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
               <button
                 type="button"
                 onClick={handleBackspace}
-                className="h-14 rounded-2xl bg-slate-850 hover:bg-slate-800 active:scale-95 flex items-center justify-center text-slate-400 hover:text-white transition cursor-pointer border border-slate-800"
+                className="h-12 rounded-md bg-slate-850 hover:bg-slate-800 active:scale-95 flex items-center justify-center text-slate-400 hover:text-white transition cursor-pointer border border-slate-800"
               >
                 <Delete className="w-5 h-5" />
               </button>
@@ -428,7 +428,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
               type="button"
               onClick={() => handleManualSubmitPin()}
               disabled={pinInput.length === 0}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] hover:from-[#571436] hover:to-[#d6336c] disabled:opacity-40 text-white font-black text-sm shadow-lg shadow-pink-500/20 transition cursor-pointer"
+              className="w-full py-2.5 rounded-md bg-rose-950 hover:bg-rose-900 disabled:opacity-40 text-white font-bold text-sm shadow-xs transition cursor-pointer"
             >
               Ingresar al POS
             </button>
@@ -440,18 +440,18 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
       {isQuickAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div
-            className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl text-left space-y-4"
+            className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-lg p-6 shadow-2xl text-left space-y-4"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <Plus className="w-5 h-5 text-pink-400" />
-                <h3 className="text-lg font-black text-white">Nuevo Perfil de Empleado</h3>
+                <Plus className="w-5 h-5 text-rose-400" />
+                <h3 className="text-lg font-bold text-white">Nuevo Perfil de Empleado</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsQuickAddOpen(false)}
-                className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition"
+                className="p-1.5 rounded-md bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -468,7 +468,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                   value={quickName}
                   onChange={e => setQuickName(e.target.value)}
                   placeholder="Ej. Carlos Mendoza"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-slate-800 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
               </div>
 
@@ -479,7 +479,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                 <select
                   value={quickRole}
                   onChange={e => setQuickRole(e.target.value as EmpleadoRol)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-slate-800 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 >
                   <option value="Mesero">Mesero (Solo mesas y comandas)</option>
                   <option value="Cajero">Cajero (Mesas, comandas y cobro)</option>
@@ -498,7 +498,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                   value={quickPin}
                   onChange={e => setQuickPin(e.target.value.replace(/\D/g, ''))}
                   placeholder="Ej. 1234 (Déjalo vacío si no requiere clave)"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm font-mono tracking-widest focus:outline-hidden focus:ring-2 focus:ring-pink-500"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-slate-800 border border-slate-700 text-white text-sm font-mono tracking-widest focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
                   Si dejas el PIN vacío, el empleado podrá ingresar tocando su perfil directamente.
@@ -515,7 +515,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                       key={color}
                       type="button"
                       onClick={() => setQuickColor(color)}
-                      className={`w-8 h-8 rounded-full bg-gradient-to-br ${AVATAR_COLOR_MAP[color].bg} transition cursor-pointer ${
+                      className={`w-7 h-7 rounded-md bg-gradient-to-br ${AVATAR_COLOR_MAP[color].bg} transition cursor-pointer ${
                         quickColor === color ? 'ring-2 ring-white scale-110' : 'opacity-70 hover:opacity-100'
                       }`}
                     />
@@ -527,14 +527,14 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsQuickAddOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white"
+                  className="px-4 py-2 rounded-md text-xs font-bold text-slate-400 hover:text-white cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingQuick || !quickName.trim()}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#681841] to-[#e64980] text-white text-xs font-black shadow-md disabled:opacity-40"
+                  className="px-5 py-2.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold shadow-xs disabled:opacity-40 cursor-pointer"
                 >
                   {isSubmittingQuick ? 'Guardando...' : 'Crear Perfil'}
                 </button>

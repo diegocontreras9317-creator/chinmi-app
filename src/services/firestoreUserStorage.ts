@@ -125,7 +125,8 @@ export function subscribeUserInventory(uid: string, onUpdate: (items: Perishable
 }
 
 /**
- * Escucha en tiempo real los pedidos de users/${uid}/pedidos
+ * Escucha en tiempo real los pedidos activos de users/${uid}/pedidos.
+ * Filtra estrictamente comandas activas evitando revivir comandas cobradas o cerradas.
  */
 export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => void): Unsubscribe {
   if (!uid) {
@@ -136,10 +137,28 @@ export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => 
   const colRef = collection(db, 'users', uid, 'pedidos');
 
   return onSnapshot(colRef, (snap) => {
-    const orders = snap.docs.map(d => {
+    const orders: Order[] = [];
+    snap.docs.forEach(d => {
       const data = d.data();
-      const items = data.items || data.productos || [];
-      return { id: d.id, ...data, items } as Order;
+      const items = Array.isArray(data.items) ? data.items : (Array.isArray(data.productos) ? data.productos : []);
+      
+      const isClosed = data.closed === true ||
+        data.status === 'cobrado' ||
+        data.status === 'cerrado' ||
+        data.status === 'cancelado' ||
+        data.status === 'pagado' ||
+        data.estado === 'cerrado' ||
+        data.estado === 'cobrado' ||
+        data.estado === 'cancelado';
+
+      if (!isClosed && items.length > 0) {
+        orders.push({
+          id: d.id,
+          ...data,
+          items,
+          status: 'activa'
+        } as unknown as Order);
+      }
     });
     onUpdate(orders);
   }, (err) => {
@@ -149,30 +168,19 @@ export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => 
 }
 
 /**
- * Escucha en tiempo real los pedidos/ventas de users/${uid}/pedidos y users/${uid}/ventas
+ * Escucha en tiempo real el historial de ventas de users/${uid}/ventas
  */
 export function subscribeUserSales(uid: string, onUpdate: (sales: SaleReceipt[]) => void): Unsubscribe {
   if (!uid) {
     onUpdate([]);
     return () => {};
   }
-  const path = `users/${uid}/pedidos`;
-  const colRef = collection(db, 'users', uid, 'pedidos');
+  const path = `users/${uid}/ventas`;
+  const colRef = collection(db, 'users', uid, 'ventas');
 
   return onSnapshot(colRef, (snap) => {
-    if (!snap.empty) {
-      const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as SaleReceipt));
-      onUpdate(sales);
-    } else {
-      const colRefVentas = collection(db, 'users', uid, 'ventas');
-      getDocs(colRefVentas).then(vSnap => {
-        const sales = vSnap.docs.map(d => ({ id: d.id, ...d.data() } as SaleReceipt));
-        onUpdate(sales);
-      }).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, `users/${uid}/ventas`);
-        onUpdate([]);
-      });
-    }
+    const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as SaleReceipt));
+    onUpdate(sales);
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);
     onUpdate([]);
@@ -245,20 +253,14 @@ export async function getUserInventory(targetUid?: string): Promise<PerishableIt
 }
 
 /**
- * Obtiene las ventas/pedidos desde users/${uid}/pedidos y users/${uid}/ventas
+ * Obtiene el historial de ventas desde users/${uid}/ventas
  */
 export async function getUserSales(targetUid?: string): Promise<SaleReceipt[]> {
   const uid = getActiveUserId(targetUid);
   if (!uid) return [];
 
-  const path = `users/${uid}/pedidos`;
+  const path = `users/${uid}/ventas`;
   try {
-    const colRefPedidos = collection(db, 'users', uid, 'pedidos');
-    const snapPedidos = await getDocs(colRefPedidos);
-    if (!snapPedidos.empty) {
-      return snapPedidos.docs.map(d => ({ id: d.id, ...d.data() } as SaleReceipt));
-    }
-
     const colRefVentas = collection(db, 'users', uid, 'ventas');
     const snapVentas = await getDocs(colRefVentas);
     if (!snapVentas.empty) {
@@ -316,19 +318,28 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
     // Sincronizar Mesas y sus Pedidos
     for (const tbl of data.tables || []) {
       if (tbl.id) {
+        const hasActiveOrder = Boolean(tbl.order && Array.isArray(tbl.order.items) && tbl.order.items.length > 0);
+        const cleanOrder = (hasActiveOrder && tbl.order) ? sanitizeForFirestore({
+          ...tbl.order,
+          userId: uid,
+          status: 'activa',
+          closed: false,
+          productos: tbl.order.items
+        }) : null;
+
         const cleanTable = {
           ...tbl,
           userId: uid,
-          status: tbl.status || 'libre',
-          estado: tbl.status || 'libre',
-          order: tbl.order ? sanitizeForFirestore(tbl.order) : null,
-          currentOrder: tbl.order ? sanitizeForFirestore(tbl.order) : null,
-          pedidoActual: tbl.order ? sanitizeForFirestore(tbl.order) : null,
+          status: tbl.status || (hasActiveOrder ? 'ocupada' : 'libre'),
+          estado: tbl.status || (hasActiveOrder ? 'ocupada' : 'libre'),
+          order: cleanOrder,
+          currentOrder: cleanOrder,
+          pedidoActual: cleanOrder,
           waiterCall: tbl.waiterCall ? sanitizeForFirestore(tbl.waiterCall) : null
         };
         await setDoc(doc(db, 'users', uid, 'mesas', tbl.id), cleanTable);
-        if (tbl.order && tbl.order.id) {
-          await setDoc(doc(db, 'users', uid, 'pedidos', tbl.order.id), sanitizeForFirestore({ ...tbl.order, userId: uid }), { merge: true });
+        if (cleanOrder && cleanOrder.id) {
+          await setDoc(doc(db, 'users', uid, 'pedidos', cleanOrder.id), cleanOrder);
         }
       }
     }
@@ -349,11 +360,10 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
       }
     }
 
-    // Sincronizar Pedidos / Ventas
+    // Sincronizar Ventas exclusivamente en users/${uid}/ventas
     for (const sale of data.sales || []) {
       if (sale.id) {
         const cleanSale = sanitizeForFirestore({ ...sale, userId: uid });
-        await setDoc(doc(db, 'users', uid, 'pedidos', sale.id), cleanSale, { merge: true });
         await setDoc(doc(db, 'users', uid, 'ventas', sale.id), cleanSale, { merge: true });
       }
     }
@@ -377,18 +387,119 @@ export function sanitizeForFirestore<T>(data: T): T {
 }
 
 /**
- * Operaciones individuales CRUD en Firestore con Optimistic Updates
+ * Guarda o actualiza una comanda en Firestore.
+ * Reemplaza completamente el documento en pedidos para evitar que queden items viejos o campos sucios.
  */
 export async function saveOrderToFirestore(order: Order, targetUid?: string): Promise<void> {
   const uid = getActiveUserId(targetUid);
   if (!uid || !order.id) return;
   const path = `users/${uid}/pedidos/${order.id}`;
   try {
-    const cleanOrder = sanitizeForFirestore({ ...order, userId: uid });
-    await setDoc(doc(db, 'users', uid, 'pedidos', order.id), cleanOrder, { merge: true });
+    const cleanItems = (order.items || []).map(it => ({
+      id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      productId: it.productId || '',
+      name: it.name || 'Producto',
+      unitPrice: Number(it.unitPrice) || 0,
+      quantity: Number(it.quantity) || 1,
+      notes: it.notes?.trim() || '',
+      addedAt: it.addedAt || new Date().toISOString(),
+      customerName: it.customerName?.trim() || '',
+      orderedBy: it.orderedBy || 'mesero'
+    }));
+
+    const cleanOrder = sanitizeForFirestore({
+      ...order,
+      userId: uid,
+      items: cleanItems,
+      productos: cleanItems,
+      status: 'activa',
+      closed: false,
+      lastUpdatedAt: new Date().toISOString()
+    });
+    await setDoc(doc(db, 'users', uid, 'pedidos', order.id), cleanOrder);
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;
+  }
+}
+
+/**
+ * Sincroniza atómicamente el estado de comanda de una mesa tanto en 'mesas' como en 'pedidos'.
+ * Si la comanda queda sin productos, libera la mesa y marca el pedido como cerrado/cancelado.
+ */
+export async function syncTableOrderToFirestore(
+  tableId: string,
+  order: Order | null | undefined,
+  targetUid?: string
+): Promise<void> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid || !tableId) return;
+  const nowIso = new Date().toISOString();
+
+  try {
+    const hasItems = order && Array.isArray(order.items) && order.items.length > 0;
+
+    if (hasItems && order) {
+      const cleanItems = order.items.map(it => ({
+        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: it.productId || '',
+        name: it.name || 'Producto',
+        unitPrice: Number(it.unitPrice) || 0,
+        quantity: Number(it.quantity) || 1,
+        notes: it.notes?.trim() || '',
+        addedAt: it.addedAt || nowIso,
+        customerName: it.customerName?.trim() || '',
+        orderedBy: it.orderedBy || 'mesero'
+      }));
+
+      const cleanOrder = sanitizeForFirestore({
+        ...order,
+        userId: uid,
+        items: cleanItems,
+        productos: cleanItems,
+        status: 'activa',
+        closed: false,
+        lastUpdatedAt: nowIso
+      });
+
+      // 1. Guardar en pedidos sin merge para sobreescribir el arreglo de items limpiamente
+      await setDoc(doc(db, 'users', uid, 'pedidos', order.id), cleanOrder);
+
+      // 2. Actualizar la mesa en mesas
+      await updateDoc(doc(db, 'users', uid, 'mesas', tableId), {
+        status: 'ocupada',
+        estado: 'ocupada',
+        order: cleanOrder,
+        currentOrder: cleanOrder,
+        pedidoActual: cleanOrder,
+        updatedAt: nowIso
+      });
+    } else {
+      // No hay ítems en la comanda (o fue vaciada / eliminada por completo)
+      await updateDoc(doc(db, 'users', uid, 'mesas', tableId), {
+        status: 'libre',
+        estado: 'libre',
+        order: null,
+        currentOrder: null,
+        pedidoActual: null,
+        updatedAt: nowIso
+      });
+
+      if (order?.id) {
+        try {
+          await updateDoc(doc(db, 'users', uid, 'pedidos', order.id), {
+            status: 'cancelado',
+            estado: 'cerrado',
+            closed: true,
+            closedAt: nowIso,
+            items: [],
+            productos: []
+          });
+        } catch {}
+      }
+    }
+  } catch (err) {
+    console.error('Error sincronizando comanda en Firestore:', err);
   }
 }
 
@@ -397,18 +508,19 @@ export async function saveTableToFirestore(table: Table, targetUid?: string): Pr
   if (!uid || !table.id) return;
   const path = `users/${uid}/mesas/${table.id}`;
   try {
+    const hasOrder = table.order && Array.isArray(table.order.items) && table.order.items.length > 0;
     const cleanTable = {
       ...table,
       userId: uid,
-      status: table.status || 'libre',
-      estado: table.status || 'libre',
-      order: table.order ? sanitizeForFirestore(table.order) : null,
-      currentOrder: table.order ? sanitizeForFirestore(table.order) : null,
-      pedidoActual: table.order ? sanitizeForFirestore(table.order) : null,
+      status: table.status || (hasOrder ? 'ocupada' : 'libre'),
+      estado: table.status || (hasOrder ? 'ocupada' : 'libre'),
+      order: hasOrder ? sanitizeForFirestore(table.order) : null,
+      currentOrder: hasOrder ? sanitizeForFirestore(table.order) : null,
+      pedidoActual: hasOrder ? sanitizeForFirestore(table.order) : null,
       waiterCall: table.waiterCall ? sanitizeForFirestore(table.waiterCall) : null
     };
     await setDoc(doc(db, 'users', uid, 'mesas', table.id), cleanTable);
-    if (table.order && table.order.id) {
+    if (hasOrder && table.order) {
       await saveOrderToFirestore(table.order, uid);
     }
   } catch (err) {
@@ -419,7 +531,7 @@ export async function saveTableToFirestore(table: Table, targetUid?: string): Pr
 
 /**
  * Libera una mesa tras el cobro o pago exitoso en Firestore.
- * Actualiza el estado de la mesa a 'libre' / 'disponible', establece el pedidoActual/order a null,
+ * Actualiza el estado de la mesa a 'libre', establece el pedidoActual/order a null,
  * limpia las alertas de mesero y marca la comanda activa como cerrada/cobrada.
  */
 export async function releaseTableInFirestore(
@@ -446,7 +558,7 @@ export async function releaseTableInFirestore(
       updatedAt: nowIso
     });
 
-    // 2. Marcar la comanda/pedido como cerrada para que no queden rastros
+    // 2. Marcar la comanda/pedido como cerrada para que no reviva
     if (orderId) {
       try {
         const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
@@ -454,7 +566,9 @@ export async function releaseTableInFirestore(
           status: 'cobrado',
           estado: 'cerrado',
           closed: true,
-          closedAt: nowIso
+          closedAt: nowIso,
+          items: [],
+          productos: []
         });
       } catch (orderErr) {
         console.warn('Nota: Pedido no requirió actualización adicional:', orderErr);
@@ -531,10 +645,10 @@ export async function deleteInventoryItemFromFirestore(itemId: string, targetUid
 export async function saveSaleToFirestore(sale: SaleReceipt, targetUid?: string): Promise<void> {
   const uid = getActiveUserId(targetUid);
   if (!uid || !sale.id) return;
-  const path = `users/${uid}/pedidos/${sale.id}`;
+  const path = `users/${uid}/ventas/${sale.id}`;
   try {
-    await setDoc(doc(db, 'users', uid, 'pedidos', sale.id), { ...sale, userId: uid }, { merge: true });
-    await setDoc(doc(db, 'users', uid, 'ventas', sale.id), { ...sale, userId: uid }, { merge: true });
+    const cleanSale = sanitizeForFirestore({ ...sale, userId: uid });
+    await setDoc(doc(db, 'users', uid, 'ventas', sale.id), cleanSale, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;

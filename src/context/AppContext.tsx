@@ -12,6 +12,7 @@ import {
   subscribeUserSales,
   saveTableToFirestore,
   saveOrderToFirestore,
+  syncTableOrderToFirestore,
   deleteTableFromFirestore,
   saveProductToFirestore,
   deleteProductFromFirestore,
@@ -223,39 +224,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCloudStatus('synced');
     });
 
-    const unsubOrders = subscribeUserOrders(activeUid, (newOrders) => {
+    const unsubOrders = subscribeUserOrders(activeUid, (activeOrders) => {
       // Sincronización en tiempo real de la colección pedidos
-      if (newOrders && newOrders.length > 0) {
-        const currentTables = tablesRef.current;
-        let hasChanges = false;
-        const mergedTables = currentTables.map(tbl => {
-          const matchingOrder = newOrders.find(o => o.tableId === tbl.id || o.tableName === tbl.name);
-          if (matchingOrder && matchingOrder.items && matchingOrder.items.length > 0) {
-            if (!tbl.order || tbl.order.lastUpdatedAt !== matchingOrder.lastUpdatedAt || tbl.order.items.length !== matchingOrder.items.length) {
-              hasChanges = true;
-              return {
-                ...tbl,
-                status: (tbl.status === 'libre' ? 'ocupada' : tbl.status) as TableStatus,
-                order: matchingOrder
-              };
-            }
-          } else if (matchingOrder && (!matchingOrder.items || matchingOrder.items.length === 0)) {
-            if (tbl.order) {
-              hasChanges = true;
-              return {
-                ...tbl,
-                status: 'libre' as TableStatus,
-                order: undefined
-              };
-            }
-          }
+      const now = Date.now();
+      const currentTables = tablesRef.current;
+      let hasChanges = false;
+      const mergedTables = currentTables.map(tbl => {
+        const lastMutationTime = lastLocalTableMutations.current[tbl.id];
+        if (lastMutationTime && now - lastMutationTime < 1500) {
           return tbl;
-        });
-
-        if (hasChanges) {
-          tablesRef.current = mergedTables;
-          setTables(mergedTables);
         }
+
+        const matchingOrder = (activeOrders || []).find(o => o.tableId === tbl.id || o.tableName === tbl.name);
+        if (matchingOrder && matchingOrder.items && matchingOrder.items.length > 0) {
+          if (!tbl.order || (matchingOrder.lastUpdatedAt && (!tbl.order.lastUpdatedAt || matchingOrder.lastUpdatedAt > tbl.order.lastUpdatedAt))) {
+            hasChanges = true;
+            return {
+              ...tbl,
+              status: (tbl.status === 'libre' ? 'ocupada' : tbl.status) as TableStatus,
+              order: matchingOrder
+            };
+          }
+        } else if (!matchingOrder && tbl.order) {
+          // Si la comanda ya no está activa en Firestore (fue cobrada/cancelada en otro dispositivo)
+          hasChanges = true;
+          return {
+            ...tbl,
+            status: 'libre' as TableStatus,
+            order: undefined
+          };
+        }
+        return tbl;
+      });
+
+      if (hasChanges) {
+        tablesRef.current = mergedTables;
+        setTables(mergedTables);
       }
       setCloudStatus('synced');
     });
@@ -484,6 +488,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tablesRef.current = nextTables;
     lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 
@@ -553,6 +561,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tablesRef.current = nextTables;
     lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 
@@ -594,6 +606,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tablesRef.current = nextTables;
     lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 
@@ -626,6 +642,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tablesRef.current = nextTables;
     lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 
@@ -653,6 +673,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     tablesRef.current = nextTables;
     lastLocalTableMutations.current[tableId] = Date.now();
     setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 

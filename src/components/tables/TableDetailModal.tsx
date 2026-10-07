@@ -167,7 +167,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
 
       const sanitizedOrderPayload = sanitizeForFirestore(datosDelPedido);
       const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
-      await setDoc(pedidoRef, sanitizedOrderPayload, { merge: true });
+      await setDoc(pedidoRef, sanitizedOrderPayload);
 
       const rawTablePayload = {
         id: table.id || '',
@@ -187,7 +187,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       };
 
       const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
-      await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), sanitizedTablePayload, { merge: true });
+      await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), sanitizedTablePayload);
 
       setSaveSuccessMsg('Comanda guardada');
       setTimeout(() => {

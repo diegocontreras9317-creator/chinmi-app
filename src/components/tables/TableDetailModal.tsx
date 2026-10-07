@@ -141,6 +141,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       tipAmount: Number(tipAmount) || 0,
       total: Math.round(total),
       status: 'activa',
+      estado: 'activo',
+      closed: false,
       openedAt: order?.openedAt || nowIso,
       lastUpdatedAt: nowIso,
       userId: activeUid || '',

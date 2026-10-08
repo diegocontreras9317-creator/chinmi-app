@@ -99,19 +99,11 @@ export interface Order {
   tableId: string;
   tableName: string;
   items: OrderItem[];
-  productos?: OrderItem[];
   discountPercent: number;
   taxPercent: number;
   tipAmount: number;
   openedAt: string;
   lastUpdatedAt: string;
-  status?: string;
-  estado?: string;
-  closed?: boolean;
-  closedAt?: string;
-  subtotal?: number;
-  total?: number;
-  userId?: string;
 }
 
 export interface WaiterCallNotification {
@@ -127,13 +119,9 @@ export interface Table {
   zone: string;
   seats: number;
   status: TableStatus;
-  estado?: TableStatus;
-  order?: Order | null;
-  currentOrder?: Order | null;
-  pedidoActual?: Order | null;
+  order?: Order;
   waiterCall?: WaiterCallNotification | null;
   updatedAt?: string;
-  userId?: string;
 }
 
 export interface Product {

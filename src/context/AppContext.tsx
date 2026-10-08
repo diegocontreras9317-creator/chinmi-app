@@ -13,7 +13,6 @@ import {
   saveTableToFirestore,
   saveOrderToFirestore,
   syncTableOrderToFirestore,
-  removeOrderItemFromFirestore,
   deleteTableFromFirestore,
   saveProductToFirestore,
   deleteProductFromFirestore,
@@ -645,7 +644,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTables(nextTables);
     const updatedTable = nextTables.find(t => t.id === tableId);
     if (activeUid && activeUid !== 'default') {
-      removeOrderItemFromFirestore(tableId, itemId, activeUid).catch(console.error);
       syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
     }
     persistChanges(nextTables, products, sales);

@@ -7,9 +7,7 @@ import {
   deleteDoc,
   onSnapshot,
   Unsubscribe,
-  getDoc,
-  query,
-  where
+  getDoc
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, Empleado } from '../types';
@@ -67,37 +65,7 @@ export function subscribeUserTables(uid: string, onUpdate: (tables: Table[]) => 
   const colRef = collection(db, 'users', uid, 'mesas');
   
   return onSnapshot(colRef, (snap) => {
-    const tables = snap.docs.map(d => {
-      const data = d.data();
-      const order = data.order || data.currentOrder || data.pedidoActual;
-      const isOrderActive = Boolean(
-        order &&
-        Array.isArray(order.items) &&
-        order.items.length > 0 &&
-        order.closed !== true &&
-        order.status !== 'cobrado' &&
-        order.status !== 'pagado' &&
-        order.status !== 'cerrado' &&
-        order.estado !== 'pagado' &&
-        order.estado !== 'cerrado' &&
-        data.status !== 'libre' &&
-        data.estado !== 'libre'
-      );
-
-      return {
-        id: d.id,
-        number: data.number || '1',
-        name: data.name || 'Mesa',
-        zone: data.zone || 'Salón Principal',
-        seats: Number(data.seats) || 2,
-        ...data,
-        status: isOrderActive ? (data.status || 'ocupada') : 'libre',
-        estado: isOrderActive ? (data.estado || 'ocupada') : 'libre',
-        order: isOrderActive ? order : undefined,
-        currentOrder: isOrderActive ? order : null,
-        pedidoActual: isOrderActive ? order : null
-      } as unknown as Table;
-    });
+    const tables = snap.docs.map(d => ({ id: d.id, ...d.data() } as Table));
     onUpdate(tables);
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);
@@ -158,7 +126,7 @@ export function subscribeUserInventory(uid: string, onUpdate: (items: Perishable
 
 /**
  * Escucha en tiempo real los pedidos activos de users/${uid}/pedidos.
- * Utiliza obligatoriamente la consulta con where("estado", "==", "activo") para filtrar comandas cerradas/pagadas.
+ * Filtra estrictamente comandas activas evitando revivir comandas cobradas o cerradas.
  */
 export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => void): Unsubscribe {
   if (!uid) {
@@ -167,9 +135,8 @@ export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => 
   }
   const path = `users/${uid}/pedidos`;
   const colRef = collection(db, 'users', uid, 'pedidos');
-  const q = query(colRef, where('estado', '==', 'activo'));
 
-  return onSnapshot(q, (snap) => {
+  return onSnapshot(colRef, (snap) => {
     const orders: Order[] = [];
     snap.docs.forEach(d => {
       const data = d.data();
@@ -182,7 +149,6 @@ export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => 
         data.status === 'pagado' ||
         data.estado === 'cerrado' ||
         data.estado === 'cobrado' ||
-        data.estado === 'pagado' ||
         data.estado === 'cancelado';
 
       if (!isClosed && items.length > 0) {
@@ -190,8 +156,7 @@ export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => 
           id: d.id,
           ...data,
           items,
-          status: 'activa',
-          estado: 'activo'
+          status: 'activa'
         } as unknown as Order);
       }
     });
@@ -234,67 +199,7 @@ export async function getUserTables(targetUid?: string): Promise<Table[]> {
     const colRef = collection(db, 'users', uid, 'mesas');
     const snap = await getDocs(colRef);
     if (snap.empty) return [];
-    return snap.docs.map(d => {
-      const data = d.data();
-      const order = data.order || data.currentOrder || data.pedidoActual;
-      const isOrderActive = Boolean(
-        order &&
-        Array.isArray(order.items) &&
-        order.items.length > 0 &&
-        order.closed !== true &&
-        order.status !== 'cobrado' &&
-        order.status !== 'pagado' &&
-        order.status !== 'cerrado' &&
-        order.estado !== 'pagado' &&
-        order.estado !== 'cerrado' &&
-        data.status !== 'libre' &&
-        data.estado !== 'libre'
-      );
-
-      return {
-        id: d.id,
-        number: data.number || '1',
-        name: data.name || 'Mesa',
-        zone: data.zone || 'Salón Principal',
-        seats: Number(data.seats) || 2,
-        ...data,
-        status: isOrderActive ? (data.status || 'ocupada') : 'libre',
-        estado: isOrderActive ? (data.estado || 'ocupada') : 'libre',
-        order: isOrderActive ? order : undefined,
-        currentOrder: isOrderActive ? order : null,
-        pedidoActual: isOrderActive ? order : null
-      } as unknown as Table;
-    });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.LIST, path);
-    return [];
-  }
-}
-
-/**
- * Obtiene las comandas activas utilizando where("estado", "==", "activo")
- */
-export async function getUserOrders(targetUid?: string): Promise<Order[]> {
-  const uid = getActiveUserId(targetUid);
-  if (!uid) return [];
-
-  const path = `users/${uid}/pedidos`;
-  try {
-    const colRef = collection(db, 'users', uid, 'pedidos');
-    const q = query(colRef, where('estado', '==', 'activo'));
-    const snap = await getDocs(q);
-    if (snap.empty) return [];
-    return snap.docs.map(d => {
-      const data = d.data();
-      const items = Array.isArray(data.items) ? data.items : (Array.isArray(data.productos) ? data.productos : []);
-      return {
-        id: d.id,
-        ...data,
-        items,
-        status: 'activa',
-        estado: 'activo'
-      } as unknown as Order;
-    }).filter(o => o.items && o.items.length > 0 && o.closed !== true && o.status !== 'pagado' && (o as any).estado !== 'pagado');
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Table));
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, path);
     return [];
@@ -413,23 +318,11 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
     // Sincronizar Mesas y sus Pedidos
     for (const tbl of data.tables || []) {
       if (tbl.id) {
-        const hasActiveOrder = Boolean(
-          tbl.order &&
-          Array.isArray(tbl.order.items) &&
-          tbl.order.items.length > 0 &&
-          tbl.order.closed !== true &&
-          tbl.order.status !== 'pagado' &&
-          tbl.order.status !== 'cobrado' &&
-          tbl.order.estado !== 'pagado' &&
-          tbl.order.estado !== 'cerrado' &&
-          tbl.status !== 'libre' &&
-          tbl.estado !== 'libre'
-        );
+        const hasActiveOrder = Boolean(tbl.order && Array.isArray(tbl.order.items) && tbl.order.items.length > 0);
         const cleanOrder = (hasActiveOrder && tbl.order) ? sanitizeForFirestore({
           ...tbl.order,
           userId: uid,
           status: 'activa',
-          estado: 'activo',
           closed: false,
           productos: tbl.order.items
         }) : null;
@@ -520,7 +413,6 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
       items: cleanItems,
       productos: cleanItems,
       status: 'activa',
-      estado: 'activo',
       closed: false,
       lastUpdatedAt: new Date().toISOString()
     });
@@ -528,110 +420,6 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;
-  }
-}
-
-/**
- * Elimina directamente un producto de la comanda en Firestore y actualiza el array de items.
- */
-export async function removeOrderItemFromFirestore(
-  tableId: string,
-  itemId: string,
-  targetUid?: string
-): Promise<void> {
-  const uid = getActiveUserId(targetUid);
-  if (!uid || !tableId) return;
-  const nowIso = new Date().toISOString();
-
-  try {
-    const tableRef = doc(db, 'users', uid, 'mesas', tableId);
-    const tableSnap = await getDoc(tableRef);
-    if (!tableSnap.exists()) return;
-
-    const tableData = tableSnap.data() as Table;
-    const currentOrder = tableData.order;
-
-    if (!currentOrder || !Array.isArray(currentOrder.items)) return;
-
-    const remainingItems = currentOrder.items.filter(it => it.id !== itemId);
-    const orderId = currentOrder.id || `ord-${tableId}`;
-
-    if (remainingItems.length === 0) {
-      // Liberar mesa
-      await updateDoc(tableRef, {
-        status: 'libre',
-        estado: 'libre',
-        order: null,
-        currentOrder: null,
-        pedidoActual: null,
-        updatedAt: nowIso
-      });
-
-      if (orderId) {
-        try {
-          await updateDoc(doc(db, 'users', uid, 'pedidos', orderId), {
-            estado: 'pagado',
-            status: 'pagado',
-            closed: true,
-            closedAt: nowIso,
-            items: [],
-            productos: []
-          });
-        } catch {}
-      }
-    } else {
-      const subtotal = remainingItems.reduce(
-        (sum, it) => sum + (Number(it.unitPrice) || 0) * (Number(it.quantity) || 1),
-        0
-      );
-      const taxPercent = Number(currentOrder.taxPercent) || 0;
-      const taxAmount = (subtotal * taxPercent) / 100;
-      const discountPercent = Number(currentOrder.discountPercent) || 0;
-      const discountAmount = (subtotal * discountPercent) / 100;
-      const tipAmount = Number(currentOrder.tipAmount) || 0;
-      const total = subtotal - discountAmount + taxAmount + tipAmount;
-
-      const cleanOrder = sanitizeForFirestore({
-        ...currentOrder,
-        userId: uid,
-        items: remainingItems,
-        productos: remainingItems,
-        subtotal: Math.round(subtotal),
-        taxAmount: Math.round(taxAmount),
-        discountAmount: Math.round(discountAmount),
-        total: Math.round(total),
-        estado: 'activo',
-        status: 'activa',
-        closed: false,
-        lastUpdatedAt: nowIso
-      });
-
-      // Actualizar comanda en pedidos reescribiendo el array
-      await updateDoc(doc(db, 'users', uid, 'pedidos', orderId), {
-        items: remainingItems,
-        productos: remainingItems,
-        subtotal: Math.round(subtotal),
-        taxAmount: Math.round(taxAmount),
-        discountAmount: Math.round(discountAmount),
-        total: Math.round(total),
-        estado: 'activo',
-        status: 'activa',
-        closed: false,
-        lastUpdatedAt: nowIso
-      });
-
-      // Actualizar mesa en mesas
-      await updateDoc(tableRef, {
-        order: cleanOrder,
-        currentOrder: cleanOrder,
-        pedidoActual: cleanOrder,
-        status: 'ocupada',
-        estado: 'ocupada',
-        updatedAt: nowIso
-      });
-    }
-  } catch (err) {
-    console.error('Error eliminando producto de Firestore:', err);
   }
 }
 
@@ -670,7 +458,6 @@ export async function syncTableOrderToFirestore(
         items: cleanItems,
         productos: cleanItems,
         status: 'activa',
-        estado: 'activo',
         closed: false,
         lastUpdatedAt: nowIso
       });
@@ -701,8 +488,8 @@ export async function syncTableOrderToFirestore(
       if (order?.id) {
         try {
           await updateDoc(doc(db, 'users', uid, 'pedidos', order.id), {
-            status: 'pagado',
-            estado: 'pagado',
+            status: 'cancelado',
+            estado: 'cerrado',
             closed: true,
             closedAt: nowIso,
             items: [],
@@ -744,8 +531,8 @@ export async function saveTableToFirestore(table: Table, targetUid?: string): Pr
 
 /**
  * Libera una mesa tras el cobro o pago exitoso en Firestore.
- * Ejecuta updateDoc para cambiar el estado de la mesa a 'libre', el pedido a null,
- * y en el documento de pedidos actualiza estado: 'pagado', status: 'pagado', closed: true.
+ * Actualiza el estado de la mesa a 'libre', establece el pedidoActual/order a null,
+ * limpia las alertas de mesero y marca la comanda activa como cerrada/cobrada.
  */
 export async function releaseTableInFirestore(
   tableId: string,
@@ -771,32 +558,20 @@ export async function releaseTableInFirestore(
       updatedAt: nowIso
     });
 
-    // 2. Marcar la comanda/pedido como pagado mediante updateDoc
+    // 2. Marcar la comanda/pedido como cerrada para que no reviva
     if (orderId) {
       try {
         const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
         await updateDoc(orderRef, {
-          status: 'pagado',
-          estado: 'pagado',
+          status: 'cobrado',
+          estado: 'cerrado',
           closed: true,
           closedAt: nowIso,
           items: [],
           productos: []
         });
       } catch (orderErr) {
-        // Fallback si el documento no existía previamente
-        try {
-          const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
-          await setDoc(orderRef, {
-            id: orderId,
-            status: 'pagado',
-            estado: 'pagado',
-            closed: true,
-            closedAt: nowIso,
-            items: [],
-            productos: []
-          }, { merge: true });
-        } catch {}
+        console.warn('Nota: Pedido no requirió actualización adicional:', orderErr);
       }
     }
   } catch (err) {

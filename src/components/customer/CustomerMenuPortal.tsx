@@ -269,7 +269,6 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       items: cleanAllItems,
       productos: cleanAllItems,
       status: 'activa',
-      estado: 'activo',
       closed: false,
       discountPercent: Number(existingOrder?.discountPercent) || 0,
       taxPercent: Number(existingOrder?.taxPercent) || 8,

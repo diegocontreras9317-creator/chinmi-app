@@ -89,8 +89,8 @@ export default defineConfig(() => {
       chunkSizeWarningLimit: 1600
     },
     server: {
-      hmr: process.env.DISABLE_HMR !== 'true',
-      watch: process.env.DISABLE_HMR === 'true' ? null : {}
+      hmr: false,
+      watch: null
     }
   };
 });

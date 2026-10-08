@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import { Table, PaymentMethod, SaleReceipt } from '../../types';
+import { auth, db } from '../../firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import { sanitizeForFirestore } from '../../services/firestoreUserStorage';
 import {
   X,
   CreditCard,
@@ -9,7 +13,8 @@ import {
   CheckCircle2,
   Receipt,
   ArrowRight,
-  Calculator
+  Calculator,
+  Loader2
 } from 'lucide-react';
 
 interface CheckoutModalProps {
@@ -26,9 +31,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onSuccessCheckout
 }) => {
   const { config, checkoutTable } = useApp();
+  const { user } = useAuth();
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta');
   const [cashTendered, setCashTendered] = useState<string>('');
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -95,18 +102,123 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     setCashTendered(Math.round(amount).toString());
   };
 
-  const handleConfirm = () => {
+  // Cobro estricto de mesa con control de errores extremo y persistencia síncrona en Firebase
+  const cobrarMesa = async () => {
+    if (!table?.id || typeof table.id !== 'string') {
+      console.error("ERROR CRÍTICO: table.id es undefined:", table?.id);
+      alert("Error crítico: El ID de la mesa es undefined. Operación de cobro abortada.");
+      return;
+    }
+
+    if (!order?.id || typeof order.id !== 'string') {
+      console.error("ERROR CRÍTICO: order.id es undefined:", order?.id);
+      alert("Error crítico: El ID de la comanda es undefined. Operación de cobro abortada.");
+      return;
+    }
+
+    const activeUid = auth.currentUser?.uid || user?.id;
+    if (!activeUid) {
+      console.error("ERROR CRÍTICO: activeUid es undefined");
+      alert("Error crítico: No hay sesión de usuario autenticada en Firebase. Operación abortada.");
+      return;
+    }
+
+    setIsProcessing(true);
+    const nowIso = new Date().toISOString();
+    const receiptId = `tick-${Date.now()}`;
+
+    const receiptPayload = sanitizeForFirestore({
+      id: receiptId,
+      orderId: order.id,
+      tableName: table.name || 'Mesa',
+      items: items,
+      subtotal: Math.round(subtotal),
+      taxAmount: Math.round(taxAmount),
+      taxPercent: taxPercent,
+      discountAmount: Math.round(discountAmount),
+      discountPercent: discountPercent,
+      tipAmount: Math.round(tipAmount),
+      total: Math.round(total),
+      paymentMethod,
+      cashTendered: cashNumber > 0 ? Math.round(cashNumber) : undefined,
+      change: change > 0 ? Math.round(change) : undefined,
+      timestamp: nowIso,
+      cashierName: user?.name || 'Cajero',
+      userId: activeUid
+    });
+
+    // 1. Guardar recibo de venta en Firebase (users/uid/ventas/receiptId)
+    console.log("Intentando actualizar doc con ID:", receiptId, "Datos:", receiptPayload);
+    try {
+      const ventaRef = doc(db, 'users', activeUid, 'ventas', receiptId);
+      await setDoc(ventaRef, receiptPayload, { merge: true });
+      console.log("Éxito al registrar venta en Firebase con ID:", receiptId);
+    } catch (error) {
+      console.error("ERROR CRÍTICO EN FIREBASE:", error);
+      alert("ERROR CRÍTICO EN FIREBASE al guardar venta: " + (error instanceof Error ? error.message : String(error)));
+    }
+
+    // 2. Liberar la mesa en Firebase (users/uid/mesas/table.id)
+    const tableFreeData = sanitizeForFirestore({
+      id: table.id,
+      status: 'libre',
+      estado: 'libre',
+      order: null,
+      currentOrder: null,
+      pedidoActual: null,
+      waiterCall: null,
+      updatedAt: nowIso,
+      userId: activeUid
+    });
+
+    console.log("Intentando actualizar doc con ID:", table.id, "Datos:", tableFreeData);
+    try {
+      const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
+      await setDoc(mesaRef, tableFreeData, { merge: true });
+      console.log("Éxito al liberar mesa en Firebase con ID:", table.id);
+    } catch (error) {
+      console.error("ERROR CRÍTICO EN FIREBASE:", error);
+      alert("ERROR CRÍTICO EN FIREBASE al liberar mesa: " + (error instanceof Error ? error.message : String(error)));
+    }
+
+    // 3. Cerrar la comanda en Firebase (users/uid/pedidos/order.id)
+    const orderClosedData = sanitizeForFirestore({
+      id: order.id,
+      status: 'cobrado',
+      estado: 'cerrado',
+      closed: true,
+      closedAt: nowIso,
+      items: [],
+      productos: []
+    });
+
+    console.log("Intentando actualizar doc con ID:", order.id, "Datos:", orderClosedData);
+    try {
+      const pedidoRef = doc(db, 'users', activeUid, 'pedidos', order.id);
+      await setDoc(pedidoRef, orderClosedData, { merge: true });
+      console.log("Éxito al cerrar comanda en Firebase con ID:", order.id);
+    } catch (error) {
+      console.error("ERROR CRÍTICO EN FIREBASE:", error);
+      alert("ERROR CRÍTICO EN FIREBASE al cerrar comanda: " + (error instanceof Error ? error.message : String(error)));
+    }
+
+    // 4. Actualizar el estado en AppContext y cerrar modal
     const res = checkoutTable(
       table.id,
       paymentMethod,
       paymentMethod === 'efectivo' ? cashNumber : undefined
     );
 
+    setIsProcessing(false);
     if (res.success && res.receipt) {
       onSuccessCheckout(res.receipt);
-      onClose();
+    } else {
+      onSuccessCheckout(receiptPayload as unknown as SaleReceipt);
     }
+    onClose();
   };
+
+  const handleConfirm = cobrarMesa;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
@@ -331,12 +443,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             <button
               type="button"
               id="btn-confirm-checkout"
-              disabled={!isCashSufficient}
+              disabled={!isCashSufficient || isProcessing}
               onClick={handleConfirm}
               className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer"
             >
-              <span>Cobrar y Liberar Mesa</span>
-              <ArrowRight className="w-4 h-4" />
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Guardando en Firebase...</span>
+                </>
+              ) : (
+                <>
+                  <span>Cobrar y Liberar Mesa</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </div>
 

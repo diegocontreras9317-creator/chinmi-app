@@ -427,105 +427,168 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
  * Sincroniza atómicamente el estado de comanda de una mesa tanto en 'mesas' como en 'pedidos'.
  * Si la comanda queda sin productos, libera la mesa y marca el pedido como cerrado/cancelado.
  */
+/**
+ * Sincroniza atómicamente el estado de comanda de una mesa tanto en 'mesas' como en 'pedidos'.
+ * Si la comanda queda sin productos, libera la mesa y marca el pedido como cerrado/cancelado.
+ */
 export async function syncTableOrderToFirestore(
   tableId: string,
   order: Order | null | undefined,
   targetUid?: string
 ): Promise<void> {
+  if (!tableId || typeof tableId !== 'string') {
+    console.error("ERROR CRÍTICO: tableId es undefined o inválido en syncTableOrderToFirestore:", tableId);
+    throw new Error("syncTableOrderToFirestore abortado: ID de la mesa es undefined");
+  }
+
   const uid = getActiveUserId(targetUid);
-  if (!uid || !tableId) return;
+  if (!uid) {
+    console.error("ERROR CRÍTICO: No se pudo resolver el UID de usuario para Firestore");
+    throw new Error("syncTableOrderToFirestore abortado: UID de usuario no autenticado");
+  }
   const nowIso = new Date().toISOString();
 
-  try {
-    const hasItems = order && Array.isArray(order.items) && order.items.length > 0;
+  const hasItems = order && Array.isArray(order.items) && order.items.length > 0;
 
-    if (hasItems && order) {
-      const cleanItems = order.items.map(it => ({
-        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        productId: it.productId || '',
-        name: it.name || 'Producto',
-        unitPrice: Number(it.unitPrice) || 0,
-        quantity: Number(it.quantity) || 1,
-        notes: it.notes?.trim() || '',
-        addedAt: it.addedAt || nowIso,
-        customerName: it.customerName?.trim() || '',
-        orderedBy: it.orderedBy || 'mesero'
-      }));
+  if (hasItems && order) {
+    if (!order.id) {
+      console.error("ERROR CRÍTICO: order.id es undefined en syncTableOrderToFirestore");
+      throw new Error("syncTableOrderToFirestore abortado: ID del pedido es undefined");
+    }
 
-      const cleanOrder = sanitizeForFirestore({
-        ...order,
-        userId: uid,
-        items: cleanItems,
-        productos: cleanItems,
-        status: 'activa',
-        closed: false,
-        lastUpdatedAt: nowIso
+    const cleanItems = order.items.map(it => ({
+      id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      productId: it.productId || '',
+      name: it.name || 'Producto',
+      unitPrice: Number(it.unitPrice) || 0,
+      quantity: Number(it.quantity) || 1,
+      notes: it.notes?.trim() || '',
+      addedAt: it.addedAt || nowIso,
+      customerName: it.customerName?.trim() || '',
+      orderedBy: it.orderedBy || 'mesero'
+    }));
+
+    const cleanOrder = sanitizeForFirestore({
+      ...order,
+      userId: uid,
+      items: cleanItems,
+      productos: cleanItems,
+      status: 'activa',
+      closed: false,
+      lastUpdatedAt: nowIso
+    });
+
+    // 1. Guardar en pedidos sobreescribiendo limpiamente
+    console.log("Intentando actualizar doc con ID:", order.id, "Datos:", cleanOrder);
+    try {
+      const pedidoDocRef = doc(db, 'users', uid, 'pedidos', order.id);
+      await setDoc(pedidoDocRef, cleanOrder);
+      console.log("Éxito al guardar comanda activa en Firebase con ID:", order.id);
+    } catch (error) {
+      console.error("ERROR CRÍTICO EN FIREBASE:", error);
+      throw error;
+    }
+
+    // 2. Actualizar la mesa en mesas
+    const tableUpdateData = sanitizeForFirestore({
+      id: tableId,
+      status: 'ocupada',
+      estado: 'ocupada',
+      order: cleanOrder,
+      currentOrder: cleanOrder,
+      pedidoActual: cleanOrder,
+      updatedAt: nowIso,
+      userId: uid
+    });
+    console.log("Intentando actualizar doc con ID:", tableId, "Datos:", tableUpdateData);
+    try {
+      const mesaDocRef = doc(db, 'users', uid, 'mesas', tableId);
+      await setDoc(mesaDocRef, tableUpdateData, { merge: true });
+      console.log("Éxito al actualizar mesa en Firebase con ID:", tableId);
+    } catch (error) {
+      console.error("ERROR CRÍTICO EN FIREBASE:", error);
+      throw error;
+    }
+  } else {
+    // No hay ítems en la comanda (o fue vaciada / eliminada por completo)
+    const tableFreeData = sanitizeForFirestore({
+      id: tableId,
+      status: 'libre',
+      estado: 'libre',
+      order: null,
+      currentOrder: null,
+      pedidoActual: null,
+      updatedAt: nowIso,
+      userId: uid
+    });
+    console.log("Intentando actualizar doc con ID:", tableId, "Datos:", tableFreeData);
+    try {
+      const mesaDocRef = doc(db, 'users', uid, 'mesas', tableId);
+      await setDoc(mesaDocRef, tableFreeData, { merge: true });
+      console.log("Éxito al liberar mesa en Firebase con ID:", tableId);
+    } catch (error) {
+      console.error("ERROR CRÍTICO EN FIREBASE:", error);
+      throw error;
+    }
+
+    if (order?.id) {
+      const orderCancelData = sanitizeForFirestore({
+        status: 'cancelado',
+        estado: 'cerrado',
+        closed: true,
+        closedAt: nowIso,
+        items: [],
+        productos: []
       });
-
-      // 1. Guardar en pedidos sin merge para sobreescribir el arreglo de items limpiamente
-      await setDoc(doc(db, 'users', uid, 'pedidos', order.id), cleanOrder);
-
-      // 2. Actualizar la mesa en mesas
-      await updateDoc(doc(db, 'users', uid, 'mesas', tableId), {
-        status: 'ocupada',
-        estado: 'ocupada',
-        order: cleanOrder,
-        currentOrder: cleanOrder,
-        pedidoActual: cleanOrder,
-        updatedAt: nowIso
-      });
-    } else {
-      // No hay ítems en la comanda (o fue vaciada / eliminada por completo)
-      await updateDoc(doc(db, 'users', uid, 'mesas', tableId), {
-        status: 'libre',
-        estado: 'libre',
-        order: null,
-        currentOrder: null,
-        pedidoActual: null,
-        updatedAt: nowIso
-      });
-
-      if (order?.id) {
-        try {
-          await updateDoc(doc(db, 'users', uid, 'pedidos', order.id), {
-            status: 'cancelado',
-            estado: 'cerrado',
-            closed: true,
-            closedAt: nowIso,
-            items: [],
-            productos: []
-          });
-        } catch {}
+      console.log("Intentando actualizar doc con ID:", order.id, "Datos:", orderCancelData);
+      try {
+        const orderDocRef = doc(db, 'users', uid, 'pedidos', order.id);
+        await setDoc(orderDocRef, orderCancelData, { merge: true });
+        console.log("Éxito al cancelar comanda vacía en Firebase con ID:", order.id);
+      } catch (error) {
+        console.error("ERROR CRÍTICO EN FIREBASE:", error);
+        throw error;
       }
     }
-  } catch (err) {
-    console.error('Error sincronizando comanda en Firestore:', err);
   }
 }
 
 export async function saveTableToFirestore(table: Table, targetUid?: string): Promise<void> {
+  if (!table || !table.id) {
+    console.error("ERROR CRÍTICO: table o table.id es undefined en saveTableToFirestore:", table);
+    throw new Error("saveTableToFirestore abortado: ID de la mesa es undefined");
+  }
+
   const uid = getActiveUserId(targetUid);
-  if (!uid || !table.id) return;
-  const path = `users/${uid}/mesas/${table.id}`;
+  if (!uid) {
+    console.error("ERROR CRÍTICO: No se pudo resolver UID en saveTableToFirestore");
+    throw new Error("saveTableToFirestore abortado: UID no autenticado");
+  }
+
+  const hasOrder = table.order && Array.isArray(table.order.items) && table.order.items.length > 0;
+  const cleanTable = sanitizeForFirestore({
+    ...table,
+    userId: uid,
+    status: table.status || (hasOrder ? 'ocupada' : 'libre'),
+    estado: table.status || (hasOrder ? 'ocupada' : 'libre'),
+    order: hasOrder ? table.order : null,
+    currentOrder: hasOrder ? table.order : null,
+    pedidoActual: hasOrder ? table.order : null,
+    waiterCall: table.waiterCall || null
+  });
+
+  console.log("Intentando actualizar doc con ID:", table.id, "Datos:", cleanTable);
   try {
-    const hasOrder = table.order && Array.isArray(table.order.items) && table.order.items.length > 0;
-    const cleanTable = {
-      ...table,
-      userId: uid,
-      status: table.status || (hasOrder ? 'ocupada' : 'libre'),
-      estado: table.status || (hasOrder ? 'ocupada' : 'libre'),
-      order: hasOrder ? sanitizeForFirestore(table.order) : null,
-      currentOrder: hasOrder ? sanitizeForFirestore(table.order) : null,
-      pedidoActual: hasOrder ? sanitizeForFirestore(table.order) : null,
-      waiterCall: table.waiterCall ? sanitizeForFirestore(table.waiterCall) : null
-    };
-    await setDoc(doc(db, 'users', uid, 'mesas', table.id), cleanTable);
-    if (hasOrder && table.order) {
-      await saveOrderToFirestore(table.order, uid);
-    }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-    throw err;
+    const tableRef = doc(db, 'users', uid, 'mesas', table.id);
+    await setDoc(tableRef, cleanTable, { merge: true });
+    console.log("Éxito al guardar mesa con ID:", table.id);
+  } catch (error) {
+    console.error("ERROR CRÍTICO EN FIREBASE:", error);
+    throw error;
+  }
+
+  if (hasOrder && table.order) {
+    await saveOrderToFirestore(table.order, uid);
   }
 }
 
@@ -539,44 +602,67 @@ export async function releaseTableInFirestore(
   orderId?: string,
   targetUid?: string
 ): Promise<void> {
+  if (!tableId || typeof tableId !== 'string') {
+    console.error("ERROR CRÍTICO: tableId es undefined en releaseTableInFirestore:", tableId);
+    throw new Error("releaseTableInFirestore abortado: ID de la mesa es undefined");
+  }
+
   const uid = getActiveUserId(targetUid);
-  if (!uid || !tableId) return;
-  const tablePath = `users/${uid}/mesas/${tableId}`;
+  if (!uid) {
+    console.error("ERROR CRÍTICO: No se pudo resolver UID en releaseTableInFirestore");
+    throw new Error("releaseTableInFirestore abortado: UID no autenticado");
+  }
+
   const nowIso = new Date().toISOString();
 
+  // 1. Actualización inmediata del documento de la mesa
+  const tableFreeData = sanitizeForFirestore({
+    id: tableId,
+    status: 'libre',
+    estado: 'libre',
+    order: null,
+    currentOrder: null,
+    pedidoActual: null,
+    waiterCall: null,
+    updatedAt: nowIso,
+    userId: uid
+  });
+
+  console.log("Intentando actualizar doc con ID:", tableId, "Datos:", tableFreeData);
   try {
     const tableRef = doc(db, 'users', uid, 'mesas', tableId);
+    await setDoc(tableRef, tableFreeData, { merge: true });
+    console.log("Éxito al liberar mesa en Firebase con ID:", tableId);
+  } catch (error) {
+    console.error("ERROR CRÍTICO EN FIREBASE:", error);
+    throw error;
+  }
 
-    // 1. Actualización inmediata del documento de la mesa mediante updateDoc
-    await updateDoc(tableRef, {
-      status: 'libre',
-      estado: 'libre',
-      order: null,
-      currentOrder: null,
-      pedidoActual: null,
-      waiterCall: null,
-      updatedAt: nowIso
+  // 2. Marcar la comanda/pedido como cerrada para que no reviva
+  if (orderId) {
+    if (!orderId || typeof orderId !== 'string') {
+      console.error("ERROR CRÍTICO: orderId es undefined en releaseTableInFirestore");
+      throw new Error("releaseTableInFirestore abortado: orderId es undefined");
+    }
+
+    const orderClosedData = sanitizeForFirestore({
+      status: 'cobrado',
+      estado: 'cerrado',
+      closed: true,
+      closedAt: nowIso,
+      items: [],
+      productos: []
     });
 
-    // 2. Marcar la comanda/pedido como cerrada para que no reviva
-    if (orderId) {
-      try {
-        const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
-        await updateDoc(orderRef, {
-          status: 'cobrado',
-          estado: 'cerrado',
-          closed: true,
-          closedAt: nowIso,
-          items: [],
-          productos: []
-        });
-      } catch (orderErr) {
-        console.warn('Nota: Pedido no requirió actualización adicional:', orderErr);
-      }
+    console.log("Intentando actualizar doc con ID:", orderId, "Datos:", orderClosedData);
+    try {
+      const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
+      await setDoc(orderRef, orderClosedData, { merge: true });
+      console.log("Éxito al cerrar comanda cobrada en Firebase con ID:", orderId);
+    } catch (error) {
+      console.error("ERROR CRÍTICO EN FIREBASE:", error);
+      throw error;
     }
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, tablePath);
-    throw err;
   }
 }
 
@@ -643,15 +729,26 @@ export async function deleteInventoryItemFromFirestore(itemId: string, targetUid
 }
 
 export async function saveSaleToFirestore(sale: SaleReceipt, targetUid?: string): Promise<void> {
+  if (!sale || !sale.id) {
+    console.error("ERROR CRÍTICO: sale o sale.id es undefined en saveSaleToFirestore:", sale);
+    throw new Error("saveSaleToFirestore abortado: ID de la venta es undefined");
+  }
+
   const uid = getActiveUserId(targetUid);
-  if (!uid || !sale.id) return;
-  const path = `users/${uid}/ventas/${sale.id}`;
+  if (!uid) {
+    console.error("ERROR CRÍTICO: No se pudo resolver UID en saveSaleToFirestore");
+    throw new Error("saveSaleToFirestore abortado: UID no autenticado");
+  }
+
+  const cleanSale = sanitizeForFirestore({ ...sale, userId: uid });
+  console.log("Intentando actualizar doc con ID:", sale.id, "Datos:", cleanSale);
   try {
-    const cleanSale = sanitizeForFirestore({ ...sale, userId: uid });
-    await setDoc(doc(db, 'users', uid, 'ventas', sale.id), cleanSale, { merge: true });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
-    throw err;
+    const saleRef = doc(db, 'users', uid, 'ventas', sale.id);
+    await setDoc(saleRef, cleanSale, { merge: true });
+    console.log("Éxito al guardar venta en Firebase con ID:", sale.id);
+  } catch (error) {
+    console.error("ERROR CRÍTICO EN FIREBASE:", error);
+    throw error;
   }
 }
 

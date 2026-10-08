@@ -202,10 +202,152 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     }
   };
 
-  // Actualización optimista instantánea para eliminar producto (0ms latencia)
-  const eliminarProducto = (idEliminar: string) => {
-    if (!table?.id) return;
+  // Eliminación estricta de producto con control de errores extremo y persistencia inmediata en Firebase
+  const eliminarProducto = async (idEliminar: string) => {
+    if (!idEliminar || typeof idEliminar !== 'string') {
+      console.error("ERROR CRÍTICO: idEliminar es undefined o inválido:", idEliminar);
+      alert("Error crítico: El ID del producto a eliminar es undefined. Operación abortada.");
+      return;
+    }
+
+    if (!table?.id || typeof table.id !== 'string') {
+      console.error("ERROR CRÍTICO: table.id es undefined:", table?.id);
+      alert("Error crítico: El ID de la mesa es undefined. Operación abortada.");
+      return;
+    }
+
+    const activeUid = auth.currentUser?.uid || user?.id;
+    if (!activeUid) {
+      console.error("ERROR CRÍTICO: activeUid es undefined");
+      alert("Error crítico: No hay sesión de usuario autenticada en Firebase. Operación abortada.");
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const remainingItems = (items || []).filter(item => item.id !== idEliminar);
+    const pedidoId = order?.id || `ord-${table.id}`;
+
+    if (!pedidoId) {
+      console.error("ERROR CRÍTICO: pedidoId es undefined");
+      alert("Error crítico: El ID de la comanda es undefined. Operación abortada.");
+      return;
+    }
+
+    // 1. Actualización optimista local en React Context
     removeOrderItem(table.id, idEliminar);
+
+    if (remainingItems.length > 0) {
+      const cleanRemaining = remainingItems.map(it => ({
+        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: it.productId || '',
+        name: it.name || 'Producto',
+        unitPrice: Number(it.unitPrice) || 0,
+        quantity: Number(it.quantity) || 1,
+        notes: it.notes?.trim() || '',
+        addedAt: it.addedAt || nowIso,
+        customerName: it.customerName?.trim() || '',
+        orderedBy: it.orderedBy || 'mesero'
+      }));
+
+      const newSubtotal = cleanRemaining.reduce((acc, it) => acc + (it.unitPrice * it.quantity), 0);
+      const newDiscount = newSubtotal * ((Number(order?.discountPercent) || 0) / 100);
+      const newTaxable = newSubtotal - newDiscount;
+      const newTax = newTaxable * ((Number(order?.taxPercent ?? config.defaultTaxRate) || 0) / 100);
+      const newTip = Number(order?.tipAmount) || 0;
+      const newTotal = newTaxable + newTax + newTip;
+
+      const orderPayload = sanitizeForFirestore({
+        id: pedidoId,
+        tableId: table.id,
+        tableName: table.name || 'Mesa',
+        items: cleanRemaining,
+        productos: cleanRemaining,
+        subtotal: Math.round(newSubtotal),
+        taxPercent: Number(order?.taxPercent ?? config.defaultTaxRate) || 0,
+        taxAmount: Math.round(newTax),
+        discountPercent: Number(order?.discountPercent) || 0,
+        discountAmount: Math.round(newDiscount),
+        tipAmount: Math.round(newTip),
+        total: Math.round(newTotal),
+        status: 'activa',
+        closed: false,
+        lastUpdatedAt: nowIso,
+        userId: activeUid
+      });
+
+      console.log("Intentando actualizar doc con ID:", pedidoId, "Datos:", orderPayload);
+      try {
+        const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
+        await setDoc(pedidoRef, orderPayload);
+        console.log("Éxito al actualizar doc con ID:", pedidoId);
+      } catch (error) {
+        console.error("ERROR CRÍTICO EN FIREBASE:", error);
+        alert("ERROR CRÍTICO EN FIREBASE al actualizar comanda: " + (error instanceof Error ? error.message : String(error)));
+      }
+
+      const tablePayload = sanitizeForFirestore({
+        id: table.id,
+        status: 'ocupada',
+        estado: 'ocupada',
+        order: orderPayload,
+        currentOrder: orderPayload,
+        pedidoActual: orderPayload,
+        updatedAt: nowIso,
+        userId: activeUid
+      });
+
+      console.log("Intentando actualizar doc con ID:", table.id, "Datos:", tablePayload);
+      try {
+        const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
+        await setDoc(mesaRef, tablePayload, { merge: true });
+        console.log("Éxito al actualizar doc con ID:", table.id);
+      } catch (error) {
+        console.error("ERROR CRÍTICO EN FIREBASE:", error);
+        alert("ERROR CRÍTICO EN FIREBASE al actualizar mesa: " + (error instanceof Error ? error.message : String(error)));
+      }
+    } else {
+      // Si la comanda queda sin productos, se libera la mesa y se cierra el pedido en Firestore
+      const tableFreePayload = sanitizeForFirestore({
+        id: table.id,
+        status: 'libre',
+        estado: 'libre',
+        order: null,
+        currentOrder: null,
+        pedidoActual: null,
+        updatedAt: nowIso,
+        userId: activeUid
+      });
+
+      console.log("Intentando actualizar doc con ID:", table.id, "Datos:", tableFreePayload);
+      try {
+        const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
+        await setDoc(mesaRef, tableFreePayload, { merge: true });
+        console.log("Éxito al actualizar doc con ID:", table.id);
+      } catch (error) {
+        console.error("ERROR CRÍTICO EN FIREBASE:", error);
+        alert("ERROR CRÍTICO EN FIREBASE al liberar mesa: " + (error instanceof Error ? error.message : String(error)));
+      }
+
+      const orderCancelPayload = sanitizeForFirestore({
+        id: pedidoId,
+        status: 'cancelado',
+        estado: 'cerrado',
+        closed: true,
+        closedAt: nowIso,
+        items: [],
+        productos: []
+      });
+
+      console.log("Intentando actualizar doc con ID:", pedidoId, "Datos:", orderCancelPayload);
+      try {
+        const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
+        await setDoc(pedidoRef, orderCancelPayload, { merge: true });
+        console.log("Éxito al actualizar doc con ID:", pedidoId);
+      } catch (error) {
+        console.error("ERROR CRÍTICO EN FIREBASE:", error);
+        alert("ERROR CRÍTICO EN FIREBASE al cancelar comanda vacía: " + (error instanceof Error ? error.message : String(error)));
+      }
+    }
   };
 
   if (!isOpen) return null;

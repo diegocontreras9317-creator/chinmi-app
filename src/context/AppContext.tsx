@@ -58,6 +58,8 @@ interface AppContextType {
   removeOrderItem: (tableId: string, itemId: string) => void;
   updateOrderModifiers: (tableId: string, modifiers: { taxPercent?: number; discountPercent?: number; tipAmount?: number }) => void;
   checkoutTable: (tableId: string, paymentMethod: PaymentMethod, cashTendered?: number) => { success: boolean; receipt?: SaleReceipt };
+  cobrarMesa: (tableId: string, paymentMethod: PaymentMethod, cashTendered?: number) => Promise<{ success: boolean; receipt?: SaleReceipt }>;
+  eliminarProducto: (tableId: string, itemId: string) => Promise<void>;
   
   // Product & Inventory operations
   addProduct: (product: Omit<Product, 'id'> & { id?: string }) => { success: boolean; error?: string };
@@ -769,14 +771,77 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 4. Actualización directa e inmediata en Firestore para liberar la mesa sin desfases
     if (activeUid && activeUid !== 'default') {
       releaseTableInFirestore(tableId, order.id, activeUid).catch(err => {
-        console.error('Error liberando mesa en Firestore:', err);
+        console.error('ERROR CRÍTICO EN FIREBASE al liberar mesa en checkoutTable:', err);
       });
       saveSaleToFirestore(receipt, activeUid).catch(err => {
-        console.error('Error guardando venta en Firestore:', err);
+        console.error('ERROR CRÍTICO EN FIREBASE al guardar venta en checkoutTable:', err);
       });
     }
 
     return { success: true, receipt };
+  };
+
+  // Función asíncrona de cobro con control de errores extremo
+  const cobrarMesa = async (
+    tableId: string,
+    paymentMethod: PaymentMethod,
+    cashTendered?: number
+  ): Promise<{ success: boolean; receipt?: SaleReceipt }> => {
+    if (!tableId || typeof tableId !== 'string') {
+      console.error("ERROR CRÍTICO: tableId es undefined en cobrarMesa:", tableId);
+      throw new Error("cobrarMesa abortado: ID de la mesa es undefined");
+    }
+
+    const table = tablesRef.current.find(t => t.id === tableId);
+    const order = table?.order;
+    if (!table || !order || !order.id) {
+      console.error("ERROR CRÍTICO: No hay orden activa o order.id es undefined para mesa:", tableId);
+      throw new Error("cobrarMesa abortado: No se encontró orden activa o su ID es undefined");
+    }
+
+    const res = checkoutTable(tableId, paymentMethod, cashTendered);
+    if (res.receipt && activeUid && activeUid !== 'default') {
+      try {
+        console.log("Intentando actualizar doc con ID:", tableId, "Datos para liberar mesa");
+        await releaseTableInFirestore(tableId, order.id, activeUid);
+      } catch (error) {
+        console.error("ERROR CRÍTICO EN FIREBASE al liberar mesa:", error);
+        throw error;
+      }
+
+      try {
+        console.log("Intentando actualizar doc con ID:", res.receipt.id, "Datos:", res.receipt);
+        await saveSaleToFirestore(res.receipt, activeUid);
+      } catch (error) {
+        console.error("ERROR CRÍTICO EN FIREBASE al guardar venta:", error);
+        throw error;
+      }
+    }
+    return res;
+  };
+
+  // Función asíncrona de eliminación de producto con control de errores extremo
+  const eliminarProducto = async (tableId: string, itemId: string): Promise<void> => {
+    if (!tableId || typeof tableId !== 'string') {
+      console.error("ERROR CRÍTICO: tableId es undefined en eliminarProducto:", tableId);
+      throw new Error("eliminarProducto abortado: ID de la mesa es undefined");
+    }
+    if (!itemId || typeof itemId !== 'string') {
+      console.error("ERROR CRÍTICO: itemId es undefined en eliminarProducto:", itemId);
+      throw new Error("eliminarProducto abortado: ID del producto es undefined");
+    }
+
+    removeOrderItem(tableId, itemId);
+    const updatedTable = tablesRef.current.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      try {
+        console.log("Intentando actualizar doc con ID:", tableId, "Datos tras eliminar producto:", updatedTable?.order);
+        await syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid);
+      } catch (error) {
+        console.error("ERROR CRÍTICO EN FIREBASE al eliminar producto:", error);
+        throw error;
+      }
+    }
   };
 
   // Product & Inventory operations
@@ -935,6 +1000,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         removeOrderItem,
         updateOrderModifiers,
         checkoutTable,
+        cobrarMesa,
+        eliminarProducto,
         addProduct,
         updateProduct,
         deleteProduct,

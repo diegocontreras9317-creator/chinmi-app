@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Table, Product, TableStatus, OrderItem } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import { auth, db } from '../../firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import {
   saveTableToFirestore,
   saveOrderToFirestore,
@@ -141,6 +141,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       tipAmount: Number(tipAmount) || 0,
       total: Math.round(total),
       status: 'activa',
+      estado: 'activa',
+      closed: false,
       openedAt: order?.openedAt || nowIso,
       lastUpdatedAt: nowIso,
       userId: activeUid || '',
@@ -270,6 +272,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         tipAmount: Math.round(newTip),
         total: Math.round(newTotal),
         status: 'activa',
+        estado: 'activa',
         closed: false,
         lastUpdatedAt: nowIso,
         userId: activeUid

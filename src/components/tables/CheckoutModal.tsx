@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { Table, PaymentMethod, SaleReceipt } from '../../types';
 import { auth, db } from '../../firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { sanitizeForFirestore } from '../../services/firestoreUserStorage';
 import {
   X,
@@ -181,11 +181,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       alert("ERROR CRÍTICO EN FIREBASE al liberar mesa: " + (error instanceof Error ? error.message : String(error)));
     }
 
-    // 3. Cerrar la comanda en Firebase (users/uid/pedidos/order.id)
+    // 3. Cerrar la comanda en Firebase (users/uid/pedidos/order.id) cambiando exactamente el campo estado a 'pagada'
     const orderClosedData = sanitizeForFirestore({
       id: order.id,
-      status: 'cobrado',
-      estado: 'cerrado',
+      estado: 'pagada',
+      status: 'pagada',
       closed: true,
       closedAt: nowIso,
       items: [],
@@ -195,11 +195,18 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     console.log("Intentando actualizar doc con ID:", order.id, "Datos:", orderClosedData);
     try {
       const pedidoRef = doc(db, 'users', activeUid, 'pedidos', order.id);
-      await setDoc(pedidoRef, orderClosedData, { merge: true });
-      console.log("Éxito al cerrar comanda en Firebase con ID:", order.id);
+      await updateDoc(pedidoRef, orderClosedData);
+      console.log("Éxito al cambiar estado a 'pagada' con updateDoc en Firebase con ID:", order.id);
     } catch (error) {
-      console.error("ERROR CRÍTICO EN FIREBASE:", error);
-      alert("ERROR CRÍTICO EN FIREBASE al cerrar comanda: " + (error instanceof Error ? error.message : String(error)));
+      console.error("ERROR CRÍTICO EN FIREBASE al hacer updateDoc en pedido:", error);
+      try {
+        const pedidoRef = doc(db, 'users', activeUid, 'pedidos', order.id);
+        await setDoc(pedidoRef, orderClosedData, { merge: true });
+        console.log("Éxito al cambiar estado a 'pagada' con setDoc en Firebase con ID:", order.id);
+      } catch (setErr) {
+        console.error("ERROR CRÍTICO EN FIREBASE (fallback setDoc):", setErr);
+        alert("ERROR CRÍTICO EN FIREBASE al cerrar comanda: " + (setErr instanceof Error ? setErr.message : String(setErr)));
+      }
     }
 
     // 4. Actualizar el estado en AppContext y cerrar modal

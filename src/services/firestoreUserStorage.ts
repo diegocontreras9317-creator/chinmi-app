@@ -7,7 +7,9 @@ import {
   deleteDoc,
   onSnapshot,
   Unsubscribe,
-  getDoc
+  getDoc,
+  query,
+  where
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, Empleado } from '../types';
@@ -65,9 +67,30 @@ export function subscribeUserTables(uid: string, onUpdate: (tables: Table[]) => 
   const colRef = collection(db, 'users', uid, 'mesas');
   
   return onSnapshot(colRef, (snap) => {
-    const tables = snap.docs.map(d => ({ id: d.id, ...d.data() } as Table));
+    const tables = snap.docs.map(d => {
+      const data = d.data() as Table;
+      const order = data.order;
+      // Validamos estrictamente que la comanda esté activa para evitar revivir comandas cobradas
+      const isOrderActive = Boolean(
+        order &&
+        (order as any).estado === 'activa' &&
+        !(order as any).closed &&
+        (order as any).status !== 'pagada' &&
+        (order as any).status !== 'cobrado' &&
+        Array.isArray(order.items) &&
+        order.items.length > 0
+      );
+
+      return {
+        ...data,
+        id: d.id,
+        order: isOrderActive ? order : undefined,
+        status: isOrderActive ? (data.status === 'libre' ? 'ocupada' : data.status) : (data.status === 'ocupada' ? 'libre' : data.status)
+      } as Table;
+    });
     onUpdate(tables);
   }, (err) => {
+    console.error("ERROR CRÍTICO EN FIREBASE al escuchar mesas (onSnapshot):", err);
     handleFirestoreError(err, OperationType.LIST, path);
     onUpdate([]);
   });
@@ -126,7 +149,9 @@ export function subscribeUserInventory(uid: string, onUpdate: (items: Perishable
 
 /**
  * Escucha en tiempo real los pedidos activos de users/${uid}/pedidos.
- * Filtra estrictamente comandas activas evitando revivir comandas cobradas o cerradas.
+ * Utiliza estrictamente query(..., where("estado", "==", "activa")) para que cuando una comanda
+ * sea cobrada (updateDoc con estado: "pagada"), Firestore la retire automáticamente del snapshot
+ * en tiempo real y no reviva en la pantalla.
  */
 export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => void): Unsubscribe {
   if (!uid) {
@@ -135,33 +160,29 @@ export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => 
   }
   const path = `users/${uid}/pedidos`;
   const colRef = collection(db, 'users', uid, 'pedidos');
+  const q = query(colRef, where("estado", "==", "activa"));
 
-  return onSnapshot(colRef, (snap) => {
+  return onSnapshot(q, (snap) => {
     const orders: Order[] = [];
     snap.docs.forEach(d => {
       const data = d.data();
       const items = Array.isArray(data.items) ? data.items : (Array.isArray(data.productos) ? data.productos : []);
       
-      const isClosed = data.closed === true ||
-        data.status === 'cobrado' ||
-        data.status === 'cerrado' ||
-        data.status === 'cancelado' ||
-        data.status === 'pagado' ||
-        data.estado === 'cerrado' ||
-        data.estado === 'cobrado' ||
-        data.estado === 'cancelado';
-
-      if (!isClosed && items.length > 0) {
+      // Validación estricta: solo órdenes con estado activa, no cerradas y con productos
+      if (data.estado === 'activa' && !data.closed && items.length > 0) {
         orders.push({
           id: d.id,
           ...data,
           items,
-          status: 'activa'
+          status: 'activa',
+          estado: 'activa'
         } as unknown as Order);
       }
     });
+    console.log(`[Firestore onSnapshot] Comandas activas recibidas (${orders.length}):`, orders.map(o => o.id));
     onUpdate(orders);
   }, (err) => {
+    console.error("ERROR CRÍTICO EN FIREBASE al escuchar comandas activas (onSnapshot):", err);
     handleFirestoreError(err, OperationType.LIST, path);
     onUpdate([]);
   });
@@ -199,8 +220,28 @@ export async function getUserTables(targetUid?: string): Promise<Table[]> {
     const colRef = collection(db, 'users', uid, 'mesas');
     const snap = await getDocs(colRef);
     if (snap.empty) return [];
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Table));
+    return snap.docs.map(d => {
+      const data = d.data() as Table;
+      const order = data.order;
+      const isOrderActive = Boolean(
+        order &&
+        (order as any).estado === 'activa' &&
+        !(order as any).closed &&
+        (order as any).status !== 'pagada' &&
+        (order as any).status !== 'cobrado' &&
+        Array.isArray(order.items) &&
+        order.items.length > 0
+      );
+
+      return {
+        ...data,
+        id: d.id,
+        order: isOrderActive ? order : undefined,
+        status: isOrderActive ? (data.status === 'libre' ? 'ocupada' : data.status) : (data.status === 'ocupada' ? 'libre' : data.status)
+      } as Table;
+    });
   } catch (err) {
+    console.error("ERROR CRÍTICO EN FIREBASE en getUserTables:", err);
     handleFirestoreError(err, OperationType.LIST, path);
     return [];
   }
@@ -323,6 +364,7 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
           ...tbl.order,
           userId: uid,
           status: 'activa',
+          estado: 'activa',
           closed: false,
           productos: tbl.order.items
         }) : null;
@@ -413,6 +455,7 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
       items: cleanItems,
       productos: cleanItems,
       status: 'activa',
+      estado: 'activa',
       closed: false,
       lastUpdatedAt: new Date().toISOString()
     });
@@ -474,6 +517,7 @@ export async function syncTableOrderToFirestore(
       items: cleanItems,
       productos: cleanItems,
       status: 'activa',
+      estado: 'activa',
       closed: false,
       lastUpdatedAt: nowIso
     });
@@ -533,8 +577,8 @@ export async function syncTableOrderToFirestore(
 
     if (order?.id) {
       const orderCancelData = sanitizeForFirestore({
-        status: 'cancelado',
-        estado: 'cerrado',
+        status: 'cancelada',
+        estado: 'cancelada',
         closed: true,
         closedAt: nowIso,
         items: [],
@@ -543,11 +587,17 @@ export async function syncTableOrderToFirestore(
       console.log("Intentando actualizar doc con ID:", order.id, "Datos:", orderCancelData);
       try {
         const orderDocRef = doc(db, 'users', uid, 'pedidos', order.id);
-        await setDoc(orderDocRef, orderCancelData, { merge: true });
-        console.log("Éxito al cancelar comanda vacía en Firebase con ID:", order.id);
+        await updateDoc(orderDocRef, orderCancelData);
+        console.log("Éxito al cancelar comanda vacía con updateDoc en Firebase con ID:", order.id);
       } catch (error) {
-        console.error("ERROR CRÍTICO EN FIREBASE:", error);
-        throw error;
+        console.error("ERROR CRÍTICO EN FIREBASE al hacer updateDoc:", error);
+        try {
+          const orderDocRef = doc(db, 'users', uid, 'pedidos', order.id);
+          await setDoc(orderDocRef, orderCancelData, { merge: true });
+        } catch (setErr) {
+          console.error("ERROR CRÍTICO EN FIREBASE (fallback setDoc):", setErr);
+          throw setErr;
+        }
       }
     }
   }
@@ -646,8 +696,8 @@ export async function releaseTableInFirestore(
     }
 
     const orderClosedData = sanitizeForFirestore({
-      status: 'cobrado',
-      estado: 'cerrado',
+      estado: 'pagada',
+      status: 'pagada',
       closed: true,
       closedAt: nowIso,
       items: [],
@@ -657,11 +707,18 @@ export async function releaseTableInFirestore(
     console.log("Intentando actualizar doc con ID:", orderId, "Datos:", orderClosedData);
     try {
       const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
-      await setDoc(orderRef, orderClosedData, { merge: true });
-      console.log("Éxito al cerrar comanda cobrada en Firebase con ID:", orderId);
+      await updateDoc(orderRef, orderClosedData);
+      console.log("Éxito al cambiar estado a 'pagada' con updateDoc en comanda doc con ID:", orderId);
     } catch (error) {
-      console.error("ERROR CRÍTICO EN FIREBASE:", error);
-      throw error;
+      console.error("ERROR CRÍTICO EN FIREBASE al hacer updateDoc en pedido:", error);
+      try {
+        const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
+        await setDoc(orderRef, orderClosedData, { merge: true });
+        console.log("Éxito al cambiar estado a 'pagada' con setDoc en comanda doc con ID:", orderId);
+      } catch (setErr) {
+        console.error("ERROR CRÍTICO EN FIREBASE (fallback setDoc):", setErr);
+        throw setErr;
+      }
     }
   }
 }

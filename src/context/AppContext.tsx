@@ -239,7 +239,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const matchingOrder = (activeOrders || []).find(o => o.tableId === tbl.id || o.tableName === tbl.name);
         if (matchingOrder && matchingOrder.items && matchingOrder.items.length > 0) {
-          if (!tbl.order || (matchingOrder.lastUpdatedAt && (!tbl.order.lastUpdatedAt || matchingOrder.lastUpdatedAt > tbl.order.lastUpdatedAt))) {
+          const isDifferentOrder = !tbl.order || tbl.order.id !== matchingOrder.id;
+          const isItemCountDifferent = tbl.order && (tbl.order.items?.length !== matchingOrder.items.length);
+          const isTimestampNewer = Boolean(matchingOrder.lastUpdatedAt && (!tbl.order?.lastUpdatedAt || matchingOrder.lastUpdatedAt >= tbl.order.lastUpdatedAt));
+
+          if (isDifferentOrder || isItemCountDifferent || isTimestampNewer) {
             hasChanges = true;
             return {
               ...tbl,
@@ -248,7 +252,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             };
           }
         } else if (!matchingOrder && tbl.order) {
-          // Si la comanda ya no está activa en Firestore (fue cobrada/cancelada en otro dispositivo)
+          // Si la comanda ya no está activa en Firestore (fue cobrada/cancelada)
           hasChanges = true;
           return {
             ...tbl,

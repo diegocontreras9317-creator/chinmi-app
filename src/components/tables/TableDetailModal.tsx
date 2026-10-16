@@ -91,11 +91,14 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     );
     const discPct = Number(order?.discountPercent) || 0;
     const discAmt = sub * (discPct / 100);
-    const base = sub - discAmt;
-    const taxPct = Number(order?.taxPercent ?? config.defaultTaxRate) || 0;
-    const taxAmt = base * (taxPct / 100);
+    const productsTot = sub - discAmt;
+    const taxPct = Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
+    // Matemática con impuesto incluido: Total - (Total / 1.08)
+    const taxAmt = taxPct > 0 ? (productsTot - (productsTot / (1 + (taxPct / 100)))) : 0;
+    const base = productsTot - taxAmt;
     const tip = Number(order?.tipAmount) || 0;
-    const tot = base + taxAmt + tip;
+    // Total a cobrar: exactamente igual a la suma de los productos (menos descuento) más propina
+    const tot = productsTot + tip;
 
     return {
       subtotal: sub,
@@ -253,10 +256,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
 
       const newSubtotal = cleanRemaining.reduce((acc, it) => acc + (it.unitPrice * it.quantity), 0);
       const newDiscount = newSubtotal * ((Number(order?.discountPercent) || 0) / 100);
-      const newTaxable = newSubtotal - newDiscount;
-      const newTax = newTaxable * ((Number(order?.taxPercent ?? config.defaultTaxRate) || 0) / 100);
+      const newProductsTot = newSubtotal - newDiscount;
+      const newTaxPct = Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
+      const newTax = newTaxPct > 0 ? (newProductsTot - (newProductsTot / (1 + (newTaxPct / 100)))) : 0;
       const newTip = Number(order?.tipAmount) || 0;
-      const newTotal = newTaxable + newTax + newTip;
+      const newTotal = newProductsTot + newTip;
 
       const orderPayload = sanitizeForFirestore({
         id: pedidoId,
@@ -828,7 +832,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                   </div>
                 )}
                 <div className="flex justify-between text-[11px]">
-                  <span>Impuesto ({taxPercent}%):</span>
+                  <span>Impuesto ({taxPercent}% inc.):</span>
                   <span className="font-mono">{new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))} {config.currency}</span>
                 </div>
                 {tipAmount > 0 && (

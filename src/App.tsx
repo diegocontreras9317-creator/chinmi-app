@@ -12,6 +12,7 @@ import { SalesHistoryModal } from './components/sales/SalesHistoryModal';
 import { ManagerPinModal } from './components/auth/ManagerPinModal';
 import { CustomerMenuPortal } from './components/customer/CustomerMenuPortal';
 import { WaiterCallToast } from './components/common/WaiterCallToast';
+import { NewOrderToast } from './components/common/NewOrderToast';
 import { ProfileSelectionScreen } from './components/auth/ProfileSelectionScreen';
 import { EmployeeManagementModal } from './components/settings/EmployeeManagementModal';
 
@@ -145,6 +146,9 @@ const MainLayout: React.FC = () => {
 
           {/* Floating Waiter Call & Bill Request Alerts for Staff */}
           <WaiterCallToast onNavigateToTable={() => setActiveTab('tables')} />
+
+          {/* Floating Real-Time New Order Alerts for Staff */}
+          <NewOrderToast onNavigateToTable={() => setActiveTab('tables')} />
 
         </div>
       )}

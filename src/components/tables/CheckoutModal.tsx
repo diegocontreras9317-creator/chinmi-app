@@ -88,11 +88,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   const discountPercent = Number(order?.discountPercent) || 0;
   const discountAmount = subtotal * (discountPercent / 100);
-  const taxableBase = subtotal - discountAmount;
-  const taxPercent = Number(order?.taxPercent ?? config?.defaultTaxRate ?? 0) || 0;
-  const taxAmount = taxableBase * (taxPercent / 100);
+  const productsTotal = subtotal - discountAmount;
+  const taxPercent = Number(order?.taxPercent ?? config?.defaultTaxRate ?? 8) || 8;
+  // Matemática con impuesto incluido (8% impoconsumo/IVA ya dentro de los precios P.V.P):
+  // Extracción legal del impuesto: Impuesto = Total - (Total / 1.08)
+  const taxAmount = taxPercent > 0 ? (productsTotal - (productsTotal / (1 + (taxPercent / 100)))) : 0;
+  const taxableBase = productsTotal - taxAmount;
   const tipAmount = Number(order?.tipAmount) || 0;
-  const total = taxableBase + taxAmount + tipAmount;
+  // Total a cobrar: exactamente igual al consumo de productos (Subtotal) menos descuento más propina
+  const total = Math.round(productsTotal + tipAmount);
 
   const cashNumber = parseFloat(cashTendered) || 0;
   const change = Math.max(0, cashNumber - total);
@@ -277,9 +281,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </p>
             </div>
             <div className="text-right text-xs text-slate-300 space-y-0.5">
-              <p>Base: $ {new Intl.NumberFormat('es-CO').format(Math.round(taxableBase))}</p>
+              <p>Base gravable: $ {new Intl.NumberFormat('es-CO').format(Math.round(taxableBase))}</p>
               {taxAmount > 0 && (
-                <p>Impuesto ({taxPercent}%): $ {new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))}</p>
+                <p>Impoconsumo ({taxPercent}% inc.): $ {new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))}</p>
               )}
               {discountAmount > 0 && (
                 <p className="text-rose-400 font-medium">Descuento ({discountPercent}%): -$ {new Intl.NumberFormat('es-CO').format(Math.round(discountAmount))}</p>

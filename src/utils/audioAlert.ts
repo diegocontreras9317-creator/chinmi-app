@@ -132,3 +132,50 @@ export function playExpiryAlarm(type: 'critical' | 'warning' = 'warning') {
     console.debug('Expiry alarm playback error:', err);
   }
 }
+
+/**
+ * Alarma sonora sutil y elegante para nuevos pedidos/comandas entrantes (Web Audio API).
+ * Genera una secuencia armónica agradable y limpia (F#5 -> A5 -> D6) sin dependencias externas.
+ */
+export function playNewOrderAlert() {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    const ctx = new AudioContextClass();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    const now = ctx.currentTime;
+    // Secuencia ascendente armónica sutil: F#5 (739.99 Hz) -> A5 (880 Hz) -> D6 (1174.66 Hz)
+    const tones = [
+      { freq: 739.99, time: 0, dur: 0.22, gain: 0.18 },
+      { freq: 880.00, time: 0.10, dur: 0.32, gain: 0.22 },
+      { freq: 1174.66, time: 0.20, dur: 0.50, gain: 0.24 }
+    ];
+
+    tones.forEach(({ freq, time, dur, gain: targetGain }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + time);
+
+      gain.gain.setValueAtTime(0, now + time);
+      gain.gain.linearRampToValueAtTime(targetGain, now + time + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + time + dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now + time);
+      osc.stop(now + time + dur + 0.05);
+    });
+  } catch (err) {
+    console.debug('New order alert playback error:', err);
+  }
+}
+

@@ -23,9 +23,23 @@ import {
 } from '../services/firestoreUserStorage';
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
-import { playServiceBell } from '../utils/audioAlert';
+import { playServiceBell, playNewOrderAlert } from '../utils/audioAlert';
+
+export interface NewOrderNotification {
+  id: string;
+  orderId: string;
+  tableId: string;
+  tableName: string;
+  itemsCount: number;
+  total: number;
+  customerName?: string;
+  itemsSummary: string;
+  timestamp: string;
+}
 
 interface AppContextType {
+  newOrderNotification: NewOrderNotification | null;
+  dismissNewOrderNotification: () => void;
   config: AppConfig;
   updateConfig: (partial: Partial<AppConfig>) => void;
   tables: Table[];
@@ -132,6 +146,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return null;
   });
   const [latestReceipt, setLatestReceipt] = useState<SaleReceipt | null>(null);
+  const [newOrderNotification, setNewOrderNotification] = useState<NewOrderNotification | null>(null);
+  const dismissNewOrderNotification = useCallback(() => {
+    setNewOrderNotification(null);
+  }, []);
 
   // Sync Theme with HTML element and body
   useEffect(() => {
@@ -174,6 +192,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const prevWaiterCallsRef = React.useRef<Record<string, string>>({});
   // Ref para tracking de mutaciones locales optimistas recientes y evitar rebotes de onSnapshot
   const lastLocalTableMutations = React.useRef<Record<string, number>>({});
+  // Tracking de órdenes conocidas para detectar pedidos entrantes de clientes en tiempo real
+  const knownOrdersMapRef = React.useRef<Map<string, { itemsCount: number; lastUpdated?: string }>>(new Map());
+  const isInitialOrdersLoadRef = React.useRef(true);
 
   // Real-time Firestore Subscriptions for authenticated UID
   useEffect(() => {
@@ -231,6 +252,70 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const now = Date.now();
       const currentTables = tablesRef.current;
       let hasChanges = false;
+
+      // Detección de nuevos pedidos/comandas entrantes (desde QR de clientes u otros terminales)
+      if (isInitialOrdersLoadRef.current) {
+        (activeOrders || []).forEach(o => {
+          if (o && o.id) {
+            knownOrdersMapRef.current.set(o.id, {
+              itemsCount: Array.isArray(o.items) ? o.items.length : 0,
+              lastUpdated: o.lastUpdatedAt
+            });
+          }
+        });
+        isInitialOrdersLoadRef.current = false;
+      } else {
+        for (const o of activeOrders || []) {
+          if (!o || !o.id) continue;
+          const prev = knownOrdersMapRef.current.get(o.id);
+          const currentCount = Array.isArray(o.items) ? o.items.length : 0;
+          const isBrandNew = !prev;
+          const hasMoreItems = prev && currentCount > prev.itemsCount;
+
+          if ((isBrandNew || hasMoreItems) && currentCount > 0) {
+            // Verificar si fue una mutación realizada localmente en este mismo terminal hace menos de 2000ms
+            const isLocal = lastLocalTableMutations.current[o.tableId] && (now - lastLocalTableMutations.current[o.tableId] < 2000);
+            if (!isLocal) {
+              // Calcular total del pedido con precios P.V.P (impuesto incluido)
+              const orderTotal = (o.items || []).reduce((acc: number, it: any) => {
+                const p = Number(it?.unitPrice ?? it?.price ?? 0) || 0;
+                const q = Number(it?.quantity ?? it?.cantidad ?? 0) || 0;
+                return acc + p * q;
+              }, 0);
+
+              const summary = (o.items || []).slice(0, 3).map((it: any) => `${it.quantity || 1}x ${it.name || 'Producto'}`).join(', ');
+
+              const notification: NewOrderNotification = {
+                id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                orderId: o.id,
+                tableId: o.tableId,
+                tableName: o.tableName || 'Mesa',
+                itemsCount: currentCount,
+                total: Math.round(orderTotal),
+                customerName: (o as any).nombreCliente || (o as any).customerName || undefined,
+                itemsSummary: summary + (currentCount > 3 ? ` (+${currentCount - 3} más)` : ''),
+                timestamp: new Date().toISOString()
+              };
+
+              setNewOrderNotification(notification);
+              playNewOrderAlert();
+              break;
+            }
+          }
+        }
+
+        // Actualizar el mapa de órdenes conocidas
+        knownOrdersMapRef.current.clear();
+        (activeOrders || []).forEach(o => {
+          if (o && o.id) {
+            knownOrdersMapRef.current.set(o.id, {
+              itemsCount: Array.isArray(o.items) ? o.items.length : 0,
+              lastUpdated: o.lastUpdatedAt
+            });
+          }
+        });
+      }
+
       const mergedTables = currentTables.map(tbl => {
         const lastMutationTime = lastLocalTableMutations.current[tbl.id];
         if (lastMutationTime && now - lastMutationTime < 1500) {
@@ -705,11 +790,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 0);
     const discountPercent = Number(order.discountPercent) || 0;
     const discountAmount = subtotal * (discountPercent / 100);
-    const taxableBase = subtotal - discountAmount;
-    const taxPercent = Number(order.taxPercent ?? config.defaultTaxRate) || 0;
-    const taxAmount = taxableBase * (taxPercent / 100);
+    const productsTotal = subtotal - discountAmount;
+    const taxPercent = Number(order.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
+    // Matemática con impuesto incluido (8% impoconsumo/IVA ya dentro de los precios P.V.P):
+    // Fórmula legal de extracción: Impuesto = Total - (Total / 1.08)
+    const taxAmount = taxPercent > 0 ? (productsTotal - (productsTotal / (1 + (taxPercent / 100)))) : 0;
     const tipAmount = Number(order.tipAmount) || 0;
-    const total = taxableBase + taxAmount + tipAmount;
+    // Total a cobrar: exactamente igual a la suma de los productos (Subtotal) menos descuento más propina
+    const total = productsTotal + tipAmount;
 
     let change: number | undefined = undefined;
     if (paymentMethod === 'efectivo' && cashTendered !== undefined) {
@@ -723,7 +811,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       items: [...order.items],
       subtotal: Math.round(subtotal),
       taxAmount: Math.round(taxAmount),
-      taxPercent: order.taxPercent,
+      taxPercent: taxPercent,
       discountAmount: Math.round(discountAmount),
       discountPercent: order.discountPercent,
       tipAmount: Math.round(order.tipAmount),
@@ -1018,6 +1106,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         recordPerishableRestock,
         latestReceipt,
         setLatestReceipt,
+        newOrderNotification,
+        dismissNewOrderNotification,
         canAddTable,
         canAddProduct,
         syncNow,

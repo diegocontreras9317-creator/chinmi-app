@@ -116,8 +116,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             )}
 
             <div className="flex justify-between text-slate-600">
-              <span>Impoconsumo / IVA ({receipt.taxPercent}%):</span>
+              <span>Impoconsumo / IVA ({receipt.taxPercent}% inc.):</span>
               <span>$ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.taxAmount))} COP</span>
+            </div>
+
+            <div className="flex justify-between text-slate-500 text-[10px]">
+              <span>Base gravable estimada:</span>
+              <span>$ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.subtotal - receipt.discountAmount - receipt.taxAmount))} COP</span>
             </div>
 
             {receipt.tipAmount > 0 && (
@@ -128,7 +133,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             )}
 
             <div className="pt-2 border-t border-slate-400 flex justify-between text-base font-extrabold text-slate-950">
-              <span>TOTAL:</span>
+              <span>TOTAL A COBRAR:</span>
               <span>$ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.total))} COP</span>
             </div>
           </div>

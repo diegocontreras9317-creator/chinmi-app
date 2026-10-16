@@ -147,8 +147,7 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
     const items = t.order?.items || (t.order as any)?.productos || [];
     const sub = (items || []).reduce((s: number, it: any) => s + (Number(it?.unitPrice ?? it?.price ?? 0) || 0) * (Number(it?.quantity ?? it?.cantidad ?? 0) || 0), 0);
     const disc = sub * ((Number(t.order?.discountPercent) || 0) / 100);
-    const tax = (sub - disc) * ((Number(t.order?.taxPercent) || 0) / 100);
-    return acc + (sub - disc + tax + (Number(t.order?.tipAmount) || 0));
+    return acc + (sub - disc + (Number(t.order?.tipAmount) || 0));
   }, 0);
 
   const occupancyRate = totalTables > 0 ? Math.round(((occupiedCount + billingCount) / totalTables) * 100) : 0;
@@ -508,8 +507,7 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
             // Calculate active total
             const sub = (items || []).reduce((s: number, it: any) => s + (Number(it?.unitPrice ?? it?.price ?? 0) || 0) * (Number(it?.quantity ?? it?.cantidad ?? 0) || 0), 0);
             const disc = sub * ((Number(table.order?.discountPercent) || 0) / 100);
-            const tax = (sub - disc) * ((Number(table.order?.taxPercent ?? config.defaultTaxRate) || 0) / 100);
-            const tableTotal = sub - disc + tax + (Number(table.order?.tipAmount) || 0);
+            const tableTotal = sub - disc + (Number(table.order?.tipAmount) || 0);
 
             // Styling per status
             const statusConfig = {

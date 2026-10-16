@@ -151,7 +151,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
    */
   const getTaxInclusivePrice = (basePrice: number): number => {
     if (isNaN(basePrice) || basePrice <= 0) return 0;
-    return Math.round(basePrice * (1 + taxRate / 100));
+    // Los precios P.V.P ya tienen el impuesto incluido
+    return basePrice;
   };
 
   // Filter products
@@ -164,22 +165,20 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     });
   }, [activeProducts, selectedCategory, searchQuery]);
 
-  // Cart totals (Base, Impuestos y Total Final con impuestos incluidos)
+  // Cart totals (Precios P.V.P con impuesto incluido: Total a cobrar = Subtotal)
   const cartItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const cartBaseSubtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const cartTaxAmount = Math.round(cartBaseSubtotal * (taxRate / 100));
-  const cartTaxInclusiveTotal = cart.reduce(
-    (acc, item) => acc + getTaxInclusivePrice(item.product.price) * item.quantity,
-    0
-  );
+  const cartTaxInclusiveTotal = cartBaseSubtotal; // Total exactamente igual a la suma de los productos
+  // Fórmula legal de extracción: Impuesto = Total - (Total / 1.08)
+  const cartTaxAmount = taxRate > 0 ? Math.round(cartTaxInclusiveTotal - (cartTaxInclusiveTotal / (1 + taxRate / 100))) : 0;
 
-  // Existing table order totals (items ya pedidos en comanda con impuestos incluidos)
+  // Existing table order totals (Precios P.V.P con impuesto incluido)
   const existingOrder = table?.order;
   const existingItemsCount = existingOrder?.items.reduce((acc, it) => acc + it.quantity, 0) || 0;
   const existingBaseSubtotal = existingOrder?.items.reduce((acc, it) => acc + it.unitPrice * it.quantity, 0) || 0;
   const existingOrderTaxRate = Number(existingOrder?.taxPercent ?? taxRate) || taxRate;
-  const existingTaxAmount = Math.round(existingBaseSubtotal * (existingOrderTaxRate / 100));
-  const existingTaxInclusiveTotal = Math.round(existingBaseSubtotal + existingTaxAmount);
+  const existingTaxInclusiveTotal = existingBaseSubtotal; // Total acumulado sin sumar impuesto al final
+  const existingTaxAmount = existingOrderTaxRate > 0 ? Math.round(existingTaxInclusiveTotal - (existingTaxInclusiveTotal / (1 + existingOrderTaxRate / 100))) : 0;
 
   // Add product to cart
   const handleAddToCart = (product: Product, notes?: string) => {
@@ -830,7 +829,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     Consumo Acumulado en Mesa {table.number}
                   </h4>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    Base: {formatCOP(existingBaseSubtotal)} · Impuesto ({existingOrderTaxRate}%): {formatCOP(existingTaxAmount)}
+                    Base gravable: {formatCOP(existingTaxInclusiveTotal - existingTaxAmount)} · Impuesto ({existingOrderTaxRate}% inc.): {formatCOP(existingTaxAmount)}
                   </p>
                 </div>
               </div>
@@ -1063,7 +1062,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  Incluye consumo base ({formatCOP(existingBaseSubtotal)}) e Impoconsumo/IVA ({existingOrderTaxRate}%: {formatCOP(existingTaxAmount)})
+                  Incluye base gravable ({formatCOP(existingTaxInclusiveTotal - existingTaxAmount)}) e Impoconsumo/IVA ({existingOrderTaxRate}% inc.: {formatCOP(existingTaxAmount)})
                 </p>
               </div>
             ) : (
@@ -1262,8 +1261,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                  <span>Base consumo: {formatCOP(cartBaseSubtotal)}</span>
-                  <span>Impoconsumo/IVA ({taxRate}%): {formatCOP(cartTaxAmount)}</span>
+                  <span>Base gravable: {formatCOP(cartTaxInclusiveTotal - cartTaxAmount)}</span>
+                  <span>Impoconsumo/IVA ({taxRate}% inc.): {formatCOP(cartTaxAmount)}</span>
                 </div>
               </div>
 

@@ -729,7 +729,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
                         <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
                           <span className="font-mono font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
-                            {formatCOP(getTaxInclusivePrice(product.price))}
+                            {formatCOP(product.price)}
                           </span>
                           <span className="text-[10px] text-slate-400 font-semibold">
                             (Imp. incl.)
@@ -845,7 +845,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
               {existingOrder?.items.map((it) => {
-                const itemInclusiveUnitPrice = Math.round(it.unitPrice * (1 + existingOrderTaxRate / 100));
+                const itemUnitPrice = Number(it.unitPrice) || 0;
                 return (
                   <div key={it.id} className="py-2 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -864,7 +864,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       </div>
                     </div>
                     <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                      {formatCOP(itemInclusiveUnitPrice * it.quantity)}
+                      {formatCOP(itemUnitPrice * it.quantity)}
                     </span>
                   </div>
                 );
@@ -1209,7 +1209,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                         {item.product.name}
                       </h5>
                       <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                        {formatCOP(getTaxInclusivePrice(item.product.price))} c/u (Imp. incl.)
+                        {formatCOP(item.product.price)} c/u (Imp. incl.)
                       </span>
                       {item.notes && (
                         <p className="text-[10px] text-stone-500 dark:text-stone-400 italic truncate">
@@ -1368,12 +1368,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 block">
                     Precio unitario (Imp. incl.)
                   </span>
-                  <span className="text-[10px] text-slate-400 block">
-                    Base: {formatCOP(selectedProductForDetail.price)} + Imp. ({taxRate}%): {formatCOP(getTaxInclusivePrice(selectedProductForDetail.price) - selectedProductForDetail.price)}
-                  </span>
                 </div>
                 <span className="font-mono font-black text-xl text-stone-900 dark:text-stone-100">
-                  {formatCOP(getTaxInclusivePrice(selectedProductForDetail.price))}
+                  {formatCOP(selectedProductForDetail.price)}
                 </span>
               </div>
 
@@ -1467,7 +1464,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 >
                   <Plus className="w-4 h-4" />
                   <span>
-                    Añadir al pedido · {formatCOP(getTaxInclusivePrice(selectedProductForDetail.price) * detailQuantity)}
+                    Añadir al pedido · {formatCOP(selectedProductForDetail.price * detailQuantity)}
                   </span>
                 </button>
               )}

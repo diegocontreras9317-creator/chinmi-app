@@ -1,6 +1,6 @@
 import React from 'react';
 import { PLAN_DIFFERENCES } from '../../config/pricingPlans';
-import { Check, X, Sparkles, Shield, AlertCircle } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface PlanComparisonTableProps {
   compact?: boolean;
@@ -8,98 +8,65 @@ interface PlanComparisonTableProps {
 
 export const PlanComparisonTable: React.FC<PlanComparisonTableProps> = ({ compact = false }) => {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-rose-900 dark:text-rose-400" />
-            <span>¿Cuál es la diferencia entre el Plan Gratis y el Plan PRO?</span>
-          </h4>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            El Plan Gratis te permite probar el sistema sin costo con límites; el Plan PRO elimina todas las restricciones.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-3">
+      <h4 className="text-sm font-semibold text-slate-900 dark:text-white">
+        Comparativa de planes
+      </h4>
 
-      {/* Responsive Table */}
-      <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
-        <table className="w-full text-left border-collapse text-xs">
+      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <table className="w-full text-left border-collapse text-xs sm:text-sm">
           <thead>
-            <tr className="border-b border-slate-200 dark:border-slate-800 bg-stone-50 dark:bg-slate-850">
-              <th className="py-3 px-3.5 sm:px-4 font-bold text-slate-700 dark:text-slate-300 w-2/5">
-                Característica
+            <tr className="border-b border-slate-200 dark:border-slate-800 bg-stone-50 dark:bg-slate-900">
+              <th className="py-3 px-4 font-semibold text-slate-800 dark:text-slate-200 w-2/5">
+                Capacidad
               </th>
-              <th className="py-3 px-3 sm:px-4 font-bold text-slate-600 dark:text-slate-400 w-[30%]">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-xs bg-slate-400" />
-                  <span>Plan Gratis ($0)</span>
-                </div>
+              <th className="py-3 px-4 font-semibold text-slate-600 dark:text-slate-400 w-[30%] tabular-nums">
+                Inicial ($0)
               </th>
-              <th className="py-3 px-3 sm:px-4 font-bold text-rose-900 dark:text-rose-400 w-[30%] bg-stone-100/60 dark:bg-stone-900/40">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
-                  <span>Plan PRO ($89.000)</span>
-                </div>
+              <th className="py-3 px-4 font-semibold text-rose-900 dark:text-rose-400 w-[30%] bg-stone-100/60 dark:bg-slate-800/50 tabular-nums">
+                PRO ($89.000/mes)
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+          <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
             {PLAN_DIFFERENCES.map((item, idx) => (
-              <tr 
+              <tr
                 key={idx}
-                className={`transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 ${
-                  item.highlight ? 'bg-amber-50/20 dark:bg-amber-950/10' : ''
-                }`}
+                className="transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/30"
               >
-                <td className="py-2.5 px-3.5 sm:px-4">
+                <td className="py-2.5 px-4">
                   <span className="font-semibold text-slate-900 dark:text-white block">
                     {item.feature}
                   </span>
                   {!compact && (
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 block">
                       {item.category}
                     </span>
                   )}
                 </td>
-                
-                {/* Gratis */}
-                <td className="py-2.5 px-3 sm:px-4 text-slate-600 dark:text-slate-400 align-middle">
-                  <div className="flex items-start gap-1.5">
-                    {item.freeText.includes('No disponible') || item.freeText.includes('Hasta') ? (
-                      <span className="text-slate-400 dark:text-slate-500 font-bold shrink-0 mt-0.5">•</span>
-                    ) : (
-                      <Check className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                    )}
-                    <span className={item.freeText.includes('No disponible') ? 'text-slate-400 dark:text-slate-500 line-through' : ''}>
-                      {item.freeText}
-                    </span>
-                  </div>
+
+                <td className="py-2.5 px-4 text-slate-600 dark:text-slate-400 align-middle">
+                  <span
+                    className={
+                      item.freeText.includes('No disponible')
+                        ? 'text-slate-400 dark:text-slate-500'
+                        : ''
+                    }
+                  >
+                    {item.freeText}
+                  </span>
                 </td>
 
-                {/* Pro */}
-                <td className="py-2.5 px-3 sm:px-4 bg-stone-50/60 dark:bg-stone-900/30 font-semibold text-slate-900 dark:text-white align-middle">
-                  <div className="flex items-start gap-1.5">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <span className={item.highlight ? 'text-rose-900 dark:text-rose-300 font-bold' : ''}>
-                      {item.proText}
-                    </span>
+                <td className="py-2.5 px-4 bg-stone-50/50 dark:bg-slate-800/20 font-medium text-slate-900 dark:text-slate-100 align-middle">
+                  <div className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    <span>{item.proText}</span>
                   </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-
-      {/* Highlight Box */}
-      <div className="p-3 sm:p-3.5 rounded-md bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800 flex items-start gap-2.5 text-xs text-stone-900 dark:text-stone-200">
-        <AlertCircle className="w-4 h-4 text-stone-600 dark:text-stone-400 shrink-0 mt-0.5" />
-        <div>
-          <p className="font-bold">¿Cuándo conviene dar el salto a PRO?</p>
-          <p className="text-[11px] text-stone-600 dark:text-stone-400 mt-0.5">
-            Si tu negocio tiene más de 6 mesas, más de 15 productos, o necesitas controlar mermas e insumos perecederos en cocina y sincronizar varias pantallas a la vez, el Plan PRO te da toda la libertad sin límites.
-          </p>
-        </div>
       </div>
     </div>
   );

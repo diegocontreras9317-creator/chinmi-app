@@ -2,15 +2,34 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const disableHmrWebSocketPlugin = (): Plugin => ({
+  name: 'disable-hmr-websocket',
+  apply: 'serve',
+  enforce: 'post',
+  transform(code, id) {
+    if (id.includes('vite/dist/client/client.mjs')) {
+      return {
+        code: code.replace(
+          'const createWebSocketModuleRunnerTransport = (options) => {',
+          'const createWebSocketModuleRunnerTransport = (options) => { return { async connect() {}, disconnect() {}, send() {} };'
+        ),
+        map: null,
+      };
+    }
+    return null;
+  },
+});
+
 export default defineConfig(() => {
   return {
     plugins: [
+      disableHmrWebSocketPlugin(),
       react(),
       tailwindcss(),
       VitePWA({
@@ -72,6 +91,7 @@ export default defineConfig(() => {
           ]
         },
         workbox: {
+          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}']
         },
         devOptions: {
@@ -90,6 +110,8 @@ export default defineConfig(() => {
     },
     server: {
       hmr: false,
+      ws: false as const,
+      forwardConsole: false,
       watch: null
     }
   };

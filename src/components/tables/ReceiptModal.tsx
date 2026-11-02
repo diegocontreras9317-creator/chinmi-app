@@ -141,7 +141,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           {/* Payment info */}
           <div className="py-2.5 border-b border-dashed border-slate-300 space-y-0.5 text-[11px]">
             <div className="flex justify-between">
-              <span className="capitalize">Forma de pago: {receipt.paymentMethod}</span>
+              <span className="capitalize">
+                Forma de pago: {receipt.paymentMethod === 'bizum' ? 'Transferencia / QR' : receipt.paymentMethod}
+              </span>
               <span className="font-bold">$ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.total))} COP</span>
             </div>
             {receipt.paymentMethod === 'efectivo' && receipt.cashTendered && (

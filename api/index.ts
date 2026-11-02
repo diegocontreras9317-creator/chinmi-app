@@ -17,19 +17,10 @@ app.use((req, res, next) => {
   next();
 });
 
-const WOMPI_PUBLIC_KEY = process.env.WOMPI_PUBLIC_KEY || 'pub_test_Q5y1A13a48e718105740360a8274640d';
-const WOMPI_INTEGRITY_SECRET = process.env.WOMPI_INTEGRITY_SECRET || 'test_integrity_SecretKeySample';
-const WOMPI_EVENTS_SECRET = process.env.WOMPI_EVENTS_SECRET || 'test_events_SecretKeySample';
+const EPAYCO_P_CUST_ID_CLIENTE = process.env.EPAYCO_P_CUST_ID_CLIENTE || '';
+const EPAYCO_P_KEY = process.env.EPAYCO_P_KEY || '';
 
-const transactionStore: Record<string, {
-  id: string;
-  reference: string;
-  status: 'APPROVED' | 'DECLINED' | 'VOIDED' | 'PENDING' | 'ERROR';
-  amountInCents: number;
-  currency: string;
-  paymentMethodType?: string;
-  updatedAt: string;
-}> = {};
+const epaycoTransactionStore: Record<string, any> = {};
 
 import fs from 'fs';
 
@@ -90,155 +81,104 @@ app.post('/api/sync/state', (req: Request, res: Response) => {
 });
 
 // =========================================================================
-// 2. WOMPI PASARELA DE PAGOS (FIRMA, WEBHOOK Y CONSULTAS)
+// 2. EPAYCO PASARELA DE PAGOS (WEBHOOK DE CONFIRMACIÓN Y VALIDACIÓN)
 // =========================================================================
 
-// a) Generar firma de integridad Wompi
-app.post('/api/wompi/signature', (req: Request, res: Response) => {
+app.all('/api/epayco/confirmation', (req: Request, res: Response) => {
   try {
-    const { reference, amountInCents, currency = 'COP' } = req.body;
+    const payload = { ...(req.query || {}), ...(req.body || {}) };
+    const {
+      x_ref_payco = '',
+      x_transaction_id = '',
+      x_amount = '0',
+      x_currency_code = 'COP',
+      x_signature = '',
+      x_cod_response,
+      x_response = '',
+      x_response_reason_text = '',
+      x_id_invoice = '',
+      x_description = '',
+      x_tax = '0',
+      x_tax_ico = '0',
+      x_tax_base = '0',
+      x_extra1 = '',
+      x_extra2 = '',
+      x_extra3 = ''
+    } = payload;
 
-    if (!reference || amountInCents === undefined) {
-      return res.status(400).json({ error: 'Se requieren "reference" y "amountInCents"' });
+    if (!x_id_invoice && !x_ref_payco) {
+      return res.status(400).json({ error: 'Payload de confirmación de ePayco incompleto' });
     }
 
-    const parsedAmount = Math.round(Number(amountInCents));
-    const rawString = `${reference}${parsedAmount}${currency}${WOMPI_INTEGRITY_SECRET}`;
-    const signature = crypto.createHash('sha256').update(rawString, 'utf8').digest('hex');
+    if (EPAYCO_P_CUST_ID_CLIENTE && EPAYCO_P_KEY && x_signature) {
+      const rawSignature = `${EPAYCO_P_CUST_ID_CLIENTE}^${EPAYCO_P_KEY}^${x_ref_payco}^${x_transaction_id}^${x_amount}^${x_currency_code}`;
+      const expectedSignature = crypto
+        .createHash('sha256')
+        .update(rawSignature, 'utf8')
+        .digest('hex');
 
-    return res.json({
-      signature,
-      reference,
-      amountInCents: parsedAmount,
-      currency,
-      publicKey: WOMPI_PUBLIC_KEY,
-      testMode: WOMPI_PUBLIC_KEY.startsWith('pub_test_')
-    });
-  } catch (error) {
-    return res.status(500).json({ error: 'Error generando firma Wompi' });
-  }
-});
-
-// b) Webhook Wompi
-app.post('/api/wompi-webhook', (req: Request, res: Response) => {
-  try {
-    const eventBody = req.body;
-    if (!eventBody || !eventBody.data || !eventBody.data.transaction) {
-      return res.status(400).json({ error: 'Estructura de evento Wompi inválida' });
-    }
-
-    const { transaction } = eventBody.data;
-    const { signature, timestamp } = eventBody;
-
-    if (signature && signature.properties && signature.checksum) {
-      const properties: string[] = signature.properties;
-      let concatenatedValues = '';
-
-      for (const prop of properties) {
-        const pathParts = prop.split('.');
-        let val: any = eventBody.data;
-        for (const part of pathParts) {
-          if (val) val = val[part];
-        }
-        concatenatedValues += val !== undefined && val !== null ? val : '';
-      }
-
-      concatenatedValues += `${timestamp}${WOMPI_EVENTS_SECRET}`;
-
-      const calculatedChecksum = crypto.createHash('sha256').update(concatenatedValues, 'utf8').digest('hex');
-
-      if (calculatedChecksum.toLowerCase() !== signature.checksum.toLowerCase()) {
-        return res.status(400).json({ error: 'Checksum de seguridad no coincide' });
+      if (expectedSignature.toLowerCase() !== String(x_signature).toLowerCase()) {
+        return res.status(400).json({ error: 'Firma de seguridad x_signature inválida' });
       }
     }
 
-    const reference = transaction.reference;
-    const status = transaction.status;
-
-    transactionStore[reference] = {
-      id: transaction.id || `trans_${Date.now()}`,
-      reference: reference,
-      status: status,
-      amountInCents: transaction.amount_in_cents || 0,
-      currency: transaction.currency || 'COP',
-      paymentMethodType: transaction.payment_method_type,
+    const codResponse = Number(x_cod_response);
+    const record = {
+      x_ref_payco: String(x_ref_payco),
+      x_id_invoice: String(x_id_invoice),
+      x_description: String(x_description),
+      x_amount: String(x_amount),
+      x_tax: String(x_tax),
+      x_tax_ico: String(x_tax_ico),
+      x_tax_base: String(x_tax_base),
+      x_currency_code: String(x_currency_code),
+      x_cod_response: codResponse,
+      x_response: String(x_response),
+      x_response_reason_text: String(x_response_reason_text),
+      x_transaction_id: String(x_transaction_id),
+      x_extra1: String(x_extra1),
+      x_extra2: String(x_extra2),
+      x_extra3: String(x_extra3),
       updatedAt: new Date().toISOString()
     };
 
+    if (x_id_invoice) {
+      epaycoTransactionStore[String(x_id_invoice)] = record;
+    }
+    if (x_ref_payco) {
+      epaycoTransactionStore[String(x_ref_payco)] = record;
+    }
+
     return res.status(200).json({
-      status: 'success',
-      message: 'Evento webhook procesado correctamente',
-      reference,
-      transactionStatus: status
+      success: true,
+      invoice: x_id_invoice,
+      cod_response: codResponse
     });
   } catch (error) {
-    return res.status(500).json({ error: 'Error procesando webhook de Wompi' });
+    return res.status(500).json({ error: 'Error procesando webhook de ePayco' });
   }
 });
 
-// c) Consulta de estado de transacción Wompi
-app.get('/api/wompi/transaction-status/:idOrRef', async (req: Request, res: Response) => {
-  const { idOrRef } = req.params;
-
-  let record = Object.values(transactionStore).find(
-    t => t.id === idOrRef || t.reference === idOrRef
-  );
-
-  if (record) {
-    return res.json(record);
+app.get('/api/epayco/status/:invoiceOrRef', (req: Request, res: Response) => {
+  const { invoiceOrRef } = req.params;
+  const tx = epaycoTransactionStore[invoiceOrRef];
+  if (tx) {
+    return res.json({ found: true, transaction: tx });
   }
+  return res.status(404).json({ found: false });
+});
 
+app.get('/api/epayco/validate/:refPayco', async (req: Request, res: Response) => {
+  const { refPayco } = req.params;
   try {
-    const wompiRes = await fetch(`https://sandbox.wompi.co/v1/transactions/${idOrRef}`);
-    if (wompiRes.ok) {
-      const wompiData: any = await wompiRes.json();
-      const tx = wompiData?.data;
-      if (tx) {
-        return res.json({
-          id: tx.id,
-          reference: tx.reference,
-          status: tx.status,
-          amountInCents: tx.amount_in_cents,
-          currency: tx.currency,
-          paymentMethodType: tx.payment_method_type,
-          updatedAt: tx.created_at
-        });
-      }
-    }
+    const epaycoRes = await fetch(
+      `https://secure.epayco.co/validation/v1/reference/${encodeURIComponent(refPayco)}`
+    );
+    const data = await epaycoRes.json();
+    return res.status(epaycoRes.status).json(data);
   } catch (err) {
-    // ignore
+    return res.status(502).json({ success: false, error: 'Error validando referencia con ePayco' });
   }
-
-  return res.status(404).json({
-    status: 'PENDING',
-    reference: idOrRef,
-    message: 'Transacción no encontrada o pendiente'
-  });
-});
-
-// d) Simulación de aprobación Wompi
-app.post('/api/wompi/simulate-approval', (req: Request, res: Response) => {
-  const { reference, transactionId } = req.body;
-  if (!reference) {
-    return res.status(400).json({ error: 'Se requiere "reference"' });
-  }
-
-  const txId = transactionId || `wompi_sim_${Date.now()}`;
-  transactionStore[reference] = {
-    id: txId,
-    reference,
-    status: 'APPROVED',
-    amountInCents: 85440000,
-    currency: 'COP',
-    paymentMethodType: 'NEQUI',
-    updatedAt: new Date().toISOString()
-  };
-
-  return res.json({
-    success: true,
-    message: 'Aprobación de transacción simulada con éxito',
-    transaction: transactionStore[reference]
-  });
 });
 
 export default app;

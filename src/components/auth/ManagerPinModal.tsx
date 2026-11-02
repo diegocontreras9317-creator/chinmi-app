@@ -194,20 +194,6 @@ export const ManagerPinModal: React.FC = () => {
               </div>
             </div>
 
-            {/* Helpful Demo Hint */}
-            <div className="p-2.5 rounded-md bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
-              <span>
-                💡 Clave de fábrica por defecto: <strong className="font-mono text-rose-900 dark:text-rose-300 font-bold">{managerPin}</strong>
-              </span>
-              <button
-                type="button"
-                onClick={() => setPin(managerPin)}
-                className="text-[10px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer ml-1 shrink-0"
-              >
-                Autocompletar
-              </button>
-            </div>
-
             {/* Actions */}
             <div className="pt-2 flex items-center gap-2">
               <button

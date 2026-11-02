@@ -33,9 +33,24 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const { config, checkoutTable } = useApp();
   const { user } = useAuth();
 
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tarjeta');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo');
   const [cashTendered, setCashTendered] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (isOpen && table?.order) {
+      const ord = table.order;
+      const ordItems = ord.items || (ord as any)?.productos || [];
+      const sub = (ordItems || []).reduce((acc: number, item: any) => {
+        const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
+        const qty = Number(item?.quantity ?? item?.cantidad ?? 0) || 0;
+        return acc + price * qty;
+      }, 0);
+      const disc = sub * ((Number(ord.discountPercent) || 0) / 100);
+      const tip = Number(ord.tipAmount) || 0;
+      setCashTendered(Math.round(sub - disc + tip).toString());
+    }
+  }, [isOpen, table?.id, table?.order?.id]);
 
   if (!isOpen) return null;
 
@@ -229,7 +244,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     onClose();
   };
 
-  const handleConfirm = cobrarMesa;
+  const handleConfirm = async () => {
+    await cobrarMesa();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
@@ -334,26 +351,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             <div className="grid grid-cols-3 gap-2.5">
               <button
                 type="button"
-                id="pay-method-card"
-                onClick={() => setPaymentMethod('tarjeta')}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition ${
-                  paymentMethod === 'tarjeta'
-                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 font-bold shadow-xs'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                }`}
-              >
-                <CreditCard className="w-5 h-5 mb-1.5" />
-                <span className="text-xs">Tarjeta / Datafono</span>
-              </button>
-
-              <button
-                type="button"
                 id="pay-method-cash"
                 onClick={() => {
                   setPaymentMethod('efectivo');
                   if (!cashTendered) setCashTendered(Math.round(total).toString());
                 }}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition ${
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer ${
                   paymentMethod === 'efectivo'
                     ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 font-bold shadow-xs'
                     : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:border-slate-300'
@@ -361,20 +364,41 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               >
                 <Banknote className="w-5 h-5 mb-1.5" />
                 <span className="text-xs">Efectivo</span>
+                <span className="text-[10px] opacity-75 font-normal">Caja registradora</span>
               </button>
 
               <button
                 type="button"
-                id="pay-method-bizum"
-                onClick={() => setPaymentMethod('bizum')}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition ${
+                id="pay-method-card"
+                onClick={() => {
+                  setPaymentMethod('tarjeta');
+                }}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer ${
+                  paymentMethod === 'tarjeta'
+                    ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 font-bold shadow-xs'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                }`}
+              >
+                <CreditCard className="w-5 h-5 mb-1.5" />
+                <span className="text-xs">Tarjeta / Datáfono</span>
+                <span className="text-[10px] opacity-75 font-normal">Débito o crédito</span>
+              </button>
+
+              <button
+                type="button"
+                id="pay-method-transfer"
+                onClick={() => {
+                  setPaymentMethod('bizum');
+                }}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer ${
                   paymentMethod === 'bizum'
                     ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 font-bold shadow-xs'
                     : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:border-slate-300'
                 }`}
               >
                 <Smartphone className="w-5 h-5 mb-1.5" />
-                <span className="text-xs">Nequi / Daviplata</span>
+                <span className="text-xs">Transferencia / QR</span>
+                <span className="text-[10px] opacity-75 font-normal">Nequi / Daviplata</span>
               </button>
             </div>
           </div>
@@ -438,7 +462,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           {/* Automatic Inventory Notice */}
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/40 p-2.5 rounded-xl">
             <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-            <span>Al confirmar el cobro, el stock del inventario se actualizará automáticamente y la mesa quedará Libre.</span>
+            <span>
+              Al confirmar el cobro, el stock del inventario se actualizará automáticamente y la mesa quedará Libre.
+            </span>
           </div>
 
           {/* Actions */}

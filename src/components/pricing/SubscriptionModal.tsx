@@ -15,7 +15,7 @@ import {
   TrendingDown
 } from 'lucide-react';
 import { PlanComparisonTable } from './PlanComparisonTable';
-import { WompiPaymentWidget } from './WompiPaymentWidget';
+import { EpaycoPaymentWidget } from './EpaycoPaymentWidget';
 import { CanjearCodigo } from './CanjearCodigo';
 
 interface SubscriptionModalProps {
@@ -143,10 +143,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               </p>
             </div>
           ) : showCheckoutForm ? (
-            /* Wompi Integration Payment Form */
+            /* ePayco Integration Payment Form */
             <div className="max-w-2xl mx-auto space-y-4">
-              <WompiPaymentWidget
+              <EpaycoPaymentWidget
                 planData={planData}
+                businessName={config?.businessName || user?.businessName}
                 userEmail={user?.email}
                 userName={user?.name}
                 onSuccess={() => {

@@ -70,6 +70,25 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
     }
   }, [cardSize]);
 
+  // Si ePayco retorna con ?ref_payco=..., reabrir automáticamente el modal de cobro de la mesa pendiente
+  useEffect(() => {
+    if (typeof window === 'undefined' || tables.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('ref_payco')) return;
+
+    try {
+      const rawPending = sessionStorage.getItem('epayco_pending_table_checkout');
+      if (!rawPending) return;
+      const pending = JSON.parse(rawPending);
+      if (pending?.tableId && tables.some((t) => t.id === pending.tableId)) {
+        setSelectedTableId(pending.tableId);
+        setIsCheckoutOpen(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, [tables, setSelectedTableId]);
+
   // References for horizontal touch / mouse drag-to-scroll
   const zonesScrollRef = useRef<HTMLDivElement>(null);
   const statusScrollRef = useRef<HTMLDivElement>(null);

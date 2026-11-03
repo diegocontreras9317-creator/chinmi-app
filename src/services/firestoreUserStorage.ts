@@ -12,7 +12,7 @@ import {
   where
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, Empleado, Supplier } from '../types';
+import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, Empleado, Supplier, SupplierOrder } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -161,6 +161,28 @@ export function subscribeUserSuppliers(uid: string, onUpdate: (suppliers: Suppli
   return onSnapshot(colRef, (snap) => {
     const suppliers = snap.docs.map(d => ({ id: d.id, ...d.data() } as Supplier));
     onUpdate(suppliers);
+  }, (err) => {
+    handleFirestoreError(err, OperationType.LIST, path);
+    onUpdate([]);
+  });
+}
+
+/**
+ * Escucha en tiempo real el registro de pedidos a distribuidores de users/${uid}/ordenes_proveedores
+ */
+export function subscribeUserSupplierOrders(uid: string, onUpdate: (orders: SupplierOrder[]) => void): Unsubscribe {
+  if (!uid) {
+    onUpdate([]);
+    return () => {};
+  }
+  const path = `users/${uid}/ordenes_proveedores`;
+  const colRef = collection(db, 'users', uid, 'ordenes_proveedores');
+
+  return onSnapshot(colRef, (snap) => {
+    const orders = snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as SupplierOrder))
+      .sort((a, b) => (b.orderedAt || '').localeCompare(a.orderedAt || ''));
+    onUpdate(orders);
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);
     onUpdate([]);
@@ -344,6 +366,24 @@ export async function getUserSuppliers(targetUid?: string): Promise<Supplier[]> 
     const snap = await getDocs(colRef);
     if (snap.empty) return [];
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as Supplier));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+    return [];
+  }
+}
+
+export async function getUserSupplierOrders(targetUid?: string): Promise<SupplierOrder[]> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid) return [];
+
+  const path = `users/${uid}/ordenes_proveedores`;
+  try {
+    const colRef = collection(db, 'users', uid, 'ordenes_proveedores');
+    const snap = await getDocs(colRef);
+    if (snap.empty) return [];
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() } as SupplierOrder))
+      .sort((a, b) => (b.orderedAt || '').localeCompare(a.orderedAt || ''));
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, path);
     return [];
@@ -853,6 +893,34 @@ export async function deleteSupplierFromFirestore(supplierId: string, targetUid?
   const path = `users/${uid}/proveedores/${supplierId}`;
   try {
     await deleteDoc(doc(db, 'users', uid, 'proveedores', supplierId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+    throw err;
+  }
+}
+
+export async function saveSupplierOrderToFirestore(supplierOrder: SupplierOrder, targetUid?: string): Promise<void> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid || !supplierOrder.id) return;
+  const path = `users/${uid}/ordenes_proveedores/${supplierOrder.id}`;
+  try {
+    await setDoc(
+      doc(db, 'users', uid, 'ordenes_proveedores', supplierOrder.id),
+      sanitizeForFirestore({ ...supplierOrder, userId: uid }),
+      { merge: true }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    throw err;
+  }
+}
+
+export async function deleteSupplierOrderFromFirestore(orderId: string, targetUid?: string): Promise<void> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid || !orderId) return;
+  const path = `users/${uid}/ordenes_proveedores/${orderId}`;
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'ordenes_proveedores', orderId));
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
     throw err;

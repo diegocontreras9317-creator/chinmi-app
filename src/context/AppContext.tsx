@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier } from '../types';
+import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem } from '../types';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
 import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
 import {
@@ -10,6 +10,7 @@ import {
   subscribeUserMenu,
   subscribeUserInventory,
   subscribeUserSuppliers,
+  subscribeUserSupplierOrders,
   subscribeUserSales,
   saveTableToFirestore,
   saveOrderToFirestore,
@@ -21,6 +22,8 @@ import {
   deleteInventoryItemFromFirestore,
   saveSupplierToFirestore,
   deleteSupplierFromFirestore,
+  saveSupplierOrderToFirestore,
+  deleteSupplierOrderFromFirestore,
   saveSaleToFirestore,
   releaseTableInFirestore
 } from '../services/firestoreUserStorage';
@@ -49,6 +52,7 @@ interface AppContextType {
   products: Product[];
   perishables: PerishableItem[];
   suppliers: Supplier[];
+  supplierOrders: SupplierOrder[];
   sales: SaleReceipt[];
   cloudStatus: CloudSyncStatus;
   theme: 'light' | 'dark';
@@ -98,6 +102,29 @@ interface AppContextType {
   updateSupplier: (id: string, partial: Partial<Supplier>) => void;
   deleteSupplier: (id: string) => void;
 
+  // Supplier Orders (Registro de Pedidos a Distribuidores y Confirmación de Recepción)
+  addSupplierOrder: (
+    orderData: Omit<SupplierOrder, 'id' | 'status' | 'arrived' | 'arrivedComplete'> & {
+      id?: string;
+      status?: SupplierOrder['status'];
+      arrived?: boolean;
+      arrivedComplete?: boolean;
+    }
+  ) => SupplierOrder;
+  updateSupplierOrder: (id: string, partial: Partial<SupplierOrder>) => void;
+  confirmSupplierOrderDelivery: (
+    orderId: string,
+    payload: {
+      arrivedComplete: boolean;
+      confirmedAt?: string;
+      confirmedBy?: string;
+      receptionNotes?: string;
+      items?: SupplierOrderItem[];
+      restockPantry?: boolean;
+    }
+  ) => void;
+  deleteSupplierOrder: (id: string) => void;
+
   // Receipt inspection
   latestReceipt: SaleReceipt | null;
   setLatestReceipt: (receipt: SaleReceipt | null) => void;
@@ -145,6 +172,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [products, setProducts] = useState<Product[]>([]);
   const [perishables, setPerishables] = useState<PerishableItem[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [supplierOrders, setSupplierOrders] = useState<SupplierOrder[]>([]);
   const [sales, setSales] = useState<SaleReceipt[]>([]);
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>('synced');
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -189,12 +217,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const salesRef = React.useRef(sales);
   const perishablesRef = React.useRef(perishables);
   const suppliersRef = React.useRef(suppliers);
+  const supplierOrdersRef = React.useRef(supplierOrders);
 
   useEffect(() => { tablesRef.current = tables; }, [tables]);
   useEffect(() => { productsRef.current = products; }, [products]);
   useEffect(() => { salesRef.current = sales; }, [sales]);
   useEffect(() => { perishablesRef.current = perishables; }, [perishables]);
   useEffect(() => { suppliersRef.current = suppliers; }, [suppliers]);
+  useEffect(() => { supplierOrdersRef.current = supplierOrders; }, [supplierOrders]);
 
   // Active UID from Firebase auth
   const activeUid = auth.currentUser?.uid || user?.id;
@@ -215,6 +245,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setProducts([]);
       setPerishables([]);
       setSuppliers([]);
+      setSupplierOrders([]);
       setSales([]);
       return;
     }
@@ -386,6 +417,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCloudStatus('synced');
     });
 
+    const unsubSupplierOrders = subscribeUserSupplierOrders(activeUid, (newSupplierOrders) => {
+      supplierOrdersRef.current = newSupplierOrders;
+      setSupplierOrders(newSupplierOrders);
+      setCloudStatus('synced');
+    });
+
     const unsubSales = subscribeUserSales(activeUid, (newSales) => {
       salesRef.current = newSales;
       setSales(newSales);
@@ -398,6 +435,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubMenu();
       unsubInventory();
       unsubSuppliers();
+      unsubSupplierOrders();
       unsubSales();
     };
   }, [activeUid]);
@@ -1220,6 +1258,166 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // --- Supplier Orders (Registro de Pedidos a Distribuidores) ---
+  const addSupplierOrder = (
+    orderData: Omit<SupplierOrder, 'id' | 'status' | 'arrived' | 'arrivedComplete'> & {
+      id?: string;
+      status?: SupplierOrder['status'];
+      arrived?: boolean;
+      arrivedComplete?: boolean;
+    }
+  ): SupplierOrder => {
+    const nowIso = new Date().toISOString();
+    const cleanItems: SupplierOrderItem[] = (orderData.items || []).map((it, idx) => ({
+      id: it.id || `soi-${Date.now()}-${idx}`,
+      name: it.name.trim(),
+      quantity: Number(it.quantity) || 1,
+      unit: it.unit || 'unidades',
+      received: it.received ?? false,
+      receivedQuantity: it.receivedQuantity ?? (Number(it.quantity) || 1)
+    }));
+
+    const newOrder: SupplierOrder = {
+      id: orderData.id || `sord-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      supplierId: orderData.supplierId || undefined,
+      supplierName: orderData.supplierName.trim(),
+      supplierPhone: orderData.supplierPhone?.trim() || undefined,
+      channel: orderData.channel || 'manual',
+      businessName: orderData.businessName?.trim() || config.businessName,
+      businessAddress: orderData.businessAddress?.trim() || config.businessAddress || undefined,
+      items: cleanItems,
+      notes: orderData.notes?.trim() || undefined,
+      orderedAt: orderData.orderedAt || nowIso,
+      status: orderData.status || 'pendiente',
+      arrived: orderData.arrived ?? false,
+      arrivedComplete: orderData.arrivedComplete ?? false,
+      confirmedAt: orderData.confirmedAt,
+      confirmedBy: orderData.confirmedBy,
+      receptionNotes: orderData.receptionNotes,
+      stockUpdated: orderData.stockUpdated ?? false
+    };
+
+    const existingIdx = supplierOrdersRef.current.findIndex(o => o.id === newOrder.id);
+    const nextOrders =
+      existingIdx > -1
+        ? supplierOrdersRef.current.map((o, i) => (i === existingIdx ? newOrder : o))
+        : [newOrder, ...supplierOrdersRef.current];
+
+    nextOrders.sort((a, b) => (b.orderedAt || '').localeCompare(a.orderedAt || ''));
+    supplierOrdersRef.current = nextOrders;
+    setSupplierOrders(nextOrders);
+
+    if (activeUid && activeUid !== 'default') {
+      saveSupplierOrderToFirestore(newOrder, activeUid).catch(console.error);
+    }
+
+    return newOrder;
+  };
+
+  const updateSupplierOrder = (id: string, partial: Partial<SupplierOrder>) => {
+    let updatedTarget: SupplierOrder | undefined;
+    const nextOrders = supplierOrdersRef.current.map(ord => {
+      if (ord.id === id) {
+        updatedTarget = { ...ord, ...partial };
+        return updatedTarget;
+      }
+      return ord;
+    });
+    nextOrders.sort((a, b) => (b.orderedAt || '').localeCompare(a.orderedAt || ''));
+    supplierOrdersRef.current = nextOrders;
+    setSupplierOrders(nextOrders);
+
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveSupplierOrderToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
+  };
+
+  const confirmSupplierOrderDelivery = (
+    orderId: string,
+    payload: {
+      arrivedComplete: boolean;
+      confirmedAt?: string;
+      confirmedBy?: string;
+      receptionNotes?: string;
+      items?: SupplierOrderItem[];
+      restockPantry?: boolean;
+    }
+  ) => {
+    const targetOrder = supplierOrdersRef.current.find(o => o.id === orderId);
+    if (!targetOrder) return;
+
+    const confirmedIso = payload.confirmedAt || new Date().toISOString();
+    const resolvedItems: SupplierOrderItem[] = (payload.items || targetOrder.items).map(it => ({
+      ...it,
+      received: payload.items ? Boolean(it.received) : true,
+      receivedQuantity: it.receivedQuantity !== undefined ? Number(it.receivedQuantity) : Number(it.quantity)
+    }));
+
+    const shouldRestock = Boolean(payload.restockPantry) && !targetOrder.stockUpdated;
+    let didUpdateStock = Boolean(targetOrder.stockUpdated);
+
+    if (shouldRestock) {
+      const entryDateStr = confirmedIso.split('T')[0];
+      let anyPerishableChanged = false;
+      const nextPerishables = perishablesRef.current.map(p => {
+        const matchedLine = resolvedItems.find(
+          line =>
+            line.received !== false &&
+            (line.receivedQuantity ?? line.quantity) > 0 &&
+            line.name.trim().toLowerCase() === p.name.trim().toLowerCase()
+        );
+        if (!matchedLine) return p;
+
+        anyPerishableChanged = true;
+        const addedQty = Number(matchedLine.receivedQuantity ?? matchedLine.quantity) || 0;
+        const updatedItem: PerishableItem = {
+          ...p,
+          quantity: Number((p.quantity + addedQty).toFixed(2)),
+          entryDate: entryDateStr || p.entryDate
+        };
+        if (activeUid && activeUid !== 'default') {
+          saveInventoryItemToFirestore(updatedItem, activeUid).catch(console.error);
+        }
+        return updatedItem;
+      });
+
+      if (anyPerishableChanged) {
+        didUpdateStock = true;
+        perishablesRef.current = nextPerishables;
+        setPerishables(nextPerishables);
+      }
+    }
+
+    const updatedOrder: SupplierOrder = {
+      ...targetOrder,
+      items: resolvedItems,
+      status: payload.arrivedComplete ? 'recibido_completo' : 'recibido_incompleto',
+      arrived: true,
+      arrivedComplete: payload.arrivedComplete,
+      confirmedAt: confirmedIso,
+      confirmedBy: payload.confirmedBy?.trim() || user?.name || 'Encargado',
+      receptionNotes: payload.receptionNotes?.trim() || undefined,
+      stockUpdated: didUpdateStock
+    };
+
+    const nextOrders = supplierOrdersRef.current.map(o => (o.id === orderId ? updatedOrder : o));
+    supplierOrdersRef.current = nextOrders;
+    setSupplierOrders(nextOrders);
+
+    if (activeUid && activeUid !== 'default') {
+      saveSupplierOrderToFirestore(updatedOrder, activeUid).catch(console.error);
+    }
+  };
+
+  const deleteSupplierOrder = (id: string) => {
+    const nextOrders = supplierOrdersRef.current.filter(o => o.id !== id);
+    supplierOrdersRef.current = nextOrders;
+    setSupplierOrders(nextOrders);
+    if (activeUid && activeUid !== 'default') {
+      deleteSupplierOrderFromFirestore(id, activeUid).catch(console.error);
+    }
+  };
+
   const syncNow = () => {
     setCloudStatus('syncing');
     persistChanges(tablesRef.current, productsRef.current, salesRef.current, perishablesRef.current, suppliersRef.current);
@@ -1234,6 +1432,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSales(fresh.sales);
     setPerishables(fresh.perishables || []);
     setSuppliers(fresh.suppliers || []);
+    setSupplierOrders(fresh.supplierOrders || []);
   };
 
   return (
@@ -1245,6 +1444,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         products,
         perishables,
         suppliers,
+        supplierOrders,
         sales,
         cloudStatus,
         theme,
@@ -1280,6 +1480,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addSupplier,
         updateSupplier,
         deleteSupplier,
+        addSupplierOrder,
+        updateSupplierOrder,
+        confirmSupplierOrderDelivery,
+        deleteSupplierOrder,
         latestReceipt,
         setLatestReceipt,
         newOrderNotification,

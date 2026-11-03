@@ -97,6 +97,31 @@
       },
       "required": ["id", "name", "phone", "suppliesProvided"]
     },
+    "SupplierOrder": {
+      "title": "SupplierOrder",
+      "description": "Registro de pedido realizado a un distribuidor con fecha, hora y confirmación de entrega completa",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "supplierPhone": { "type": "string" },
+        "channel": { "type": "string" },
+        "businessName": { "type": "string" },
+        "businessAddress": { "type": "string" },
+        "notes": { "type": "string" },
+        "orderedAt": { "type": "string" },
+        "status": { "type": "string" },
+        "arrived": { "type": "boolean" },
+        "arrivedComplete": { "type": "boolean" },
+        "confirmedAt": { "type": "string" },
+        "confirmedBy": { "type": "string" },
+        "receptionNotes": { "type": "string" },
+        "stockUpdated": { "type": "boolean" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "supplierName", "orderedAt", "status", "arrived", "arrivedComplete"]
+    },
     "SaleReceipt": {
       "title": "SaleReceipt",
       "description": "Entidad de recibo o comprobante de venta",
@@ -160,6 +185,10 @@
     "/users/{userId}/proveedores/{proveedorId}": {
       "schema": "#/entities/Supplier",
       "description": "Colección aislada de proveedores de insumos del usuario"
+    },
+    "/users/{userId}/ordenes_proveedores/{ordenId}": {
+      "schema": "#/entities/SupplierOrder",
+      "description": "Registro histórico de pedidos realizados a distribuidores y su confirmación de llegada"
     },
     "/users/{userId}/pedidos/{pedidoId}": {
       "schema": "#/entities/SaleReceipt",

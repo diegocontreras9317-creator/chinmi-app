@@ -67,7 +67,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
   linkedPantryItems = [],
   initialItems = []
 }) => {
-  const { config, updateConfig } = useApp();
+  const { config, updateConfig, addSupplierOrder } = useApp();
   const { user } = useAuth();
 
   const resolvedRegisteredName = useMemo(() => {
@@ -100,6 +100,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
   const [customProductUnit, setCustomProductUnit] = useState<string>('kg');
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [copiedMessage, setCopiedMessage] = useState(false);
+  const [loggedOrderId, setLoggedOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !supplier) return;
@@ -112,6 +113,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
     setCustomProductQty(1);
     setCustomProductUnit('kg');
     setCopiedMessage(false);
+    setLoggedOrderId(null);
 
     if (initialItems.length > 0) {
       setOrderItems(
@@ -336,6 +338,31 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
     navigator.clipboard?.writeText(whatsappMessage).catch(() => {});
     setCopiedMessage(true);
     setTimeout(() => setCopiedMessage(false), 2000);
+  };
+
+  const recordOrderInHistory = (channel: 'whatsapp' | 'manual') => {
+    if (effectiveItems.length === 0) return;
+    persistLocalDetailsIfChanged();
+    const saved = addSupplierOrder({
+      id: loggedOrderId || undefined,
+      supplierId: supplier.id.startsWith('temp-') ? undefined : supplier.id,
+      supplierName: supplier.name,
+      supplierPhone: supplier.phone,
+      channel,
+      businessName: cleanLocalName,
+      businessAddress: cleanLocalAddress || undefined,
+      items: effectiveItems.map((it, idx) => ({
+        id: it.id === 'pending-inline-item' ? `soi-${Date.now()}-${idx}` : it.id,
+        name: it.name,
+        quantity: it.quantity,
+        unit: it.unit,
+        received: false,
+        receivedQuantity: it.quantity
+      })),
+      notes: deliveryNotes.trim() || undefined,
+      orderedAt: new Date().toISOString()
+    });
+    setLoggedOrderId(saved.id);
   };
 
   return (
@@ -702,10 +729,15 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
           </div>
         </div>
 
-        {/* Footer: Envío en 1 solo clic */}
+        {/* Footer: Envío en 1 solo clic y registro automático con fecha y hora */}
         <div className="px-5 sm:px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
           <div className="text-[11px] text-slate-500 dark:text-slate-400">
-            {!cleanLocalAddress ? (
+            {loggedOrderId ? (
+              <span className="text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                <span>Pedido guardado en el registro con fecha y hora para confirmar cuando llegue.</span>
+              </span>
+            ) : !cleanLocalAddress ? (
               <span className="text-amber-700 dark:text-amber-400 font-semibold">
                 Escribe la dirección de tu local arriba para habilitar el envío.
               </span>
@@ -713,20 +745,29 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
               <span>Agrega al menos un producto al listado para enviarlo.</span>
             ) : (
               <span>
-                Listo: <strong>{effectiveItems.length}</strong> producto(s) · Entrega en{' '}
-                <strong>{cleanLocalName}</strong>
+                Listo: <strong className="tabular-nums">{effectiveItems.length}</strong> producto(s) · Se registrará con fecha y hora al enviar
               </span>
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2.5">
+          <div className="flex items-center justify-end gap-2.5 flex-wrap">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer whitespace-nowrap"
             >
               Cerrar
             </button>
+
+            {effectiveItems.length > 0 && !loggedOrderId && (
+              <button
+                type="button"
+                onClick={() => recordOrderInHistory('manual')}
+                className="px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition cursor-pointer whitespace-nowrap"
+              >
+                Solo Registrar Pedido
+              </button>
+            )}
 
             {canSend && whatsappHref ? (
               <a
@@ -734,7 +775,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => {
-                  persistLocalDetailsIfChanged();
+                  recordOrderInHistory('whatsapp');
                 }}
                 className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs transition inline-flex items-center gap-2 cursor-pointer whitespace-nowrap"
               >

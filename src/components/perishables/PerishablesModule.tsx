@@ -22,10 +22,11 @@ import {
   Check,
   ArrowDownUp,
   Download,
-  MessageCircle
+  MessageCircle,
+  ClipboardCheck
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { PerishableItem, Supplier } from '../../types';
+import { PerishableItem, Supplier, SupplierOrder } from '../../types';
 import {
   PERISHABLE_CATEGORIES,
   calculateDaysRemaining,
@@ -38,18 +39,22 @@ import { NewPerishableModal } from './NewPerishableModal';
 import { PerishableWasteModal } from './PerishableWasteModal';
 import { SupplierModal } from './SupplierModal';
 import { SupplierWhatsappOrderModal, normalizeWhatsappPhone } from './SupplierWhatsappOrderModal';
+import { SupplierOrdersSection } from './SupplierOrdersSection';
+import { NewSupplierOrderModal } from './NewSupplierOrderModal';
+import { SupplierOrderConfirmModal } from './SupplierOrderConfirmModal';
 
 interface PerishablesModuleProps {
   onOpenSubscription?: () => void;
 }
 
 type FilterStatus = 'all' | 'expired' | 'expiring_soon' | 'low_stock' | 'fresh';
-type ModuleSection = 'insumos' | 'proveedores';
+type ModuleSection = 'insumos' | 'proveedores' | 'pedidos';
 
 export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
   const {
     perishables,
     suppliers,
+    supplierOrders,
     addPerishable,
     updatePerishable,
     deletePerishable,
@@ -57,10 +62,13 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
     recordPerishableRestock,
     addSupplier,
     updateSupplier,
-    deleteSupplier
+    deleteSupplier,
+    addSupplierOrder,
+    confirmSupplierOrderDelivery,
+    deleteSupplierOrder
   } = useApp();
 
-  // Active section: 'insumos' (Despensa) | 'proveedores' (Directorio de Proveedores)
+  // Active section: 'insumos' | 'proveedores' | 'pedidos'
   const [activeSection, setActiveSection] = useState<ModuleSection>('insumos');
 
   // Filter & Search states
@@ -112,6 +120,16 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
   const [confirmDeleteSupplierId, setConfirmDeleteSupplierId] = useState<string | null>(null);
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
   const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
+  // Registro y confirmación de pedidos a distribuidores
+  const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
+  const [orderModalSupplierId, setOrderModalSupplierId] = useState<string | null>(null);
+  const [confirmingOrder, setConfirmingOrder] = useState<SupplierOrder | null>(null);
+
+  const pendingOrdersCount = useMemo(
+    () => supplierOrders.filter(o => o.status === 'pendiente').length,
+    [supplierOrders]
+  );
 
   const resolveItemSupplier = (item: PerishableItem) => {
     const matched =
@@ -433,13 +451,13 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         </div>
       </div>
 
-      {/* SECTION TABS: INSUMOS EN DESPENSA vs PROVEEDORES */}
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800">
+      {/* SECTION TABS: INSUMOS EN DESPENSA | PROVEEDORES | PEDIDOS A DISTRIBUIDORES */}
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             type="button"
             onClick={() => setActiveSection('insumos')}
-            className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition cursor-pointer flex items-center gap-2 ${
+            className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
               activeSection === 'insumos'
                 ? 'border-rose-950 dark:border-rose-400 text-rose-950 dark:text-white'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -447,7 +465,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
           >
             <Apple className="w-4 h-4" />
             <span>Insumos en Despensa</span>
-            <span className={`px-2 py-0.5 rounded-md text-[11px] font-mono ${
+            <span className={`px-2 py-0.5 rounded-md text-[11px] font-mono tabular-nums ${
               activeSection === 'insumos'
                 ? 'bg-rose-950 text-white dark:bg-rose-900/60 dark:text-rose-200'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -459,7 +477,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
           <button
             type="button"
             onClick={() => setActiveSection('proveedores')}
-            className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition cursor-pointer flex items-center gap-2 ${
+            className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
               activeSection === 'proveedores'
                 ? 'border-rose-950 dark:border-rose-400 text-rose-950 dark:text-white'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -467,7 +485,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
           >
             <Truck className="w-4 h-4" />
             <span>Proveedores</span>
-            <span className={`px-2 py-0.5 rounded-md text-[11px] font-mono ${
+            <span className={`px-2 py-0.5 rounded-md text-[11px] font-mono tabular-nums ${
               activeSection === 'proveedores'
                 ? 'bg-rose-950 text-white dark:bg-rose-900/60 dark:text-rose-200'
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
@@ -475,10 +493,54 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
               {suppliers.length}
             </span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSection('pedidos')}
+            className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
+              activeSection === 'pedidos'
+                ? 'border-rose-950 dark:border-rose-400 text-rose-950 dark:text-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <ClipboardCheck className="w-4 h-4" />
+            <span>Pedidos a Distribuidores</span>
+            <span className={`px-2 py-0.5 rounded-md text-[11px] font-mono tabular-nums ${
+              pendingOrdersCount > 0
+                ? 'bg-amber-600 text-white'
+                : activeSection === 'pedidos'
+                ? 'bg-rose-950 text-white dark:bg-rose-900/60 dark:text-rose-200'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              {pendingOrdersCount > 0 ? `${pendingOrdersCount} pend.` : supplierOrders.length}
+            </span>
+          </button>
         </div>
       </div>
 
-      {activeSection === 'proveedores' ? (
+      {activeSection === 'pedidos' ? (
+        <SupplierOrdersSection
+          orders={supplierOrders}
+          onOpenNewOrder={() => {
+            setOrderModalSupplierId(null);
+            setIsNewOrderModalOpen(true);
+          }}
+          onOpenConfirmModal={(order) => setConfirmingOrder(order)}
+          onQuickConfirmComplete={(order) => {
+            confirmSupplierOrderDelivery(order.id, {
+              arrivedComplete: true,
+              confirmedAt: new Date().toISOString(),
+              items: (order.items || []).map(it => ({
+                ...it,
+                received: true,
+                receivedQuantity: it.quantity
+              })),
+              restockPantry: !order.stockUpdated
+            });
+          }}
+          onDeleteOrder={(orderId) => deleteSupplierOrder(orderId)}
+        />
+      ) : activeSection === 'proveedores' ? (
         /* === DIRECTORIO DE PROVEEDORES DE DESPENSA E INSUMOS === */
         <div className="space-y-4">
           {/* Search & Add Bar */}
@@ -620,20 +682,34 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                         </div>
                       </div>
 
-                      {/* Botón directo de Pedido por WhatsApp cuando el proveedor tiene WhatsApp */}
-                      {hasWhatsapp && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setWhatsappInitialItems([]);
-                            setWhatsappOrderSupplier(sup);
-                          }}
-                          className="w-full py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
-                        >
-                          <MessageCircle className="w-4 h-4 shrink-0" />
-                          <span>Armar y Enviar Pedido por WhatsApp</span>
-                        </button>
-                      )}
+                      {/* Botones de Pedido (WhatsApp y Registro Manual con Fecha/Hora) */}
+                      <div className="space-y-2">
+                        {hasWhatsapp ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWhatsappInitialItems([]);
+                              setWhatsappOrderSupplier(sup);
+                            }}
+                            className="w-full py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            <MessageCircle className="w-4 h-4 shrink-0" />
+                            <span>Armar y Enviar Pedido por WhatsApp</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOrderModalSupplierId(sup.id);
+                              setIsNewOrderModalOpen(true);
+                            }}
+                            className="w-full py-2.5 px-3.5 rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs font-extrabold shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            <ClipboardCheck className="w-4 h-4 shrink-0" />
+                            <span>Registrar Pedido con Fecha y Hora</span>
+                          </button>
+                        )}
+                      </div>
 
                       {/* Qué se consigue con este proveedor */}
                       <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800 space-y-2">
@@ -1984,6 +2060,31 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             : []
         }
         initialItems={whatsappInitialItems}
+      />
+
+      <NewSupplierOrderModal
+        isOpen={isNewOrderModalOpen}
+        onClose={() => {
+          setIsNewOrderModalOpen(false);
+          setOrderModalSupplierId(null);
+        }}
+        suppliers={suppliers}
+        perishables={perishables}
+        preselectedSupplierId={orderModalSupplierId}
+        onSaveOrder={(payload) => {
+          addSupplierOrder(payload);
+          setActiveSection('pedidos');
+        }}
+      />
+
+      <SupplierOrderConfirmModal
+        isOpen={!!confirmingOrder}
+        onClose={() => setConfirmingOrder(null)}
+        order={confirmingOrder}
+        perishables={perishables}
+        onConfirm={(orderId, payload) => {
+          confirmSupplierOrderDelivery(orderId, payload);
+        }}
       />
 
     </div>

@@ -199,6 +199,38 @@ export interface Supplier {
   updatedAt?: string;
 }
 
+export type SupplierOrderStatus = 'pendiente' | 'recibido_completo' | 'recibido_incompleto';
+export type SupplierOrderChannel = 'whatsapp' | 'llamada' | 'manual';
+
+export interface SupplierOrderItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  received?: boolean;
+  receivedQuantity?: number;
+}
+
+export interface SupplierOrder {
+  id: string;
+  supplierId?: string;
+  supplierName: string;
+  supplierPhone?: string;
+  channel: SupplierOrderChannel;
+  businessName?: string;
+  businessAddress?: string;
+  items: SupplierOrderItem[];
+  notes?: string;
+  orderedAt: string; // Fecha y hora del pedido (ISO)
+  status: SupplierOrderStatus;
+  arrived: boolean; // Confirmación de que llegó
+  arrivedComplete: boolean; // Confirmación de que llegó completo
+  confirmedAt?: string; // Fecha y hora de confirmación de llegada (ISO)
+  confirmedBy?: string; // Persona que confirmó la recepción
+  receptionNotes?: string; // Notas de recepción o faltantes
+  stockUpdated?: boolean; // Si ya se sumó al inventario de despensa
+}
+
 export interface PerishableItem {
   id: string;
   name: string;
@@ -224,6 +256,7 @@ export interface AppStateData {
   products: Product[];
   perishables?: PerishableItem[];
   suppliers?: Supplier[];
+  supplierOrders?: SupplierOrder[];
   sales: SaleReceipt[];
   version: number;
   lastModified: string;

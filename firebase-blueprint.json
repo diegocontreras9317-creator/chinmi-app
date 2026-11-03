@@ -142,6 +142,13 @@
         "paymentMethod": { "type": "string" },
         "timestamp": { "type": "string" },
         "cashierName": { "type": "string" },
+        "cashierRole": { "type": "string" },
+        "cashierId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerDocumentType": { "type": "string" },
+        "customerDocumentNumber": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "billingInfo": { "type": "object" },
         "userId": { "type": "string" }
       },
       "required": ["id", "total", "paymentMethod", "timestamp"]

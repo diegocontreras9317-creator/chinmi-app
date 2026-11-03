@@ -3,13 +3,10 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { Table, Product, TableStatus, OrderItem } from '../../types';
 import { formatCOP } from '../../utils/currency';
+import { extractTableBillingInfo, formatCustomerDocument, hasCustomBillingData } from '../../utils/billing';
 import { auth, db } from '../../firebase';
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
-import {
-  saveTableToFirestore,
-  saveOrderToFirestore,
-  sanitizeForFirestore
-} from '../../services/firestoreUserStorage';
+import { doc, setDoc } from 'firebase/firestore';
+import { sanitizeForFirestore } from '../../services/firestoreUserStorage';
 import {
   X,
   Search,
@@ -67,10 +64,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   const [mobileTab, setMobileTab] = useState<'catalog' | 'order'>('catalog');
   const [isLoading, setIsLoading] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
   const [lastAddedToast, setLastAddedToast] = useState<string | null>(null);
 
   const order = table?.order;
   const items: OrderItem[] = order?.items || (order as any)?.productos || [];
+  const extractedCustomerBilling = extractTableBillingInfo(table);
 
   // Filter products for catalog with useMemo for smooth performance
   const filteredProducts = useMemo(() => {
@@ -149,7 +148,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       openedAt: order?.openedAt || nowIso,
       lastUpdatedAt: nowIso,
       userId: activeUid || '',
+      customerName: order?.customerName || (order as any)?.nombreCliente || '',
       nombreCliente: (order as any)?.customerName || (order as any)?.nombreCliente || '',
+      billingInfo: order?.billingInfo || table?.waiterCall?.billingInfo || null,
       comentario: (order as any)?.notes || (order as any)?.comentario || '',
       mesa: table?.name || 'Mesa',
       empleado: empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : (user?.name || 'Caja'),
@@ -158,6 +159,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
 
     setIsLoading(true);
     setSaveSuccessMsg(null);
+    setSaveErrorMsg(null);
 
     try {
       if (!activeUid) {
@@ -187,7 +189,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         waiterCall: table.waiterCall ? {
           type: table.waiterCall.type || 'waiter',
           requestedAt: table.waiterCall.requestedAt || nowIso,
-          message: table.waiterCall.message || ''
+          message: table.waiterCall.message || '',
+          ...(table.waiterCall.preferredPaymentMethod
+            ? { preferredPaymentMethod: table.waiterCall.preferredPaymentMethod }
+            : {}),
+          ...(table.waiterCall.billingInfo ? { billingInfo: table.waiterCall.billingInfo } : {})
         } : null
       };
 
@@ -201,7 +207,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       }, 700);
     } catch (error: any) {
       console.error("Error al actualizar:", error);
-      alert(error?.message || String(error));
+      setSaveErrorMsg(error?.message || String(error));
     } finally {
       setIsLoading(false);
     }
@@ -210,21 +216,18 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   // Eliminación estricta de producto con control de errores extremo y persistencia inmediata en Firebase
   const eliminarProducto = async (idEliminar: string) => {
     if (!idEliminar || typeof idEliminar !== 'string') {
-      console.error("ERROR CRÍTICO: idEliminar es undefined o inválido:", idEliminar);
-      alert("Error crítico: El ID del producto a eliminar es undefined. Operación abortada.");
+      setSaveErrorMsg('El ID del producto a eliminar no es válido.');
       return;
     }
 
     if (!table?.id || typeof table.id !== 'string') {
-      console.error("ERROR CRÍTICO: table.id es undefined:", table?.id);
-      alert("Error crítico: El ID de la mesa es undefined. Operación abortada.");
+      setSaveErrorMsg('El ID de la mesa no es válido.');
       return;
     }
 
     const activeUid = auth.currentUser?.uid || user?.id;
     if (!activeUid) {
-      console.error("ERROR CRÍTICO: activeUid es undefined");
-      alert("Error crítico: No hay sesión de usuario autenticada en Firebase. Operación abortada.");
+      setSaveErrorMsg('No hay sesión de usuario autenticada en Firebase.');
       return;
     }
 
@@ -233,8 +236,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     const pedidoId = order?.id || `ord-${table.id}`;
 
     if (!pedidoId) {
-      console.error("ERROR CRÍTICO: pedidoId es undefined");
-      alert("Error crítico: El ID de la comanda es undefined. Operación abortada.");
+      setSaveErrorMsg('El ID de la comanda no es válido.');
       return;
     }
 
@@ -275,6 +277,9 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         discountAmount: Math.round(newDiscount),
         tipAmount: Math.round(newTip),
         total: Math.round(newTotal),
+        customerName: order?.customerName || (order as any)?.nombreCliente || '',
+        nombreCliente: order?.customerName || (order as any)?.nombreCliente || '',
+        billingInfo: order?.billingInfo || table?.waiterCall?.billingInfo || null,
         status: 'activa',
         estado: 'activa',
         closed: false,
@@ -282,14 +287,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         userId: activeUid
       });
 
-      console.log("Intentando actualizar doc con ID:", pedidoId, "Datos:", orderPayload);
       try {
         const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
         await setDoc(pedidoRef, orderPayload);
-        console.log("Éxito al actualizar doc con ID:", pedidoId);
       } catch (error) {
         console.error("ERROR CRÍTICO EN FIREBASE:", error);
-        alert("ERROR CRÍTICO EN FIREBASE al actualizar comanda: " + (error instanceof Error ? error.message : String(error)));
+        setSaveErrorMsg("Error al actualizar comanda: " + (error instanceof Error ? error.message : String(error)));
       }
 
       const tablePayload = sanitizeForFirestore({
@@ -303,17 +306,14 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         userId: activeUid
       });
 
-      console.log("Intentando actualizar doc con ID:", table.id, "Datos:", tablePayload);
       try {
         const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
         await setDoc(mesaRef, tablePayload, { merge: true });
-        console.log("Éxito al actualizar doc con ID:", table.id);
       } catch (error) {
         console.error("ERROR CRÍTICO EN FIREBASE:", error);
-        alert("ERROR CRÍTICO EN FIREBASE al actualizar mesa: " + (error instanceof Error ? error.message : String(error)));
+        setSaveErrorMsg("Error al actualizar mesa: " + (error instanceof Error ? error.message : String(error)));
       }
     } else {
-      // Si la comanda queda sin productos, se libera la mesa y se cierra el pedido en Firestore
       const tableFreePayload = sanitizeForFirestore({
         id: table.id,
         status: 'libre',
@@ -325,14 +325,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         userId: activeUid
       });
 
-      console.log("Intentando actualizar doc con ID:", table.id, "Datos:", tableFreePayload);
       try {
         const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
         await setDoc(mesaRef, tableFreePayload, { merge: true });
-        console.log("Éxito al actualizar doc con ID:", table.id);
       } catch (error) {
         console.error("ERROR CRÍTICO EN FIREBASE:", error);
-        alert("ERROR CRÍTICO EN FIREBASE al liberar mesa: " + (error instanceof Error ? error.message : String(error)));
+        setSaveErrorMsg("Error al liberar mesa: " + (error instanceof Error ? error.message : String(error)));
       }
 
       const orderCancelPayload = sanitizeForFirestore({
@@ -345,14 +343,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         productos: []
       });
 
-      console.log("Intentando actualizar doc con ID:", pedidoId, "Datos:", orderCancelPayload);
       try {
         const pedidoRef = doc(db, 'users', activeUid, 'pedidos', pedidoId);
         await setDoc(pedidoRef, orderCancelPayload, { merge: true });
-        console.log("Éxito al actualizar doc con ID:", pedidoId);
       } catch (error) {
         console.error("ERROR CRÍTICO EN FIREBASE:", error);
-        alert("ERROR CRÍTICO EN FIREBASE al cancelar comanda vacía: " + (error instanceof Error ? error.message : String(error)));
+        setSaveErrorMsg("Error al cancelar comanda vacía: " + (error instanceof Error ? error.message : String(error)));
       }
     }
   };
@@ -691,14 +687,26 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
           <div className="lg:col-span-5 flex flex-col bg-white dark:bg-slate-900 overflow-hidden">
             
             {/* Bill Ticket Header */}
-            <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Receipt className="w-4 h-4 text-orange-500" />
-                <span>Cuenta en Vivo</span>
-              </span>
-              <span className="text-xs font-mono font-semibold text-slate-500">
-                {items.length} líneas
-              </span>
+            <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Receipt className="w-4 h-4 text-orange-500" />
+                  <span>Cuenta en Vivo</span>
+                </span>
+                <span className="text-xs font-mono tabular-nums font-semibold text-slate-500">
+                  {items.length} líneas · Atiende: {empleadoActivo?.nombre || user?.name || 'Caja'}
+                </span>
+              </div>
+              {hasCustomBillingData(extractedCustomerBilling.billing) && (
+                <div className="text-[11px] text-slate-600 dark:text-slate-300 flex items-center justify-between gap-2 pt-1 border-t border-slate-200/70 dark:border-slate-800">
+                  <span className="truncate">
+                    Cobrar a: <strong className="text-slate-900 dark:text-white">{extractedCustomerBilling.billing.customerName}</strong>
+                    {extractedCustomerBilling.billing.documentNumber
+                      ? ` · ${formatCustomerDocument(extractedCustomerBilling.billing.documentType, extractedCustomerBilling.billing.documentNumber)}`
+                      : ''}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Items List in Order */}
@@ -842,6 +850,20 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Error Notification Banner */}
+              {saveErrorMsg && (
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 font-semibold text-xs flex items-center justify-between gap-2">
+                  <span>{saveErrorMsg}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSaveErrorMsg(null)}
+                    className="p-1 text-rose-500 hover:text-rose-700"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
 
               {/* Success Notification Banner */}
               {saveSuccessMsg && (

@@ -96,6 +96,23 @@ export interface OrderItem {
   customerName?: string;
 }
 
+export type CustomerDocumentType =
+  | 'CONSUMIDOR_FINAL'
+  | 'CC'
+  | 'NIT'
+  | 'CE'
+  | 'PAS'
+  | 'TI'
+  | 'PEP';
+
+export interface CustomerBillingInfo {
+  customerName: string;
+  documentType: CustomerDocumentType;
+  documentNumber: string;
+  email?: string;
+  phone?: string;
+}
+
 export interface Order {
   id: string;
   tableId: string;
@@ -114,12 +131,17 @@ export interface Order {
   subtotal?: number;
   total?: number;
   userId?: string;
+  customerName?: string;
+  nombreCliente?: string;
+  billingInfo?: CustomerBillingInfo | null;
 }
 
 export interface WaiterCallNotification {
   type: 'waiter' | 'bill';
   requestedAt: string;
   message?: string;
+  preferredPaymentMethod?: 'efectivo' | 'tarjeta' | 'transferencia';
+  billingInfo?: CustomerBillingInfo | null;
 }
 
 export interface Table {
@@ -170,6 +192,13 @@ export interface SaleReceipt {
   change?: number;
   timestamp: string;
   cashierName: string;
+  cashierRole?: string;
+  cashierId?: string;
+  customerName?: string;
+  customerDocumentType?: CustomerDocumentType;
+  customerDocumentNumber?: string;
+  customerEmail?: string;
+  billingInfo?: CustomerBillingInfo;
 }
 
 export type CloudSyncStatus = 'synced' | 'syncing' | 'offline';

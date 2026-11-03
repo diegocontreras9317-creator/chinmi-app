@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
-import { Table, PaymentMethod, SaleReceipt } from '../../types';
+import {
+  Table,
+  PaymentMethod,
+  SaleReceipt,
+  CustomerDocumentType,
+  ROLE_PERMISSIONS
+} from '../../types';
+import {
+  DOCUMENT_TYPE_OPTIONS,
+  extractTableBillingInfo,
+  normalizeBillingInfo
+} from '../../utils/billing';
 import { auth, db } from '../../firebase';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { sanitizeForFirestore } from '../../services/firestoreUserStorage';
@@ -14,7 +25,10 @@ import {
   Receipt,
   ArrowRight,
   Calculator,
-  Loader2
+  Loader2,
+  UserCheck,
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 
 interface CheckoutModalProps {
@@ -31,14 +45,36 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onSuccessCheckout
 }) => {
   const { config, checkoutTable } = useApp();
-  const { user } = useAuth();
+  const { user, empleadoActivo } = useAuth();
+
+  // Persona activa desde donde se realiza el cobro (perfil de empleado activo o titular de la sesión)
+  const activeCashierName =
+    empleadoActivo?.nombre?.trim() ||
+    user?.name?.trim() ||
+    auth.currentUser?.displayName?.trim() ||
+    auth.currentUser?.email?.split('@')[0] ||
+    'Cajero';
+
+  const activeCashierRole = empleadoActivo?.rol
+    ? empleadoActivo.rol
+    : user?.role
+    ? ROLE_PERMISSIONS[user.role]?.label || user.role
+    : 'Caja';
+
+  const activeCashierId = empleadoActivo?.id || user?.id || '';
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('efectivo');
   const [cashTendered, setCashTendered] = useState<string>('');
+  const [customerName, setCustomerName] = useState<string>('');
+  const [customerDocType, setCustomerDocType] = useState<CustomerDocumentType>('CONSUMIDOR_FINAL');
+  const [customerDocNumber, setCustomerDocNumber] = useState<string>('');
+  const [isFromCustomerQr, setIsFromCustomerQr] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen && table?.order) {
+      setCheckoutError(null);
       const ord = table.order;
       const ordItems = ord.items || (ord as any)?.productos || [];
       const sub = (ordItems || []).reduce((acc: number, item: any) => {
@@ -49,25 +85,43 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       const disc = sub * ((Number(ord.discountPercent) || 0) / 100);
       const tip = Number(ord.tipAmount) || 0;
       setCashTendered(Math.round(sub - disc + tip).toString());
+
+      // Prellenar método de pago si el cliente lo indicó desde el QR
+      const preferred = table.waiterCall?.preferredPaymentMethod;
+      if (preferred === 'tarjeta') {
+        setPaymentMethod('tarjeta');
+      } else if (preferred === 'transferencia') {
+        setPaymentMethod('bizum');
+      } else if (preferred === 'efectivo') {
+        setPaymentMethod('efectivo');
+      }
+
+      // Prellenar datos de facturación / cliente si fueron registrados desde el QR o en la comanda
+      const { billing, fromQrCustomer } = extractTableBillingInfo(table);
+      setCustomerName(
+        billing.customerName && billing.customerName !== 'Consumidor Final'
+          ? billing.customerName
+          : ''
+      );
+      setCustomerDocType(billing.documentType || 'CONSUMIDOR_FINAL');
+      setCustomerDocNumber(billing.documentNumber || '');
+      setIsFromCustomerQr(fromQrCustomer);
     }
-  }, [isOpen, table?.id, table?.order?.id]);
+  }, [isOpen, table?.id, table?.order?.id, table?.waiterCall?.requestedAt]);
 
   if (!isOpen) return null;
 
   const order = table?.order;
   const items = order?.items || (order as any)?.productos || [];
 
-  // 2. Validación de Renderizado:
-  // Si el objeto del pedido seleccionado es nulo o indefinido al abrir el modal de cobro,
-  // no renderizar la interfaz ni los productos. Retornar mensaje "No hay datos en esta mesa".
   if (!table || !order || items.length === 0) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
-        <div 
-          className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-center space-y-4"
+        <div
+          className="relative w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-center space-y-4"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-100 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400">
+          <div className="w-12 h-12 mx-auto rounded-xl bg-amber-100 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400">
             <Receipt className="w-6 h-6" />
           </div>
           <div>
@@ -93,8 +147,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     );
   }
 
-  // 1. Protección con Optional Chaining y Fallback defensivo:
-  // (order?.items || []).reduce(...) o (productos || []).reduce(...)
   const subtotal = (items || []).reduce((acc: number, item: any) => {
     const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
     const qty = Number(item?.quantity ?? item?.cantidad ?? 0) || 0;
@@ -105,12 +157,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const discountAmount = subtotal * (discountPercent / 100);
   const productsTotal = subtotal - discountAmount;
   const taxPercent = Number(order?.taxPercent ?? config?.defaultTaxRate ?? 8) || 8;
-  // Matemática con impuesto incluido (8% impoconsumo/IVA ya dentro de los precios P.V.P):
-  // Extracción legal del impuesto: Impuesto = Total - (Total / 1.08)
-  const taxAmount = taxPercent > 0 ? (productsTotal - (productsTotal / (1 + (taxPercent / 100)))) : 0;
+  const taxAmount = taxPercent > 0 ? productsTotal - productsTotal / (1 + taxPercent / 100) : 0;
   const taxableBase = productsTotal - taxAmount;
   const tipAmount = Number(order?.tipAmount) || 0;
-  // Total a cobrar: exactamente igual al consumo de productos (Subtotal) menos descuento más propina
   const total = Math.round(productsTotal + tipAmount);
 
   const cashNumber = parseFloat(cashTendered) || 0;
@@ -121,30 +170,34 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     setCashTendered(Math.round(amount).toString());
   };
 
-  // Cobro estricto de mesa con control de errores extremo y persistencia síncrona en Firebase
   const cobrarMesa = async () => {
+    setCheckoutError(null);
+
     if (!table?.id || typeof table.id !== 'string') {
-      console.error("ERROR CRÍTICO: table.id es undefined:", table?.id);
-      alert("Error crítico: El ID de la mesa es undefined. Operación de cobro abortada.");
+      setCheckoutError('No se encontró el identificador de la mesa para procesar el cobro.');
       return;
     }
 
     if (!order?.id || typeof order.id !== 'string') {
-      console.error("ERROR CRÍTICO: order.id es undefined:", order?.id);
-      alert("Error crítico: El ID de la comanda es undefined. Operación de cobro abortada.");
+      setCheckoutError('No se encontró el identificador de la comanda activa.');
       return;
     }
 
     const activeUid = auth.currentUser?.uid || user?.id;
     if (!activeUid) {
-      console.error("ERROR CRÍTICO: activeUid es undefined");
-      alert("Error crítico: No hay sesión de usuario autenticada en Firebase. Operación abortada.");
+      setCheckoutError('No hay una sesión autenticada activa para registrar la venta.');
       return;
     }
 
     setIsProcessing(true);
     const nowIso = new Date().toISOString();
     const receiptId = `tick-${Date.now()}`;
+
+    const resolvedBilling = normalizeBillingInfo({
+      customerName: customerName.trim(),
+      documentType: customerDocType,
+      documentNumber: customerDocNumber.trim()
+    });
 
     const receiptPayload = sanitizeForFirestore({
       id: receiptId,
@@ -159,80 +212,83 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       tipAmount: Math.round(tipAmount),
       total: Math.round(total),
       paymentMethod,
-      cashTendered: cashNumber > 0 ? Math.round(cashNumber) : undefined,
-      change: change > 0 ? Math.round(change) : undefined,
+      cashTendered: paymentMethod === 'efectivo' && cashNumber > 0 ? Math.round(cashNumber) : undefined,
+      change: paymentMethod === 'efectivo' && change >= 0 ? Math.round(change) : undefined,
       timestamp: nowIso,
-      cashierName: user?.name || 'Cajero',
+      cashierName: activeCashierName,
+      cashierRole: activeCashierRole,
+      cashierId: activeCashierId,
+      customerName: resolvedBilling.customerName,
+      customerDocumentType: resolvedBilling.documentType,
+      customerDocumentNumber: resolvedBilling.documentNumber,
+      billingInfo: resolvedBilling,
       userId: activeUid
     });
 
-    // 1. Guardar recibo de venta en Firebase (users/uid/ventas/receiptId)
-    console.log("Intentando actualizar doc con ID:", receiptId, "Datos:", receiptPayload);
     try {
+      // 1. Guardar recibo único de venta en Firebase (users/uid/ventas/receiptId)
       const ventaRef = doc(db, 'users', activeUid, 'ventas', receiptId);
       await setDoc(ventaRef, receiptPayload, { merge: true });
-      console.log("Éxito al registrar venta en Firebase con ID:", receiptId);
-    } catch (error) {
-      console.error("ERROR CRÍTICO EN FIREBASE:", error);
-      alert("ERROR CRÍTICO EN FIREBASE al guardar venta: " + (error instanceof Error ? error.message : String(error)));
-    }
 
-    // 2. Liberar la mesa en Firebase (users/uid/mesas/table.id)
-    const tableFreeData = sanitizeForFirestore({
-      id: table.id,
-      status: 'libre',
-      estado: 'libre',
-      order: null,
-      currentOrder: null,
-      pedidoActual: null,
-      waiterCall: null,
-      updatedAt: nowIso,
-      userId: activeUid
-    });
-
-    console.log("Intentando actualizar doc con ID:", table.id, "Datos:", tableFreeData);
-    try {
+      // 2. Liberar la mesa en Firebase (users/uid/mesas/table.id)
+      const tableFreeData = sanitizeForFirestore({
+        id: table.id,
+        status: 'libre',
+        estado: 'libre',
+        order: null,
+        currentOrder: null,
+        pedidoActual: null,
+        waiterCall: null,
+        updatedAt: nowIso,
+        userId: activeUid
+      });
       const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
       await setDoc(mesaRef, tableFreeData, { merge: true });
-      console.log("Éxito al liberar mesa en Firebase con ID:", table.id);
-    } catch (error) {
-      console.error("ERROR CRÍTICO EN FIREBASE:", error);
-      alert("ERROR CRÍTICO EN FIREBASE al liberar mesa: " + (error instanceof Error ? error.message : String(error)));
-    }
 
-    // 3. Cerrar la comanda en Firebase (users/uid/pedidos/order.id) cambiando exactamente el campo estado a 'pagada'
-    const orderClosedData = sanitizeForFirestore({
-      id: order.id,
-      estado: 'pagada',
-      status: 'pagada',
-      closed: true,
-      closedAt: nowIso,
-      items: [],
-      productos: []
-    });
+      // 3. Cerrar la comanda en Firebase (users/uid/pedidos/order.id)
+      const orderClosedData = sanitizeForFirestore({
+        id: order.id,
+        estado: 'pagada',
+        status: 'pagada',
+        closed: true,
+        closedAt: nowIso,
+        cobradoPor: activeCashierName,
+        cobradoPorRol: activeCashierRole,
+        customerName: resolvedBilling.customerName,
+        billingInfo: resolvedBilling,
+        items: [],
+        productos: []
+      });
 
-    console.log("Intentando actualizar doc con ID:", order.id, "Datos:", orderClosedData);
-    try {
       const pedidoRef = doc(db, 'users', activeUid, 'pedidos', order.id);
-      await updateDoc(pedidoRef, orderClosedData);
-      console.log("Éxito al cambiar estado a 'pagada' con updateDoc en Firebase con ID:", order.id);
-    } catch (error) {
-      console.error("ERROR CRÍTICO EN FIREBASE al hacer updateDoc en pedido:", error);
       try {
-        const pedidoRef = doc(db, 'users', activeUid, 'pedidos', order.id);
+        await updateDoc(pedidoRef, orderClosedData);
+      } catch {
         await setDoc(pedidoRef, orderClosedData, { merge: true });
-        console.log("Éxito al cambiar estado a 'pagada' con setDoc en Firebase con ID:", order.id);
-      } catch (setErr) {
-        console.error("ERROR CRÍTICO EN FIREBASE (fallback setDoc):", setErr);
-        alert("ERROR CRÍTICO EN FIREBASE al cerrar comanda: " + (setErr instanceof Error ? setErr.message : String(setErr)));
       }
+    } catch (error) {
+      console.error('Error al sincronizar el cobro en Firebase:', error);
+      setCheckoutError(
+        'Error al registrar el cobro en la nube: ' +
+          (error instanceof Error ? error.message : String(error))
+      );
+      setIsProcessing(false);
+      return;
     }
 
-    // 4. Actualizar el estado en AppContext y cerrar modal
+    // 4. Actualizar estado en AppContext con el mismo ID de ticket y datos exactos (sin duplicar escritura)
     const res = checkoutTable(
       table.id,
       paymentMethod,
-      paymentMethod === 'efectivo' ? cashNumber : undefined
+      paymentMethod === 'efectivo' ? cashNumber : undefined,
+      {
+        receiptId,
+        cashierName: activeCashierName,
+        cashierRole: activeCashierRole,
+        cashierId: activeCashierId,
+        billingInfo: resolvedBilling,
+        skipFirestore: true
+      }
     );
 
     setIsProcessing(false);
@@ -250,83 +306,175 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in">
-      <div 
-        className="relative w-full max-w-lg max-h-[95vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col"
+      <div
+        className="relative w-full max-w-lg max-h-[95vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Floating Close Button */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Cerrar cobro"
-          className="absolute top-3.5 right-3.5 z-50 p-2 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition cursor-pointer shadow-sm border border-slate-200 dark:border-slate-700"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
         {/* Header */}
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 pr-14">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
               <Receipt className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="font-bold text-base text-slate-900 dark:text-white">
+            <div className="min-w-0">
+              <h2 className="font-bold text-base text-slate-900 dark:text-white truncate">
                 Cobrar y Cerrar {table.name}
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {table.zone || 'Mesa'} · {items.length} productos
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                {table.zone || 'Mesa'} · {items.length} productos · Cobrado por{' '}
+                <strong className="text-slate-800 dark:text-slate-200">{activeCashierName}</strong>
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+            aria-label="Cerrar cobro"
+            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition cursor-pointer border border-slate-200 dark:border-slate-700 shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-6 space-y-5 overflow-y-auto max-h-[calc(95vh-80px)]">
-          
+        <div className="p-5 sm:p-6 space-y-4 overflow-y-auto max-h-[calc(95vh-76px)]">
+          {/* Active Operator / Cashier Attribution Bar */}
+          <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="text-slate-500 dark:text-slate-400">Responsable del cobro:</span>
+              <strong className="font-bold text-slate-900 dark:text-white truncate">
+                {activeCashierName}
+              </strong>
+            </div>
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+              {activeCashierRole}
+            </span>
+          </div>
+
           {/* Total Highlight Banner */}
-          <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-lg flex items-center justify-between">
+          <div className="p-4 sm:p-5 rounded-2xl bg-slate-900 dark:bg-slate-950 border border-slate-800 text-white flex items-center justify-between gap-3">
             <div>
-              <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Total a Cobrar</span>
-              <p className="text-3xl font-extrabold tracking-tight text-white mt-0.5">
+              <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                Total a Cobrar
+              </span>
+              <p className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white font-mono tabular-nums mt-0.5">
                 $ {new Intl.NumberFormat('es-CO').format(Math.round(total))} COP
               </p>
             </div>
-            <div className="text-right text-xs text-slate-300 space-y-0.5">
-              <p>Base gravable: $ {new Intl.NumberFormat('es-CO').format(Math.round(taxableBase))}</p>
+            <div className="text-right text-xs text-slate-300 space-y-0.5 font-mono tabular-nums">
+              <p>Base: $ {new Intl.NumberFormat('es-CO').format(Math.round(taxableBase))}</p>
               {taxAmount > 0 && (
-                <p>Impoconsumo ({taxPercent}% inc.): $ {new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))}</p>
+                <p>
+                  Impoconsumo ({taxPercent}%): $ {new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))}
+                </p>
               )}
               {discountAmount > 0 && (
-                <p className="text-rose-400 font-medium">Descuento ({discountPercent}%): -$ {new Intl.NumberFormat('es-CO').format(Math.round(discountAmount))}</p>
+                <p className="text-rose-400 font-medium">
+                  Desc. ({discountPercent}%): -$ {new Intl.NumberFormat('es-CO').format(Math.round(discountAmount))}
+                </p>
               )}
               {tipAmount > 0 && (
-                <p className="text-emerald-400 font-medium">Propina: +$ {new Intl.NumberFormat('es-CO').format(Math.round(tipAmount))}</p>
+                <p className="text-emerald-400 font-medium">
+                  Propina: +$ {new Intl.NumberFormat('es-CO').format(Math.round(tipAmount))}
+                </p>
               )}
             </div>
           </div>
 
+          {/* Datos del Cliente / A nombre de quién se cobra (NIT, Cédula, etc.) */}
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                <span>A nombre de quién se cobra / Facturación</span>
+              </span>
+              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                {isFromCustomerQr ? 'Recibido del cliente (QR)' : 'Opcional'}
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                Nombre del cliente o Razón Social
+              </label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Consumidor Final (o escribe nombre / empresa)"
+                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Tipo de documento
+                </label>
+                <select
+                  value={customerDocType}
+                  onChange={(e) => {
+                    const nextType = e.target.value as CustomerDocumentType;
+                    setCustomerDocType(nextType);
+                    if (nextType === 'CONSUMIDOR_FINAL') {
+                      setCustomerDocNumber('');
+                    }
+                  }}
+                  className="w-full px-2.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                >
+                  <option value="CONSUMIDOR_FINAL">Consumidor Final</option>
+                  <option value="CC">Cédula (C.C.)</option>
+                  <option value="NIT">NIT / Empresa</option>
+                  <option value="CE">Cédula Extr. (C.E.)</option>
+                  <option value="PAS">Pasaporte</option>
+                  <option value="TI">Tarjeta Ident. (T.I.)</option>
+                  <option value="PEP">PPT / PEP</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  {customerDocType === 'NIT' ? 'Número de NIT (ej. 900123456-7)' : 'Número de identificación'}
+                </label>
+                <input
+                  type="text"
+                  value={customerDocNumber}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCustomerDocNumber(val);
+                    if (val.trim() && customerDocType === 'CONSUMIDOR_FINAL') {
+                      setCustomerDocType('CC');
+                    }
+                  }}
+                  placeholder={
+                    DOCUMENT_TYPE_OPTIONS.find((opt) => opt.value === customerDocType)?.placeholder ||
+                    'Ej. 1020304050'
+                  }
+                  className="w-full px-3 py-2 text-xs font-mono tabular-nums rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Tabla Resumen de Productos de la Comanda */}
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/50 dark:bg-slate-800/30">
-            <div className="px-4 py-2.5 bg-slate-100/70 dark:bg-slate-800/60 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/50 dark:bg-slate-800/30">
+            <div className="px-4 py-2 bg-slate-100/70 dark:bg-slate-800/60 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
               <span>Detalle de Consumo ({items.length} productos)</span>
               <span>Importe</span>
             </div>
-            <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 px-4 text-xs">
+            <div className="max-h-32 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 px-4 text-xs">
               {items.map((item: any, idx: number) => {
                 const name = item?.productName || item?.name || item?.producto || 'Producto';
                 const qty = Number(item?.quantity ?? item?.cantidad ?? 1) || 1;
                 const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
                 const itemTotal = price * qty;
                 return (
-                  <div key={item?.id || idx} className="py-2 flex items-center justify-between text-slate-700 dark:text-slate-300">
+                  <div
+                    key={item?.id || idx}
+                    className="py-2 flex items-center justify-between text-slate-700 dark:text-slate-300"
+                  >
                     <div className="flex items-center gap-2 min-w-0 pr-2">
-                      <span className="font-bold text-orange-600 dark:text-orange-400 font-mono">
+                      <span className="font-bold text-orange-600 dark:text-orange-400 font-mono tabular-nums">
                         {qty}x
                       </span>
                       <span className="truncate">{name}</span>
@@ -334,7 +482,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         <span className="text-[10px] text-slate-400 italic">({item.notes})</span>
                       )}
                     </div>
-                    <span className="font-semibold font-mono shrink-0">
+                    <span className="font-semibold font-mono tabular-nums shrink-0">
                       $ {new Intl.NumberFormat('es-CO').format(itemTotal)}
                     </span>
                   </div>
@@ -370,9 +518,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <button
                 type="button"
                 id="pay-method-card"
-                onClick={() => {
-                  setPaymentMethod('tarjeta');
-                }}
+                onClick={() => setPaymentMethod('tarjeta')}
                 className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer ${
                   paymentMethod === 'tarjeta'
                     ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 font-bold shadow-xs'
@@ -387,9 +533,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <button
                 type="button"
                 id="pay-method-transfer"
-                onClick={() => {
-                  setPaymentMethod('bizum');
-                }}
+                onClick={() => setPaymentMethod('bizum')}
                 className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition cursor-pointer ${
                   paymentMethod === 'bizum'
                     ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 font-bold shadow-xs'
@@ -405,10 +549,10 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
           {/* Cash Tendered & Change Calculator (Only for Cash) */}
           {paymentMethod === 'efectivo' && (
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 space-y-3">
-              <div className="flex items-center justify-between">
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 space-y-3">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Calculator className="w-3.5 h-3.5 text-orange-500" />
+                  <Calculator className="w-3.5 h-3.5 text-orange-500 shrink-0" />
                   Efectivo entregado por el cliente:
                 </span>
                 <div className="flex items-center gap-1">
@@ -418,44 +562,58 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     step="50"
                     value={cashTendered}
                     onChange={(e) => setCashTendered(e.target.value)}
-                    className="w-32 px-2 py-1 text-right rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono font-bold text-sm text-slate-900 dark:text-white"
+                    className="w-32 px-2 py-1 text-right rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono tabular-nums font-bold text-sm text-slate-900 dark:text-white"
                   />
                   <span className="text-xs font-bold text-slate-500">COP</span>
                 </div>
               </div>
 
-              {/* Quick Cash Buttons in Colombian Pesos */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={() => handleQuickCash(total)}
-                  className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold hover:bg-slate-100"
+                  className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold font-mono tabular-nums hover:bg-slate-100 cursor-pointer"
                 >
                   Exacto (${new Intl.NumberFormat('es-CO').format(Math.round(total))})
                 </button>
-                {[20000, 50000, 100000].filter(val => val >= total).map((billete) => (
-                  <button
-                    key={billete}
-                    type="button"
-                    onClick={() => handleQuickCash(billete)}
-                    className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold hover:bg-slate-100"
-                  >
-                    ${new Intl.NumberFormat('es-CO').format(billete)}
-                  </button>
-                ))}
+                {[20000, 50000, 100000]
+                  .filter((val) => val >= total)
+                  .map((billete) => (
+                    <button
+                      key={billete}
+                      type="button"
+                      onClick={() => handleQuickCash(billete)}
+                      className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold font-mono tabular-nums hover:bg-slate-100 cursor-pointer"
+                    >
+                      ${new Intl.NumberFormat('es-CO').format(billete)}
+                    </button>
+                  ))}
               </div>
 
-              {/* Change Output */}
               <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Cambio a devolver:
                 </span>
-                <span className={`text-base font-extrabold font-mono ${
-                  change >= 0 && isCashSufficient ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'
-                }`}>
-                  {isCashSufficient ? `$ ${new Intl.NumberFormat('es-CO').format(Math.round(change))} COP` : 'Efectivo insuficiente'}
+                <span
+                  className={`text-base font-extrabold font-mono tabular-nums ${
+                    change >= 0 && isCashSufficient
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600'
+                  }`}
+                >
+                  {isCashSufficient
+                    ? `$ ${new Intl.NumberFormat('es-CO').format(Math.round(change))} COP`
+                    : 'Efectivo insuficiente'}
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Error Banner */}
+          {checkoutError && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 flex items-center gap-2 text-xs font-semibold">
+              <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+              <span>{checkoutError}</span>
             </div>
           )}
 
@@ -463,16 +621,18 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/40 p-2.5 rounded-xl">
             <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
             <span>
-              Al confirmar el cobro, el stock del inventario se actualizará automáticamente y la mesa quedará Libre.
+              Al confirmar, el ticket quedará registrado a cargo de{' '}
+              <strong className="text-slate-700 dark:text-slate-200">{activeCashierName}</strong>, se
+              descontará el stock y la mesa quedará Libre.
             </span>
           </div>
 
           {/* Actions */}
-          <div className="pt-2 flex items-center justify-end gap-3">
+          <div className="pt-1 flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition whitespace-nowrap shrink-0 cursor-pointer"
             >
               Volver a la Mesa
             </button>
@@ -482,12 +642,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               id="btn-confirm-checkout"
               disabled={!isCashSufficient || isProcessing}
               onClick={handleConfirm}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer"
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer whitespace-nowrap shrink-0"
             >
               {isProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Guardando en Firebase...</span>
+                  <span>Procesando cobro...</span>
                 </>
               ) : (
                 <>
@@ -497,7 +657,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               )}
             </button>
           </div>
-
         </div>
       </div>
     </div>

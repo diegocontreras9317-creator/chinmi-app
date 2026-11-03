@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { SaleReceipt } from '../../types';
 import { formatCOP } from '../../utils/currency';
+import { formatCustomerDocument } from '../../utils/billing';
 import {
   X,
   Receipt,
@@ -166,9 +167,15 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
     }
     const term = searchQuery.trim().toLowerCase();
     if (!term) return true;
-    return s.tableName.toLowerCase().includes(term) ||
-           s.cashierName.toLowerCase().includes(term) ||
-           s.id.toLowerCase().includes(term);
+    const custName = (s.customerName || s.billingInfo?.customerName || 'consumidor final').toLowerCase();
+    const custDoc = (s.customerDocumentNumber || s.billingInfo?.documentNumber || '').toLowerCase();
+    return (
+      s.tableName.toLowerCase().includes(term) ||
+      s.cashierName.toLowerCase().includes(term) ||
+      custName.includes(term) ||
+      custDoc.includes(term) ||
+      s.id.toLowerCase().includes(term)
+    );
   });
 
   const filteredDayTotal = filteredSales.reduce((sum, s) => sum + s.total, 0);
@@ -179,10 +186,13 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   const averageTicket = sales.length > 0 ? (totalRevenue / sales.length) : 0;
 
   const handleExportCSV = () => {
-    const headers = 'ID Ticket,Fecha,Mesa,Camarero,Metodo Pago,Subtotal,IVA,Descuento,Propina,Total\n';
-    const rows = filteredSales.map(s => 
-      `"${s.id}","${s.timestamp}","${s.tableName}","${s.cashierName}","${s.paymentMethod}",${s.subtotal},${s.taxAmount},${s.discountAmount},${s.tipAmount},${s.total}`
-    ).join('\n');
+    const headers = 'ID Ticket,Fecha,Mesa,Cliente,Tipo Documento,Numero Documento,Cobrado Por,Metodo Pago,Subtotal,IVA,Descuento,Propina,Total\n';
+    const rows = filteredSales.map(s => {
+      const custName = s.customerName || s.billingInfo?.customerName || 'Consumidor Final';
+      const docType = s.customerDocumentType || s.billingInfo?.documentType || 'CONSUMIDOR_FINAL';
+      const docNum = s.customerDocumentNumber || s.billingInfo?.documentNumber || '';
+      return `"${s.id}","${s.timestamp}","${s.tableName}","${custName}","${docType}","${docNum}","${s.cashierName}","${s.paymentMethod}",${s.subtotal},${s.taxAmount},${s.discountAmount},${s.tipAmount},${s.total}`;
+    }).join('\n');
 
     const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -284,7 +294,7 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por mesa, camarero o número de ticket..."
+              placeholder="Buscar por mesa, cliente, NIT/cédula, cajero o ticket..."
               className="w-full pl-9 pr-4 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
             />
           </div>
@@ -503,12 +513,13 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
               )}
             </div>
           ) : (
-            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
-              <table className="w-full text-left text-xs">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs overflow-x-auto">
+              <table className="w-full text-left text-xs min-w-[680px]">
                 <thead className="bg-slate-50 dark:bg-slate-850 text-slate-500 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     <th className="px-4 py-3">Ticket / Fecha</th>
                     <th className="px-4 py-3">Mesa</th>
+                    <th className="px-4 py-3">Cliente / Identificación</th>
                     <th className="px-4 py-3">Cobrado por</th>
                     <th className="px-4 py-3">Método</th>
                     <th className="px-4 py-3 text-center">Líneas</th>
@@ -517,55 +528,83 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredSales.map((sale) => (
-                    <tr key={sale.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                      <td className="px-4 py-3">
-                        <span className="font-mono font-bold text-slate-900 dark:text-white">
-                          #{sale.id.slice(-6)}
-                        </span>
-                        <span className="block text-[10px] text-slate-400">
-                          {new Date(sale.timestamp).toLocaleString('es-ES', {
-                            day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
-                          })}
-                        </span>
-                      </td>
+                  {filteredSales.map((sale) => {
+                    const custName = sale.customerName?.trim() || sale.billingInfo?.customerName?.trim() || 'Consumidor Final';
+                    const docFormatted = formatCustomerDocument(
+                      sale.customerDocumentType || sale.billingInfo?.documentType,
+                      sale.customerDocumentNumber || sale.billingInfo?.documentNumber
+                    );
+                    return (
+                      <tr key={sale.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                        <td className="px-4 py-3">
+                          <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                            #{sale.id.slice(-6)}
+                          </span>
+                          <span className="block text-[10px] font-mono tabular-nums text-slate-400">
+                            {new Date(sale.timestamp).toLocaleString('es-CO', {
+                              day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                            })}
+                          </span>
+                        </td>
 
-                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
-                        {sale.tableName}
-                      </td>
+                        <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                          {sale.tableName}
+                        </td>
 
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
-                        {sale.cashierName}
-                      </td>
+                        <td className="px-4 py-3">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 block">
+                            {custName}
+                          </span>
+                          {docFormatted ? (
+                            <span className="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400 block">
+                              {docFormatted}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 block">Sin documento</span>
+                          )}
+                        </td>
 
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium capitalize text-slate-700 dark:text-slate-300">
-                          {sale.paymentMethod === 'tarjeta' && <CreditCard className="w-3 h-3 text-orange-500" />}
-                          {sale.paymentMethod === 'efectivo' && <Banknote className="w-3 h-3 text-emerald-500" />}
-                          {sale.paymentMethod === 'bizum' && <Smartphone className="w-3 h-3 text-blue-500" />}
-                          {sale.paymentMethod === 'bizum' ? 'Transferencia / QR' : sale.paymentMethod}
-                        </span>
-                      </td>
+                        <td className="px-4 py-3">
+                          <span className="font-medium text-slate-700 dark:text-slate-300 block">
+                            {sale.cashierName}
+                          </span>
+                          {sale.cashierRole && (
+                            <span className="text-[10px] text-slate-400 block">
+                              {sale.cashierRole}
+                            </span>
+                          )}
+                        </td>
 
-                      <td className="px-4 py-3 text-center font-mono text-slate-500">
-                        {sale.items.reduce((acc, it) => acc + it.quantity, 0)} uds
-                      </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium capitalize text-slate-700 dark:text-slate-300">
+                            {sale.paymentMethod === 'tarjeta' && <CreditCard className="w-3 h-3 text-orange-500" />}
+                            {sale.paymentMethod === 'efectivo' && <Banknote className="w-3 h-3 text-emerald-500" />}
+                            {sale.paymentMethod === 'bizum' && <Smartphone className="w-3 h-3 text-blue-500" />}
+                            {sale.paymentMethod === 'bizum' ? 'Transferencia / QR' : sale.paymentMethod}
+                          </span>
+                        </td>
 
-                      <td className="px-4 py-3 text-right font-mono font-bold text-sm text-slate-900 dark:text-white">
-                        {formatCOP(sale.total)}
-                      </td>
+                        <td className="px-4 py-3 text-center font-mono tabular-nums text-slate-500">
+                          {sale.items.reduce((acc, it) => acc + it.quantity, 0)} uds
+                        </td>
 
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => setSelectedReceipt(sale)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold"
-                        >
-                          <Printer className="w-3 h-3 text-orange-500" />
-                          <span>Ver Ticket</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="px-4 py-3 text-right font-mono tabular-nums font-bold text-sm text-slate-900 dark:text-white">
+                          {formatCOP(sale.total)}
+                        </td>
+
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReceipt(sale)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold cursor-pointer whitespace-nowrap"
+                          >
+                            <Printer className="w-3 h-3 text-orange-500" />
+                            <span>Ver Ticket</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

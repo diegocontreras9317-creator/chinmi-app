@@ -7,7 +7,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
-  sendEmailVerification
+  sendEmailVerification,
+  updateProfile
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, Timestamp, deleteField } from 'firebase/firestore';
 import { auth, db, googleProvider, facebookProvider } from '../firebase';
@@ -270,6 +271,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const isExpired = !isMasterOwner && parsedExpiry !== null && new Date(parsedExpiry).getTime() <= Date.now();
             const storedPlan: PlanType = data.plan || (isMasterOwner ? 'pro' : 'free');
             const effectivePlan: PlanType = isExpired ? 'free' : storedPlan;
+
+            if (data.name && data.name.trim()) {
+              initialUserName = data.name.trim();
+            }
 
             setUser((prev) => ({
               id: uid,
@@ -597,6 +602,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await createUserWithEmailAndPassword(auth, cleanEmail, password);
       const uid = res.user.uid;
+      await updateProfile(res.user, { displayName: cleanName }).catch(() => {});
       const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail)}`;
 
       const newUser: User = {
@@ -612,6 +618,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
 
       await setDoc(doc(db, 'users', uid), newUser, { merge: true });
+      await saveEmpleadoToFirestore(uid, {
+        id: `emp-admin-${uid.slice(0, 6)}`,
+        nombre: cleanName,
+        rol: 'Admin',
+        pin: '',
+        avatarColor: 'purple',
+        createdAt: new Date().toISOString()
+      }).catch(() => {});
 
       // Send Email Verification
       try {
@@ -666,6 +680,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginAsDemoRole = (_role: UserRole) => {};
 
   const logout = () => {
+    bloquearPantalla();
     try {
       signOut(auth).catch(() => {});
     } catch (e) {}

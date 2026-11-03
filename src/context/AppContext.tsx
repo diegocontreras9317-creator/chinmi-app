@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem } from '../types';
+import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem, CustomerBillingInfo } from '../types';
+import { extractTableBillingInfo, normalizeBillingInfo, hasCustomBillingData } from '../utils/billing';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
 import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
 import {
@@ -63,7 +64,15 @@ interface AppContextType {
   updateTable: (id: string, partial: Partial<Table>) => void;
   deleteTable: (id: string) => void;
   setTableStatus: (tableId: string, status: TableStatus) => void;
-  callWaiter: (tableId: string, type: 'waiter' | 'bill', message?: string) => void;
+  callWaiter: (
+    tableId: string,
+    type: 'waiter' | 'bill',
+    message?: string,
+    extra?: {
+      billingInfo?: CustomerBillingInfo;
+      preferredPaymentMethod?: 'efectivo' | 'tarjeta' | 'transferencia';
+    }
+  ) => void;
   dismissWaiterCall: (tableId: string) => void;
   
   // Order & POS operations
@@ -79,8 +88,32 @@ interface AppContextType {
   updateOrderItemQuantity: (tableId: string, itemId: string, delta: number) => void;
   removeOrderItem: (tableId: string, itemId: string) => void;
   updateOrderModifiers: (tableId: string, modifiers: { taxPercent?: number; discountPercent?: number; tipAmount?: number }) => void;
-  checkoutTable: (tableId: string, paymentMethod: PaymentMethod, cashTendered?: number) => { success: boolean; receipt?: SaleReceipt };
-  cobrarMesa: (tableId: string, paymentMethod: PaymentMethod, cashTendered?: number) => Promise<{ success: boolean; receipt?: SaleReceipt }>;
+  updateOrderBillingInfo: (tableId: string, billingInfo: CustomerBillingInfo) => void;
+  checkoutTable: (
+    tableId: string,
+    paymentMethod: PaymentMethod,
+    cashTendered?: number,
+    options?: {
+      receiptId?: string;
+      cashierName?: string;
+      cashierRole?: string;
+      cashierId?: string;
+      billingInfo?: CustomerBillingInfo;
+      skipFirestore?: boolean;
+    }
+  ) => { success: boolean; receipt?: SaleReceipt };
+  cobrarMesa: (
+    tableId: string,
+    paymentMethod: PaymentMethod,
+    cashTendered?: number,
+    options?: {
+      receiptId?: string;
+      cashierName?: string;
+      cashierRole?: string;
+      cashierId?: string;
+      billingInfo?: CustomerBillingInfo;
+    }
+  ) => Promise<{ success: boolean; receipt?: SaleReceipt }>;
   eliminarProducto: (tableId: string, itemId: string) => Promise<void>;
   
   // Product & Inventory operations
@@ -141,7 +174,15 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, updateUserBusinessInfo } = useAuth();
+  const { user, empleadoActivo, updateUserBusinessInfo } = useAuth();
+  const activeOperatorName =
+    empleadoActivo?.nombre?.trim() ||
+    user?.name?.trim() ||
+    auth.currentUser?.displayName?.trim() ||
+    auth.currentUser?.email?.split('@')[0] ||
+    'Usuario';
+  const activeOperatorRole = empleadoActivo?.rol || user?.role || '';
+  const activeOperatorId = empleadoActivo?.id || user?.id || '';
   const [config, setConfig] = useState<AppConfig>(() => {
     try {
       const savedConfig = localStorage.getItem('appgenerica_custom_config');
@@ -602,7 +643,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     persistChanges(nextTables, products, sales);
   };
 
-  const callWaiter = (tableId: string, type: 'waiter' | 'bill', message?: string) => {
+  const callWaiter = (
+    tableId: string,
+    type: 'waiter' | 'bill',
+    message?: string,
+    extra?: {
+      billingInfo?: CustomerBillingInfo;
+      preferredPaymentMethod?: 'efectivo' | 'tarjeta' | 'transferencia';
+    }
+  ) => {
     // Play audible service bell in the app
     playServiceBell(type);
 
@@ -610,16 +659,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const callKey = `${tableId}_${type}_${nowIso}`;
     prevWaiterCallsRef.current[tableId] = callKey;
 
+    const normalizedBilling =
+      extra?.billingInfo && hasCustomBillingData(extra.billingInfo)
+        ? normalizeBillingInfo(extra.billingInfo)
+        : undefined;
+
     const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
+      const nextOrder =
+        tbl.order && normalizedBilling
+          ? {
+              ...tbl.order,
+              customerName: normalizedBilling.customerName,
+              nombreCliente: normalizedBilling.customerName,
+              billingInfo: normalizedBilling,
+              lastUpdatedAt: nowIso
+            }
+          : tbl.order;
+
       return {
         ...tbl,
         status: type === 'bill' ? ('cuenta' as TableStatus) : tbl.status,
         updatedAt: nowIso,
+        order: nextOrder,
         waiterCall: {
           type,
           requestedAt: nowIso,
-          message: message || (type === 'bill' ? 'Cliente solicita la cuenta' : 'Cliente solicita atención en mesa')
+          message: message || (type === 'bill' ? 'Cliente solicita la cuenta' : 'Cliente solicita atención en mesa'),
+          ...(extra?.preferredPaymentMethod ? { preferredPaymentMethod: extra.preferredPaymentMethod } : {}),
+          ...(normalizedBilling ? { billingInfo: normalizedBilling } : {})
         }
       };
     });
@@ -898,10 +966,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     persistChanges(nextTables, products, sales);
   };
 
+  const updateOrderBillingInfo = (tableId: string, billingInfo: CustomerBillingInfo) => {
+    const nowIso = new Date().toISOString();
+    const normalized = normalizeBillingInfo(billingInfo);
+
+    const nextTables = tablesRef.current.map(tbl => {
+      if (tbl.id !== tableId || !tbl.order) return tbl;
+      return {
+        ...tbl,
+        updatedAt: nowIso,
+        order: {
+          ...tbl.order,
+          customerName: normalized.customerName,
+          nombreCliente: normalized.customerName,
+          billingInfo: normalized,
+          lastUpdatedAt: nowIso
+        }
+      };
+    });
+
+    tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
+    setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
+    persistChanges(nextTables, products, sales);
+  };
+
   const checkoutTable = (
     tableId: string,
     paymentMethod: PaymentMethod,
-    cashTendered?: number
+    cashTendered?: number,
+    options?: {
+      receiptId?: string;
+      cashierName?: string;
+      cashierRole?: string;
+      cashierId?: string;
+      billingInfo?: CustomerBillingInfo;
+      skipFirestore?: boolean;
+    }
   ): { success: boolean; receipt?: SaleReceipt } => {
     const table = tablesRef.current.find(t => t.id === tableId);
     const order = table?.order;
@@ -931,32 +1036,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       change = Math.max(0, cashTendered - total);
     }
 
+    const resolvedCashierName = options?.cashierName?.trim() || activeOperatorName;
+    const resolvedCashierRole = options?.cashierRole?.trim() || activeOperatorRole || undefined;
+    const resolvedCashierId = options?.cashierId?.trim() || activeOperatorId || undefined;
+
+    const extracted = extractTableBillingInfo(table);
+    const resolvedBilling = normalizeBillingInfo(options?.billingInfo || extracted.billing);
+
     const receipt: SaleReceipt = {
-      id: `tick-${Date.now()}`,
+      id: options?.receiptId || `tick-${Date.now()}`,
       orderId: order.id,
       tableName: table.name,
-      items: [...order.items],
+      items: [...items],
       subtotal: Math.round(subtotal),
       taxAmount: Math.round(taxAmount),
       taxPercent: taxPercent,
       discountAmount: Math.round(discountAmount),
-      discountPercent: order.discountPercent,
-      tipAmount: Math.round(order.tipAmount),
+      discountPercent: discountPercent,
+      tipAmount: Math.round(tipAmount),
       total: Math.round(total),
       paymentMethod,
       cashTendered: cashTendered ? Math.round(cashTendered) : undefined,
       change: change !== undefined ? Math.round(change) : undefined,
       timestamp: new Date().toISOString(),
-      cashierName: user?.name || 'Cajero'
+      cashierName: resolvedCashierName,
+      ...(resolvedCashierRole ? { cashierRole: resolvedCashierRole } : {}),
+      ...(resolvedCashierId ? { cashierId: resolvedCashierId } : {}),
+      customerName: resolvedBilling.customerName,
+      customerDocumentType: resolvedBilling.documentType,
+      customerDocumentNumber: resolvedBilling.documentNumber,
+      ...(resolvedBilling.email ? { customerEmail: resolvedBilling.email } : {}),
+      billingInfo: resolvedBilling
     };
 
     // 1. Decrement inventory stock automatically
     const nextProducts = products.map(prod => {
-      const soldItem = order.items.find(item => item.productId === prod.id);
+      const soldItem = items.find((item: any) => item.productId === prod.id);
       if (soldItem) {
         return {
           ...prod,
-          stock: Math.max(0, prod.stock - soldItem.quantity)
+          stock: Math.max(0, prod.stock - (Number(soldItem.quantity) || 0))
         };
       }
       return prod;
@@ -977,8 +1096,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     });
 
-    // 3. Record sales receipt & persist immediately
-    const nextSales = [receipt, ...sales];
+    // 3. Record sales receipt (deduplicating by ID) & persist immediately
+    const nextSales = [receipt, ...sales.filter(s => s.id !== receipt.id)];
 
     tablesRef.current = nextTables;
     setTables(nextTables);
@@ -988,7 +1107,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     persistChanges(nextTables, nextProducts, nextSales);
 
     // 4. Actualización directa e inmediata en Firestore para liberar la mesa sin desfases
-    if (activeUid && activeUid !== 'default') {
+    if (!options?.skipFirestore && activeUid && activeUid !== 'default') {
       releaseTableInFirestore(tableId, order.id, activeUid).catch(err => {
         console.error('ERROR CRÍTICO EN FIREBASE al liberar mesa en checkoutTable:', err);
       });
@@ -1004,7 +1123,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cobrarMesa = async (
     tableId: string,
     paymentMethod: PaymentMethod,
-    cashTendered?: number
+    cashTendered?: number,
+    options?: {
+      receiptId?: string;
+      cashierName?: string;
+      cashierRole?: string;
+      cashierId?: string;
+      billingInfo?: CustomerBillingInfo;
+    }
   ): Promise<{ success: boolean; receipt?: SaleReceipt }> => {
     if (!tableId || typeof tableId !== 'string') {
       console.error("ERROR CRÍTICO: tableId es undefined en cobrarMesa:", tableId);
@@ -1018,10 +1144,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error("cobrarMesa abortado: No se encontró orden activa o su ID es undefined");
     }
 
-    const res = checkoutTable(tableId, paymentMethod, cashTendered);
+    const res = checkoutTable(tableId, paymentMethod, cashTendered, {
+      ...options,
+      skipFirestore: true
+    });
     if (res.receipt && activeUid && activeUid !== 'default') {
       try {
-        console.log("Intentando actualizar doc con ID:", tableId, "Datos para liberar mesa");
         await releaseTableInFirestore(tableId, order.id, activeUid);
       } catch (error) {
         console.error("ERROR CRÍTICO EN FIREBASE al liberar mesa:", error);
@@ -1029,7 +1157,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       try {
-        console.log("Intentando actualizar doc con ID:", res.receipt.id, "Datos:", res.receipt);
         await saveSaleToFirestore(res.receipt, activeUid);
       } catch (error) {
         console.error("ERROR CRÍTICO EN FIREBASE al guardar venta:", error);
@@ -1401,7 +1528,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       arrived: true,
       arrivedComplete: payload.arrivedComplete,
       confirmedAt: confirmedIso,
-      confirmedBy: payload.confirmedBy?.trim() || user?.name || 'Encargado',
+      confirmedBy: payload.confirmedBy?.trim() || activeOperatorName,
       receptionNotes: payload.receptionNotes?.trim() || undefined,
       stockUpdated: didUpdateStock
     };
@@ -1470,6 +1597,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateOrderItemQuantity,
         removeOrderItem,
         updateOrderModifiers,
+        updateOrderBillingInfo,
         checkoutTable,
         cobrarMesa,
         eliminarProducto,

@@ -1,14 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Product, Table, OrderItem, Order } from '../../types';
+import { Product, Table, OrderItem, CustomerBillingInfo, CustomerDocumentType } from '../../types';
+import {
+  DOCUMENT_TYPE_OPTIONS,
+  formatCustomerDocument,
+  normalizeBillingInfo,
+  hasCustomBillingData
+} from '../../utils/billing';
 import { auth, db } from '../../firebase';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import {
   subscribeUserMenu,
   subscribeUserTables,
   saveTableToFirestore,
-  saveOrderToFirestore,
-  saveSaleToFirestore,
   sanitizeForFirestore
 } from '../../services/firestoreUserStorage';
 import { formatCOP } from '../../utils/currency';
@@ -36,7 +40,8 @@ import {
   Banknote,
   Smartphone,
   Eye,
-  Check
+  Check,
+  FileText
 } from 'lucide-react';
 
 interface CartItem {
@@ -116,10 +121,47 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [customerName, setCustomerName] = useState('');
+  const billingStorageKey = `chinmi_qr_billing_${urlMesa || tableId || 'default'}`;
+
+  const [customerName, setCustomerName] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const saved = localStorage.getItem(billingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.customerName || '';
+      }
+    } catch {}
+    return '';
+  });
+  const [customerDocType, setCustomerDocType] = useState<CustomerDocumentType>(() => {
+    if (typeof window === 'undefined') return 'CONSUMIDOR_FINAL';
+    try {
+      const saved = localStorage.getItem(billingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.documentType || 'CONSUMIDOR_FINAL';
+      }
+    } catch {}
+    return 'CONSUMIDOR_FINAL';
+  });
+  const [customerDocNumber, setCustomerDocNumber] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const saved = localStorage.getItem(billingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.documentNumber || '';
+      }
+    } catch {}
+    return '';
+  });
+  const [showCartBillingFields, setShowCartBillingFields] = useState<boolean>(false);
+
   const [activeItemForNote, setActiveItemForNote] = useState<Product | null>(null);
   const [itemNoteText, setItemNoteText] = useState('');
   const [orderSentSuccess, setOrderSentSuccess] = useState(false);
+  const [portalErrorMsg, setPortalErrorMsg] = useState<string | null>(null);
 
   // Modals for Waiter & Bill
   const [isCallWaiterModalOpen, setIsCallWaiterModalOpen] = useState(false);
@@ -130,6 +172,36 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const [paymentMethodChoice, setPaymentMethodChoice] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('tarjeta');
   const [cashAmountNote, setCashAmountNote] = useState('');
   const [billRequestSuccess, setBillRequestSuccess] = useState<string | null>(null);
+
+  // Persist customer billing details locally on phone for convenience
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(
+        billingStorageKey,
+        JSON.stringify({
+          customerName,
+          documentType: customerDocType,
+          documentNumber: customerDocNumber
+        })
+      );
+    } catch {}
+  }, [billingStorageKey, customerName, customerDocType, customerDocNumber]);
+
+  // Hydrate from active order billing info if local fields are empty
+  useEffect(() => {
+    const orderBilling = table?.order?.billingInfo || table?.waiterCall?.billingInfo;
+    if (!orderBilling) return;
+    if (!customerName && orderBilling.customerName && orderBilling.customerName !== 'Consumidor Final') {
+      setCustomerName(orderBilling.customerName);
+    }
+    if (!customerDocNumber && orderBilling.documentNumber) {
+      setCustomerDocNumber(orderBilling.documentNumber);
+      if (orderBilling.documentType && orderBilling.documentType !== 'CONSUMIDOR_FINAL') {
+        setCustomerDocType(orderBilling.documentType);
+      }
+    }
+  }, [table?.order?.id, table?.order?.billingInfo?.documentNumber, table?.waiterCall?.requestedAt]);
 
   // Detail Modal for Product Image & Ingredients
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
@@ -220,17 +292,33 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   // Submit cart order directly to kitchen/POS
   const handleSendOrder = async () => {
     if (!table || cart.length === 0 || !canOrder) return;
+    setPortalErrorMsg(null);
 
     // 1. Obtener restId desde URL o fallback a usuario autenticado
     const targetUid = urlUid || auth.currentUser?.uid;
     if (!targetUid) {
-      alert('Error crítico de Firebase: No se encontró el restId del restaurante en la URL ni sesión activa.');
+      setPortalErrorMsg('No se encontró el identificador del restaurante en el enlace QR.');
       return;
     }
 
     const nowIso = new Date().toISOString();
     const existingOrder = table.order;
     const orderId = existingOrder?.id || `ord-${Date.now()}`;
+
+    const candidateBilling: Partial<CustomerBillingInfo> = {
+      customerName: customerName.trim(),
+      documentType: customerDocType,
+      documentNumber: customerDocNumber.trim()
+    };
+    const resolvedBilling: CustomerBillingInfo | null = hasCustomBillingData(candidateBilling)
+      ? normalizeBillingInfo(candidateBilling)
+      : existingOrder?.billingInfo || null;
+
+    const effectiveCustomerLabel =
+      customerName.trim() ||
+      (resolvedBilling?.customerName && resolvedBilling.customerName !== 'Consumidor Final'
+        ? resolvedBilling.customerName
+        : '');
 
     // Sanitización exhaustiva del array de productos para que NINGÚN campo sea undefined
     const cleanNewItems: OrderItem[] = cart.map(c => ({
@@ -241,7 +329,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       quantity: Number(c.quantity) || 1,
       notes: c.notes?.trim() || '',
       addedAt: nowIso,
-      customerName: customerName.trim() || '',
+      customerName: effectiveCustomerLabel,
       orderedBy: 'cliente'
     }));
 
@@ -254,7 +342,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       quantity: Number(it.quantity) || 1,
       notes: it.notes?.trim() || '',
       addedAt: it.addedAt || nowIso,
-      customerName: it.customerName?.trim() || customerName.trim() || '',
+      customerName: it.customerName?.trim() || effectiveCustomerLabel,
       orderedBy: it.orderedBy || 'cliente'
     }));
 
@@ -276,8 +364,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       openedAt: existingOrder?.openedAt || nowIso,
       lastUpdatedAt: nowIso,
       userId: targetUid || '',
-      nombreCliente: customerName.trim() || '',
-      cliente: customerName.trim() || '',
+      customerName: effectiveCustomerLabel,
+      nombreCliente: effectiveCustomerLabel,
+      cliente: effectiveCustomerLabel,
+      billingInfo: resolvedBilling,
       comentario: '',
       mesa: table.name || 'Barra'
     };
@@ -297,33 +387,28 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       waiterCall: table.waiterCall ? {
         type: table.waiterCall.type || 'waiter',
         requestedAt: table.waiterCall.requestedAt || nowIso,
-        message: table.waiterCall.message || ''
+        message: table.waiterCall.message || '',
+        ...(table.waiterCall.preferredPaymentMethod
+          ? { preferredPaymentMethod: table.waiterCall.preferredPaymentMethod }
+          : {}),
+        ...(table.waiterCall.billingInfo ? { billingInfo: table.waiterCall.billingInfo } : {})
       } : null
     };
 
     const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
 
     try {
-      // 1. Guardado explícito en la nube:
-      // collection(db, 'users', targetUid, 'pedidos')
       await setDoc(doc(db, 'users', targetUid, 'pedidos', sanitizedOrderPayload.id), sanitizedOrderPayload, { merge: true });
-
-      // Actualizar también la mesa en Firestore para que la caja la vea ocupada y con los platos
       await setDoc(doc(db, 'users', targetUid, 'mesas', table.id), sanitizedTablePayload, { merge: true });
 
-      // 2. Alertas visuales para depuración (Muy Importante):
-      alert('Pedido enviado correctamente a la caja');
       setOrderSentSuccess(true);
       setTimeout(() => setOrderSentSuccess(false), 6000);
 
-      // 3. Eliminación de estado fantasma:
-      // NO usamos localStorage ni mutamos manualmente el estado de React con addItemsToOrder.
-      // El estado en pantalla se actualiza automáticamente gracias a onSnapshot (subscribeUserTables).
       setCart([]);
       setIsCartOpen(false);
     } catch (error: any) {
       console.error('Error al guardar pedido en Firestore:', error);
-      alert('Error crítico de Firebase: ' + (error?.message || String(error)));
+      setPortalErrorMsg('No se pudo enviar el pedido: ' + (error?.message || String(error)));
     }
   };
 
@@ -362,23 +447,59 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   // Action: Request Bill
   const handleConfirmRequestBill = async () => {
     if (!table) return;
+    setPortalErrorMsg(null);
     const methodText = paymentMethodChoice === 'efectivo'
       ? `Efectivo${cashAmountNote ? ` (paga con: ${cashAmountNote})` : ''}`
       : paymentMethodChoice === 'tarjeta'
       ? 'Tarjeta / Datáfono'
       : 'Transferencia / Nequi / Daviplata';
 
+    const candidateBilling: Partial<CustomerBillingInfo> = {
+      customerName: customerName.trim(),
+      documentType: customerDocType,
+      documentNumber: customerDocNumber.trim()
+    };
+    const hasBilling = hasCustomBillingData(candidateBilling);
+    const normalizedBilling = hasBilling
+      ? normalizeBillingInfo(candidateBilling)
+      : table.order?.billingInfo || undefined;
+
+    const docSummary = normalizedBilling
+      ? formatCustomerDocument(normalizedBilling.documentType, normalizedBilling.documentNumber)
+      : '';
+    const billingText =
+      normalizedBilling && hasCustomBillingData(normalizedBilling)
+        ? ` · Cobrar a: ${normalizedBilling.customerName}${docSummary ? ` (${docSummary})` : ''}`
+        : '';
+
     const nowIso = new Date().toISOString();
-    const msg = `Mesa ${table.number} solicita la cuenta. Método: ${methodText}`;
+    const msg = `Mesa ${table.number} solicita la cuenta. Método: ${methodText}${billingText}`;
+
+    const nextOrder = table.order
+      ? {
+          ...table.order,
+          ...(normalizedBilling
+            ? {
+                customerName: normalizedBilling.customerName,
+                nombreCliente: normalizedBilling.customerName,
+                billingInfo: normalizedBilling
+              }
+            : {}),
+          lastUpdatedAt: nowIso
+        }
+      : table.order;
 
     const updatedTable: Table = {
       ...table,
       status: 'cuenta',
       updatedAt: nowIso,
+      order: nextOrder,
       waiterCall: {
         type: 'bill',
         requestedAt: nowIso,
-        message: msg
+        message: msg,
+        preferredPaymentMethod: paymentMethodChoice,
+        ...(normalizedBilling ? { billingInfo: normalizedBilling } : {})
       }
     };
 
@@ -391,10 +512,19 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       }
     }
 
-    callWaiter(table.id, 'bill', msg);
+    callWaiter(table.id, 'bill', msg, {
+      billingInfo: normalizedBilling,
+      preferredPaymentMethod: paymentMethodChoice
+    });
 
     setIsRequestBillModalOpen(false);
-    setBillRequestSuccess(`¡Cuenta solicitada! El mesero se dirige con la cuenta (${methodText}).`);
+    setBillRequestSuccess(
+      `¡Cuenta solicitada! ${
+        normalizedBilling && hasCustomBillingData(normalizedBilling)
+          ? `A nombre de ${normalizedBilling.customerName}${docSummary ? ` (${docSummary})` : ''} · `
+          : ''
+      }Pago: ${methodText}.`
+    );
     setTimeout(() => setBillRequestSuccess(null), 8000);
   };
 
@@ -583,6 +713,23 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
           <div className="p-3.5 rounded-2xl bg-purple-600 text-white shadow-md flex items-center gap-2.5 animate-in fade-in">
             <Check className="w-5 h-5 shrink-0" />
             <span className="text-xs font-bold">{billRequestSuccess}</span>
+          </div>
+        )}
+
+        {/* Portal Error Banner */}
+        {portalErrorMsg && (
+          <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 flex items-center justify-between gap-2 text-xs font-semibold">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+              <span>{portalErrorMsg}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPortalErrorMsg(null)}
+              className="p-1 text-rose-500 hover:text-rose-700"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -871,7 +1018,34 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               })}
             </div>
 
-            {/* Request Bill Button in summary */}
+            {/* Billing attribution preview & Request Bill Button in summary */}
+            {(hasCustomBillingData(existingOrder?.billingInfo) || hasCustomBillingData(table.waiterCall?.billingInfo)) && (() => {
+              const activeBillInfo = table.waiterCall?.billingInfo || existingOrder?.billingInfo;
+              const docStr = formatCustomerDocument(activeBillInfo?.documentType, activeBillInfo?.documentNumber);
+              return (
+                <div className="p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 text-xs">
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Datos registrados para cobro / factura
+                    </span>
+                    <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                      {activeBillInfo?.customerName || 'Consumidor Final'}
+                      {docStr ? ` · ${docStr}` : ''}
+                    </p>
+                  </div>
+                  {canRequestBill && (
+                    <button
+                      type="button"
+                      onClick={() => setIsRequestBillModalOpen(true)}
+                      className="text-[11px] font-bold text-rose-900 dark:text-rose-300 hover:underline shrink-0 cursor-pointer"
+                    >
+                      Cambiar
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
             {canRequestBill && (
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
                 <button
@@ -880,7 +1054,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <CreditCard className="w-3.5 h-3.5" />
-                  <span>Pedir la Cuenta a la Mesa</span>
+                  <span>Pedir la Cuenta / Datos de Factura</span>
                 </button>
               </div>
             )}
@@ -1033,7 +1207,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       {/* MODAL 2: REQUEST BILL */}
       {isRequestBillModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-400 flex items-center justify-center">
@@ -1052,12 +1226,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             </div>
 
             {existingItemsCount > 0 ? (
-              <div className="p-3 rounded-md bg-stone-100 dark:bg-stone-850 border border-stone-200 dark:border-stone-700 space-y-1">
+              <div className="p-3 rounded-md bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-stone-900 dark:text-stone-100">
                     Total a pagar:
                   </span>
-                  <span className="font-mono font-black text-base text-stone-900 dark:text-stone-100">
+                  <span className="font-mono tabular-nums font-black text-base text-stone-900 dark:text-stone-100">
                     {formatCOP(existingTaxInclusiveTotal)}
                   </span>
                 </div>
@@ -1066,10 +1240,83 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 </p>
               </div>
             ) : (
-              <p className="text-xs text-slate-500">
-                Avisaremos al mesero para que lleve la cuenta a tu mesa.
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Avisaremos al personal para llevar la cuenta a tu mesa.
               </p>
             )}
+
+            {/* Datos de a nombre de quién se cobra (Nombre / Razón Social + NIT / Cédula) */}
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
+                  <span>¿A nombre de quién sale el cobro / factura?</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-medium">Opcional</span>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                  Nombre completo o Razón Social
+                </label>
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Consumidor Final, tu nombre o empresa..."
+                  className="w-full px-3 py-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-900/40"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                    Tipo de documento
+                  </label>
+                  <select
+                    value={customerDocType}
+                    onChange={(e) => {
+                      const nextType = e.target.value as CustomerDocumentType;
+                      setCustomerDocType(nextType);
+                      if (nextType === 'CONSUMIDOR_FINAL') {
+                        setCustomerDocNumber('');
+                      }
+                    }}
+                    className="w-full px-2.5 py-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold focus:outline-hidden focus:ring-2 focus:ring-rose-900/40"
+                  >
+                    <option value="CONSUMIDOR_FINAL">Sin doc. / Final</option>
+                    <option value="CC">Cédula (C.C.)</option>
+                    <option value="NIT">NIT / Empresa</option>
+                    <option value="CE">Cédula Extr. (C.E.)</option>
+                    <option value="PAS">Pasaporte</option>
+                    <option value="TI">T.I.</option>
+                    <option value="PEP">PPT / PEP</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                    {customerDocType === 'NIT' ? 'Número de NIT (con DV)' : 'Número de identificación'}
+                  </label>
+                  <input
+                    type="text"
+                    value={customerDocNumber}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomerDocNumber(val);
+                      if (val.trim() && customerDocType === 'CONSUMIDOR_FINAL') {
+                        setCustomerDocType('CC');
+                      }
+                    }}
+                    placeholder={
+                      DOCUMENT_TYPE_OPTIONS.find((o) => o.value === customerDocType)?.placeholder ||
+                      'Ej. 1020304050 o 900123456-7'
+                    }
+                    className="w-full px-3 py-2 text-xs font-mono tabular-nums rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-900/40"
+                  />
+                </div>
+              </div>
+            </div>
 
             <div>
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-2">
@@ -1081,7 +1328,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   onClick={() => setPaymentMethodChoice('tarjeta')}
                   className={`p-2.5 rounded-md border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethodChoice === 'tarjeta'
-                      ? 'border-stone-900 bg-stone-900 text-white'
+                      ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-200 dark:bg-stone-100 dark:text-stone-900'
                       : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                   }`}
                 >
@@ -1094,7 +1341,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   onClick={() => setPaymentMethodChoice('efectivo')}
                   className={`p-2.5 rounded-md border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethodChoice === 'efectivo'
-                      ? 'border-stone-900 bg-stone-900 text-white'
+                      ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-200 dark:bg-stone-100 dark:text-stone-900'
                       : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                   }`}
                 >
@@ -1107,7 +1354,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   onClick={() => setPaymentMethodChoice('transferencia')}
                   className={`p-2.5 rounded-md border text-center font-bold text-xs transition cursor-pointer flex flex-col items-center gap-1 ${
                     paymentMethodChoice === 'transferencia'
-                      ? 'border-stone-900 bg-stone-900 text-white'
+                      ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-200 dark:bg-stone-100 dark:text-stone-900'
                       : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                   }`}
                 >
@@ -1136,14 +1383,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsRequestBillModalOpen(false)}
-                className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer"
+                className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer whitespace-nowrap shrink-0"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleConfirmRequestBill}
-                className="px-4 py-2 rounded-md bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2 rounded-md bg-stone-900 hover:bg-stone-800 dark:bg-rose-900 dark:hover:bg-rose-800 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
                 <CreditCard className="w-3.5 h-3.5" />
                 <span>Solicitar la Cuenta</span>
@@ -1175,19 +1422,65 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               </button>
             </div>
 
-            {/* Customer Name Input (optional) */}
-            <div className="px-4 pt-3 pb-1 border-b border-slate-100 dark:border-slate-800">
-              <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 mb-1">
-                <User className="w-3.5 h-3.5" />
-                <span>Tu nombre o comensal (Opcional):</span>
-              </label>
+            {/* Customer Name & Optional Tax ID (NIT / Cédula) Input */}
+            <div className="px-4 pt-3 pb-2.5 border-b border-slate-100 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <User className="w-3.5 h-3.5" />
+                  <span>¿A nombre de quién va el pedido / cobro? (Opcional)</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowCartBillingFields((prev) => !prev)}
+                  className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer shrink-0"
+                >
+                  {showCartBillingFields || customerDocNumber
+                    ? 'Ocultar NIT / Cédula'
+                    : '+ Agregar NIT / Cédula'}
+                </button>
+              </div>
               <input
                 type="text"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Ej. Juan, María, Carlos..."
+                placeholder="Ej. Juan Pérez o Razón Social..."
                 className="w-full px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
               />
+
+              {(showCartBillingFields || Boolean(customerDocNumber)) && (
+                <div className="grid grid-cols-5 gap-2 pt-0.5">
+                  <select
+                    value={customerDocType}
+                    onChange={(e) => {
+                      const nextType = e.target.value as CustomerDocumentType;
+                      setCustomerDocType(nextType);
+                      if (nextType === 'CONSUMIDOR_FINAL') setCustomerDocNumber('');
+                    }}
+                    className="col-span-2 px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold focus:outline-hidden"
+                  >
+                    <option value="CONSUMIDOR_FINAL">Sin doc.</option>
+                    <option value="CC">C.C.</option>
+                    <option value="NIT">NIT</option>
+                    <option value="CE">C.E.</option>
+                    <option value="PAS">Pasaporte</option>
+                    <option value="TI">T.I.</option>
+                    <option value="PEP">PPT</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={customerDocNumber}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomerDocNumber(val);
+                      if (val.trim() && customerDocType === 'CONSUMIDOR_FINAL') {
+                        setCustomerDocType('CC');
+                      }
+                    }}
+                    placeholder={customerDocType === 'NIT' ? 'NIT ej. 900123456-7' : 'N.° de documento'}
+                    className="col-span-3 px-3 py-1.5 text-xs font-mono tabular-nums rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Items in Cart */}

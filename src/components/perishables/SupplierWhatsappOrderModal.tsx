@@ -187,8 +187,6 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
     return Array.from(map.values());
   }, [supplier, linkedPantryItems]);
 
-  if (!isOpen || !supplier) return null;
-
   const addOrIncrementCatalogItem = (
     itemName: string,
     defaultUnit = 'unidades',
@@ -281,6 +279,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
   const cleanLocalAddress = localAddress.trim();
 
   const whatsappMessage = useMemo(() => {
+    if (!supplier) return '';
     const lines: string[] = [
       `Hola *${supplier.name}*, te compartimos el pedido de insumos:`,
       '',
@@ -303,7 +302,9 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
 
     lines.push('', 'Quedamos atentos a confirmación. ¡Gracias!');
     return lines.join('\n');
-  }, [supplier.name, cleanLocalName, cleanLocalAddress, effectiveItems, deliveryNotes]);
+  }, [supplier, cleanLocalName, cleanLocalAddress, effectiveItems, deliveryNotes]);
+
+  if (!isOpen || !supplier) return null;
 
   const normalizedPhone = normalizeWhatsappPhone(supplier.phone);
   const canSend =

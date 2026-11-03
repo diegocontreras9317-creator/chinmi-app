@@ -37,19 +37,62 @@
   background: rgba(100, 116, 139, 0.6);
 }
 
+/* Print portal hidden during normal screen view */
+.chinmi-print-portal {
+  display: none;
+}
+
 @media print {
-  body * {
-    visibility: hidden;
+  @page {
+    size: auto;
+    margin: 0mm;
   }
-  #printable-receipt, #printable-receipt * {
-    visibility: visible;
+
+  html,
+  body {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    color-scheme: light !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
-  #printable-receipt {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    margin: 0;
-    padding: 16px;
+
+  /* Ocultar el dashboard, modales y overlays para que no generen hojas en blanco ni fondos oscuros */
+  body.chinmi-receipt-open > *:not(.chinmi-print-portal) {
+    display: none !important;
+  }
+
+  body.chinmi-receipt-open > .chinmi-print-portal:has(~ .chinmi-print-portal) {
+    display: none !important;
+  }
+
+  body > .chinmi-print-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 360px !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 auto !important;
+    padding: 12px 14px !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-family: var(--font-mono) !important;
+  }
+}
+
+@media print and (min-width: 480px) {
+  body > .chinmi-print-portal {
+    padding: 24px 24px !important;
   }
 }

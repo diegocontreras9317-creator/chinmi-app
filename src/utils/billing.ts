@@ -390,9 +390,27 @@ export function hasCustomBillingData(info?: Partial<CustomerBillingInfo> | null)
 export function isElectronicInvoiceSale(sale?: SaleReceipt | null): boolean {
   if (!sale) return false;
   const email = (sale.customerEmail || sale.billingInfo?.email || '').trim();
+  const docNum = (sale.customerDocumentNumber || sale.billingInfo?.documentNumber || '').trim();
+  const docType = sale.customerDocumentType || sale.billingInfo?.documentType || 'CONSUMIDOR_FINAL';
+  const hasRealTaxId =
+    Boolean(docNum) && docNum !== '222222222222' && docType !== 'CONSUMIDOR_FINAL';
   return Boolean(
-    sale.requiresElectronicInvoice || sale.billingInfo?.requiresElectronicInvoice || email
+    sale.requiresElectronicInvoice ||
+      sale.billingInfo?.requiresElectronicInvoice ||
+      email ||
+      hasRealTaxId
   );
+}
+
+/**
+ * Determina si una venta tiene datos reales de un cliente específico
+ * (NIT/Cédula, Nombre distinto de Consumidor Final, Correo, Teléfono, Dirección o solicitud de FE).
+ */
+export function hasIdentifiedCustomer(sale?: SaleReceipt | null): boolean {
+  if (!sale) return false;
+  if (isElectronicInvoiceSale(sale)) return true;
+  const resolved = resolveSaleBillingInfo(sale);
+  return hasCustomBillingData(resolved);
 }
 
 export function getSaleCustomerEmail(sale?: SaleReceipt | null): string {
@@ -400,22 +418,74 @@ export function getSaleCustomerEmail(sale?: SaleReceipt | null): string {
   return (sale.customerEmail || sale.billingInfo?.email || '').trim();
 }
 
+function isPlaceholderName(name?: string | null): boolean {
+  const clean = String(name ?? '').trim().toLowerCase();
+  return !clean || clean === 'consumidor final';
+}
+
+function isPlaceholderDocNumber(docNum?: string | null): boolean {
+  const clean = String(docNum ?? '').trim();
+  return !clean || clean === '222222222222';
+}
+
 /**
- * Reconstruye el perfil fiscal completo de una venta combinando los campos raíz y `sale.billingInfo`.
+ * Reconstruye el perfil fiscal completo de una venta combinando los campos raíz, `sale.billingInfo`
+ * y nombres heredados de los ítems de la comanda sin que "Consumidor Final" pise datos reales.
  */
 export function resolveSaleBillingInfo(sale?: SaleReceipt | null): CustomerBillingInfo {
   if (!sale) {
     return normalizeBillingInfo(null);
   }
   const baseInfo = sale.billingInfo || ({} as Partial<CustomerBillingInfo>);
+  const rawAny = sale as unknown as Record<string, unknown>;
+  const itemCustomerName = sale.items?.find(
+    (it) => it.customerName && !isPlaceholderName(it.customerName)
+  )?.customerName;
+
+  const pickedName = !isPlaceholderName(sale.customerName)
+    ? sale.customerName
+    : !isPlaceholderName(baseInfo.customerName)
+    ? baseInfo.customerName
+    : typeof rawAny.nombreCliente === 'string' && !isPlaceholderName(rawAny.nombreCliente)
+    ? rawAny.nombreCliente
+    : itemCustomerName || 'Consumidor Final';
+
+  const pickedDocNumber = !isPlaceholderDocNumber(sale.customerDocumentNumber)
+    ? sale.customerDocumentNumber
+    : !isPlaceholderDocNumber(baseInfo.documentNumber)
+    ? baseInfo.documentNumber
+    : typeof rawAny.nit === 'string' && !isPlaceholderDocNumber(rawAny.nit)
+    ? rawAny.nit
+    : typeof rawAny.cedula === 'string' && !isPlaceholderDocNumber(rawAny.cedula)
+    ? rawAny.cedula
+    : '';
+
+  const pickedDocType: CustomerDocumentType =
+    sale.customerDocumentType && sale.customerDocumentType !== 'CONSUMIDOR_FINAL'
+      ? sale.customerDocumentType
+      : baseInfo.documentType && baseInfo.documentType !== 'CONSUMIDOR_FINAL'
+      ? baseInfo.documentType
+      : pickedDocNumber
+      ? pickedDocNumber.includes('-')
+        ? 'NIT'
+        : 'CC'
+      : 'CONSUMIDOR_FINAL';
+
+  const pickedEmail = (sale.customerEmail || baseInfo.email || '').trim();
+  const wantsFe = Boolean(
+    sale.requiresElectronicInvoice ||
+      baseInfo.requiresElectronicInvoice ||
+      pickedEmail ||
+      !isPlaceholderDocNumber(pickedDocNumber)
+  );
+
   return normalizeBillingInfo({
     ...baseInfo,
-    customerName: sale.customerName || baseInfo.customerName || 'Consumidor Final',
-    documentType:
-      sale.customerDocumentType || baseInfo.documentType || 'CONSUMIDOR_FINAL',
-    documentNumber: sale.customerDocumentNumber || baseInfo.documentNumber || '',
-    email: sale.customerEmail || baseInfo.email || '',
-    requiresElectronicInvoice: isElectronicInvoiceSale(sale)
+    customerName: pickedName,
+    documentType: pickedDocType,
+    documentNumber: pickedDocNumber,
+    email: pickedEmail,
+    requiresElectronicInvoice: wantsFe
   });
 }
 

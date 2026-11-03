@@ -19,6 +19,7 @@ import {
   formatAccountantFichaText,
   formatCustomerDocument,
   getDianDocumentTypeCode,
+  hasIdentifiedCustomer,
   isElectronicInvoiceSale,
   isValidEmailFormat,
   KnownCustomerProfile,
@@ -85,21 +86,21 @@ const GROUPING_OPTIONS: Array<{
 }> = [
   {
     id: 'by_customer',
-    title: 'Clientes con Factura Electrónica (Lote Contadora)',
+    title: 'Clientes con Factura Electrónica (Cliente + Pedido)',
     subtitle:
-      'Agrupa todos los clientes que pidieron Factura Electrónica con sus datos DIAN completos y sus compras listas para subir.'
+      'Genera por cada cliente su Ficha Fiscal DIAN completa (NIT/CC, DV, Correo, Teléfono, Dirección, Ciudad DANE) + su pedido.'
   },
   {
     id: 'specific_order',
     title: 'Cliente y Pedido Específico (NIT / Cédula)',
     subtitle:
-      'Busca o completa todos los datos fiscales de un cliente y genera la factura exacta de un pedido tomado en mesa.'
+      'Busca o completa los datos de un cliente y descarga en la Hoja 1 todos sus datos fiscales junto a la lista de su pedido.'
   },
   {
     id: 'daily_global',
-    title: 'Masivo por Día (Venta Global POS)',
+    title: 'Ventas del Día Completo (Clientes + POS)',
     subtitle:
-      'Consolida todas las ventas del día seleccionado a Consumidor Final (222222222222) para cierre global en lote.'
+      'Conserva los datos completos de cada cliente identificado del día y consolida aparte los tickets de Consumidor Final.'
   }
 ];
 
@@ -111,31 +112,31 @@ const PROVIDER_OPTIONS: Array<{
 }> = [
   {
     id: 'siigo',
-    title: 'Paquete Siigo Nube (.xlsx · Facturas + Terceros)',
+    title: 'Paquete Siigo Nube (.xlsx · Cliente + Pedido + Plantillas)',
     badge: 'Recomendado Siigo',
     columnsSummary:
-      'Hoja 1: Comprobantes FV-1 (Base ÷1.08 INC / ÷1.19 IVA) · Hoja 2: Importación de Terceros/Clientes (Cód. DIAN, DV, Ciudad DANE, Correo FE) · Hoja 3: Cuadre de Caja'
+      'Hoja 1: Ficha completa Cliente + Pedido · Hoja 2: Sabana Cliente/Producto · Hoja 3: Terceros Siigo · Hoja 4: Comprobantes FV-1'
   },
   {
     id: 'alegra',
-    title: 'Paquete Alegra (.xlsx · Facturas + Contactos)',
+    title: 'Paquete Alegra (.xlsx · Cliente + Pedido + Contactos)',
     badge: 'Alegra Cloud',
     columnsSummary:
-      'Hoja 1: Facturas de Venta (AAAA-MM-DD, Precio base sin impuesto, Impuesto) · Hoja 2: Contactos con Correo para envío directo al cliente · Hoja 3: Totales'
+      'Hoja 1: Ficha completa Cliente + Pedido · Hoja 2: Sabana · Hoja 3: Contactos Alegra con Correo FE · Hoja 4: Facturas Alegra'
   },
   {
     id: 'world_office',
-    title: 'Plantilla World Office / Loggro / Siigo Pyme (.xlsx)',
+    title: 'Paquete World Office / Loggro / Siigo Pyme (.xlsx)',
     badge: 'Contable ERP',
     columnsSummary:
-      'Estructura contable colombiana con NIT, DV separado, Dirección, Código DANE, % y Valor IVA 19%, % y Valor Impoconsumo 8% y Forma de Pago'
+      'Hoja 1: Ficha completa Cliente + Pedido · Hoja 2: Sabana · Hoja 3: Terceros DIAN · Hoja 4: Encabezado/Detalle con IVA e INC'
   },
   {
     id: 'chinmi',
     title: 'Sabana Maestra Contadora · Otros Proveedores DIAN (.xlsx)',
     badge: 'Universal DIAN',
     columnsSummary:
-      'Une en una sola tabla 100% de los datos fiscales del cliente + 100% de la compra para Facturatech, MisFacturas, Gosocket, Cadena o Portal DIAN'
+      'Hoja 1: Ficha completa Cliente + Pedido · Hoja 2: Tabla unificada Cliente + Compra · Hoja 3: Directorio Terceros DIAN'
   }
 ];
 
@@ -180,9 +181,9 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
   const [provider, setProvider] = useState<ExportBillingProvider>('siigo');
   const [exportDate, setExportDate] = useState<string>(todayKey);
   const [filterCustomerByDate, setFilterCustomerByDate] = useState<boolean>(false);
-  const [onlyPendingFeInBatch, setOnlyPendingFeInBatch] = useState<boolean>(true);
+  const [onlyPendingFeInBatch, setOnlyPendingFeInBatch] = useState<boolean>(false);
   const [markBatchIssuedOnDownload, setMarkBatchIssuedOnDownload] = useState<boolean>(false);
-  const [excludeIndividualFeFromGlobal, setExcludeIndividualFeFromGlobal] = useState<boolean>(true);
+  const [excludeIndividualFeFromGlobal, setExcludeIndividualFeFromGlobal] = useState<boolean>(false);
   const [downloadedFile, setDownloadedFile] = useState<string | null>(null);
   const [fichaCopied, setFichaCopied] = useState<boolean>(false);
 
@@ -238,18 +239,33 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     if (!sale) return;
     const resolved = resolveSaleBillingInfo(sale);
     const normDoc = normalizeDocumentSearchKey(resolved.documentNumber);
-    const hasRealSaleCustomer =
+    const hasRealDoc =
       Boolean(normDoc.baseWithoutDv && normDoc.baseWithoutDv !== '222222222222') &&
       resolved.documentType !== 'CONSUMIDOR_FINAL';
+    const hasRealCustomCustomer =
+      hasRealDoc ||
+      Boolean(
+        (resolved.customerName && resolved.customerName.toLowerCase() !== 'consumidor final') ||
+          resolved.email ||
+          resolved.phone ||
+          resolved.address ||
+          resolved.city
+      );
 
-    if (hasRealSaleCustomer) {
-      const cleanType = resolved.documentType;
+    if (hasRealCustomCustomer) {
+      const cleanType =
+        resolved.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : resolved.documentType;
+      const cleanBase =
+        normDoc.baseWithoutDv && normDoc.baseWithoutDv !== '222222222222'
+          ? normDoc.baseWithoutDv
+          : '';
       const computedDv =
-        resolved.dv || (cleanType === 'NIT' ? calculateColombiaNitDV(normDoc.baseWithoutDv) : '');
+        resolved.dv ||
+        (cleanType === 'NIT' && cleanBase ? calculateColombiaNitDV(cleanBase) : '');
       const pType: CustomerPersonType =
         resolved.personType || (cleanType === 'NIT' ? 'juridica' : 'natural');
       setCustDocType(cleanType);
-      setCustDocNumber(normDoc.baseWithoutDv);
+      setCustDocNumber(cleanBase);
       setCustDv(computedDv);
       setCustPersonType(pType);
       setCustName(
@@ -322,21 +338,22 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     setFichaCopied(false);
 
     const hasPendingFe = sales.some(
-      (s) => isElectronicInvoiceSale(s) && s.electronicInvoiceStatus !== 'emitida'
+      (s) => hasIdentifiedCustomer(s) && s.electronicInvoiceStatus !== 'emitida'
     );
-    const hasAnyFe = sales.some((s) => isElectronicInvoiceSale(s));
+    const hasAnyCustomerSale = sales.some((s) => hasIdentifiedCustomer(s));
 
     const resolvedMode: ExportGroupingMode =
       initialMode ||
       (initialSaleId
         ? 'specific_order'
-        : initialInvoiceFilter === 'electronic' || hasAnyFe
+        : initialInvoiceFilter === 'electronic' || hasAnyCustomerSale
         ? 'by_customer'
         : 'daily_global');
 
     setMode(resolvedMode);
     setOnlyPendingFeInBatch(hasPendingFe);
     setMarkBatchIssuedOnDownload(false);
+    setExcludeIndividualFeFromGlobal(false);
 
     if (initialSelectedDate) {
       setExportDate(initialSelectedDate);
@@ -563,6 +580,14 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     ]
   );
 
+  const readinessChecks = useMemo(() => {
+    const hasDoc = Boolean(custDocNumber.trim());
+    const hasName = Boolean(custName.trim());
+    const hasEmail = isValidEmailFormat(custEmail);
+    const hasLocation = Boolean(custCity.trim() || custAddress.trim());
+    return { hasDoc, hasName, hasEmail, hasLocation };
+  }, [custDocNumber, custName, custEmail, custCity, custAddress]);
+
   if (!isOpen) return null;
 
   const handleSelectProfile = (profile: KnownCustomerProfile) => {
@@ -663,21 +688,40 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = (rawImportOnly = false) => {
+    let effectiveSales = sales;
+    let effectiveOverride = customerOverride;
+
     if (mode === 'specific_order') {
       if (!validateSpecificCustomerFields()) return;
-      if (selectedSale && onSaveSaleBilling) {
+      if (selectedSale) {
         const fullBilling = buildCurrentSpecificBillingInfo();
-        onSaveSaleBilling(
-          selectedSale.id,
-          fullBilling,
-          markIssuedOnDownload ? 'emitida' : undefined
+        effectiveOverride = fullBilling;
+        if (onSaveSaleBilling) {
+          onSaveSaleBilling(
+            selectedSale.id,
+            fullBilling,
+            markIssuedOnDownload ? 'emitida' : undefined
+          );
+        }
+        effectiveSales = sales.map((s) =>
+          s.id === selectedSale.id
+            ? {
+                ...s,
+                customerName: fullBilling.customerName,
+                customerDocumentType: fullBilling.documentType,
+                customerDocumentNumber: fullBilling.documentNumber,
+                customerEmail: fullBilling.email || s.customerEmail || '',
+                requiresElectronicInvoice: true,
+                billingInfo: fullBilling
+              }
+            : s
         );
       }
     }
 
     const result = downloadBillingExcelFile({
-      sales,
+      sales: effectiveSales,
       productsCatalog,
       mode,
       provider,
@@ -686,7 +730,8 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       excludeIndividualFeFromGlobal,
       onlyPendingElectronicInvoices: mode === 'by_customer' ? onlyPendingFeInBatch : false,
       selectedSaleId,
-      customerOverride
+      customerOverride: effectiveOverride,
+      rawImportOnly
     });
 
     if (result.success) {
@@ -694,8 +739,8 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       if (mode === 'specific_order' && selectedSale) {
         setSavedNotice(
           markIssuedOnDownload
-            ? `Datos guardados y pedido #${selectedSale.id.slice(-6)} marcado como FE Emitida.`
-            : `Datos fiscales completos guardados en el pedido #${selectedSale.id.slice(-6)}.`
+            ? `Datos del cliente y pedido #${selectedSale.id.slice(-6)} descargados y marcados como FE Emitida.`
+            : `Datos completos del cliente y pedido #${selectedSale.id.slice(-6)} descargados en Excel.`
         );
       } else if (
         mode === 'by_customer' &&
@@ -705,19 +750,11 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       ) {
         onBulkMarkIssued(result.exportedTicketIds, 'emitida');
         setSavedNotice(
-          `${result.exportedTicketIds.length} venta(s) exportadas y marcadas como FE Emitida.`
+          `${result.exportedTicketIds.length} venta(s) con datos del cliente exportadas y marcadas como FE Emitida.`
         );
       }
     }
   };
-
-  const readinessChecks = useMemo(() => {
-    const hasDoc = Boolean(custDocNumber.trim());
-    const hasName = Boolean(custName.trim());
-    const hasEmail = isValidEmailFormat(custEmail);
-    const hasLocation = Boolean(custCity.trim() || custAddress.trim());
-    return { hasDoc, hasName, hasEmail, hasLocation };
-  }, [custDocNumber, custName, custEmail, custCity, custAddress]);
 
   return (
     <div
@@ -1881,31 +1918,44 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
         </div>
 
         {/* Footer Actions */}
-        <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 flex items-center justify-between gap-3 shrink-0">
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:inline">
-            Incluye Terceros DIAN (NIT, DV, Ciudad DANE, Correo FE) + Compra desglosada en texto explícito
+        <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden md:inline">
+            Hoja 1 abre con Ficha completa del Cliente + Lista del Pedido + Impuestos y pestañas para importar
           </span>
 
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex flex-wrap items-center gap-2 ml-auto">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer whitespace-nowrap"
+              className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer whitespace-nowrap"
             >
               Cerrar
             </button>
 
+            {provider !== 'chinmi' && (
+              <button
+                type="button"
+                onClick={() => handleDownload(true)}
+                disabled={preview.packages.length === 0}
+                title="Descarga únicamente las tablas planas sin encabezado visual para robots de importación automática"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 disabled:opacity-50 text-emerald-800 dark:text-emerald-300 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+                <span>Solo Plantilla Plana</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={handleDownload}
+              onClick={() => handleDownload(false)}
               disabled={preview.packages.length === 0}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-bold transition cursor-pointer disabled:cursor-not-allowed whitespace-nowrap shadow-xs"
             >
               <Download className="w-3.5 h-3.5 shrink-0" />
               <span>
                 {mode === 'specific_order'
-                  ? 'Descargar Paquete de este Cliente (.xlsx)'
-                  : 'Descargar Paquete Contable (.xlsx)'}
+                  ? 'Descargar Cliente + Pedido (.xlsx)'
+                  : 'Descargar Clientes + Pedidos (.xlsx)'}
               </span>
             </button>
           </div>

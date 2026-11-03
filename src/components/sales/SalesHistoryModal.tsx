@@ -5,17 +5,16 @@ import { formatCOP } from '../../utils/currency';
 import {
   formatCustomerDocument,
   getSaleCustomerEmail,
-  isElectronicInvoiceSale
+  isElectronicInvoiceSale,
+  matchesDocumentNumberQuery
 } from '../../utils/billing';
 import { getReceiptTaxLines } from '../../utils/taxes';
 import {
   X,
   Receipt,
-  TrendingUp,
   CreditCard,
   Banknote,
   Smartphone,
-  Download,
   FileSpreadsheet,
   Printer,
   Calendar,
@@ -26,10 +25,12 @@ import {
   Copy,
   Check,
   CheckCircle2,
-  Clock
+  Clock,
+  UserCheck
 } from 'lucide-react';
 import { ReceiptModal } from '../tables/ReceiptModal';
 import { BillingExcelExportModal } from './BillingExcelExportModal';
+import { ExportGroupingMode } from '../../utils/excelBillingExport';
 
 interface SalesHistoryModalProps {
   isOpen: boolean;
@@ -83,7 +84,7 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   isOpen,
   onClose
 }) => {
-  const { config, sales, products, updateElectronicInvoiceStatus } = useApp();
+  const { config, sales, products, updateElectronicInvoiceStatus, updateSaleBillingInfo } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -92,6 +93,8 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportInitialMode, setExportInitialMode] = useState<ExportGroupingMode | undefined>(undefined);
+  const [exportInitialSaleId, setExportInitialSaleId] = useState<string | null>(null);
   const [viewMonthDate, setViewMonthDate] = useState<Date>(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -211,18 +214,28 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
       if (feStatusFilter !== 'all' && currentStatus !== feStatusFilter) return false;
     }
 
-    const term = searchQuery.trim().toLowerCase();
-    if (!term) return true;
+    const rawQuery = searchQuery.trim();
+    if (!rawQuery) return true;
+    const term = rawQuery.toLowerCase();
     const custName = (s.customerName || s.billingInfo?.customerName || 'consumidor final').toLowerCase();
-    const custDoc = (s.customerDocumentNumber || s.billingInfo?.documentNumber || '').toLowerCase();
+    const rawCustDoc = s.customerDocumentNumber || s.billingInfo?.documentNumber || '';
+    const custDoc = rawCustDoc.toLowerCase();
     const custEmail = getSaleCustomerEmail(s).toLowerCase();
+    const orderItemsSummary = (s.items || [])
+      .map((it) => `${it.quantity}x ${it.name}`)
+      .join(' ')
+      .toLowerCase();
+
     return (
+      matchesDocumentNumberQuery(rawCustDoc, rawQuery) ||
+      custDoc.includes(term) ||
+      custName.includes(term) ||
+      custEmail.includes(term) ||
       s.tableName.toLowerCase().includes(term) ||
       s.cashierName.toLowerCase().includes(term) ||
-      custName.includes(term) ||
-      custDoc.includes(term) ||
-      custEmail.includes(term) ||
-      s.id.toLowerCase().includes(term)
+      s.id.toLowerCase().includes(term) ||
+      (s.orderId && s.orderId.toLowerCase().includes(term)) ||
+      orderItemsSummary.includes(term)
     );
   });
 
@@ -281,7 +294,26 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setIsExportModalOpen(true)}
+              onClick={() => {
+                setExportInitialMode('specific_order');
+                setExportInitialSaleId(filteredSales[0]?.id || null);
+                setIsExportModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-orange-200 dark:border-orange-800/80 bg-orange-50 dark:bg-orange-950/40 text-xs font-bold text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-950/70 transition cursor-pointer whitespace-nowrap shrink-0"
+              title="Buscar cliente por NIT o Cédula y generar Factura Electrónica de un pedido específico"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400 shrink-0" />
+              <span className="hidden md:inline">Facturar por NIT / Pedido</span>
+              <span className="md:hidden">NIT / Pedido</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setExportInitialMode(undefined);
+                setExportInitialSaleId(null);
+                setIsExportModalOpen(true);
+              }}
               className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 transition cursor-pointer whitespace-nowrap shrink-0"
               title="Exportar Facturación Electrónica o Venta Global en Excel (.xlsx) para Siigo, Alegra o Control Interno"
             >
@@ -396,9 +428,19 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar cliente, NIT/cédula, correo electrónico, mesa o cajero..."
-                className="w-full pl-9 pr-4 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
+                placeholder="Buscar por NIT o cédula, cliente, pedido/producto, mesa o #ticket..."
+                className="w-full pl-9 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  title="Limpiar búsqueda"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             {/* Calendar Day Selector */}
@@ -772,8 +814,22 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
                           </span>
                         </td>
 
-                        <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
-                          {sale.tableName}
+                        <td className="px-4 py-3 max-w-[200px]">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap block">
+                            {sale.tableName}
+                          </span>
+                          {sale.items && sale.items.length > 0 && (
+                            <span
+                              className="text-[10px] text-slate-500 dark:text-slate-400 block truncate"
+                              title={sale.items.map((it) => `${it.quantity}x ${it.name}`).join(', ')}
+                            >
+                              {sale.items
+                                .slice(0, 2)
+                                .map((it) => `${it.quantity}x ${it.name}`)
+                                .join(', ')}
+                              {sale.items.length > 2 ? ` (+${sale.items.length - 2})` : ''}
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-4 py-3">
@@ -877,14 +933,30 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
                         </td>
 
                         <td className="px-4 py-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedReceipt(sale)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold cursor-pointer whitespace-nowrap"
-                          >
-                            <Printer className="w-3 h-3 text-orange-500" />
-                            <span>Ver Ticket</span>
-                          </button>
+                          <div className="inline-flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExportInitialMode('specific_order');
+                                setExportInitialSaleId(sale.id);
+                                setIsExportModalOpen(true);
+                              }}
+                              title="Asignar/verificar NIT o Cédula y generar Factura Electrónica de este pedido específico"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-[11px] font-bold cursor-pointer whitespace-nowrap transition"
+                            >
+                              <FileSpreadsheet className="w-3 h-3 shrink-0" />
+                              <span>Facturar FE</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedReceipt(sale)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold cursor-pointer whitespace-nowrap transition"
+                            >
+                              <Printer className="w-3 h-3 text-orange-500 shrink-0" />
+                              <span>Ver Ticket</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -900,18 +972,30 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
       <ReceiptModal
         isOpen={!!selectedReceipt}
         onClose={() => setSelectedReceipt(null)}
-        receipt={selectedReceipt}
+        receipt={
+          selectedReceipt
+            ? sales.find((s) => s.id === selectedReceipt.id) || selectedReceipt
+            : null
+        }
       />
 
       {/* Sub-modal: Excel (.xlsx) Electronic Invoicing Export */}
       <BillingExcelExportModal
         isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
+        onClose={() => {
+          setIsExportModalOpen(false);
+          setExportInitialMode(undefined);
+          setExportInitialSaleId(null);
+        }}
         sales={sales}
         productsCatalog={products}
         appName={config.appName}
         initialSelectedDate={selectedDate}
         initialInvoiceFilter={invoiceFilter}
+        initialMode={exportInitialMode}
+        initialSaleId={exportInitialSaleId}
+        initialSearchQuery={searchQuery}
+        onSaveSaleBilling={updateSaleBillingInfo}
       />
     </div>
   );

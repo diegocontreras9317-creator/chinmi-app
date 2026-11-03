@@ -1,9 +1,9 @@
 import * as XLSX from 'xlsx';
-import { OrderItem, Product, ProductTaxType, SaleReceipt } from '../types';
+import { CustomerBillingInfo, OrderItem, Product, ProductTaxType, SaleReceipt } from '../types';
 import { getSaleCustomerEmail, isElectronicInvoiceSale } from './billing';
 import { resolveOrderItemTax } from './taxes';
 
-export type ExportGroupingMode = 'daily_global' | 'by_customer';
+export type ExportGroupingMode = 'daily_global' | 'by_customer' | 'specific_order';
 export type ExportBillingProvider = 'siigo' | 'alegra' | 'chinmi';
 
 export interface BillingExportParams {
@@ -16,6 +16,10 @@ export interface BillingExportParams {
   appName: string;
   /** Optional: omit tickets that already requested individual FE when building the daily global invoice */
   excludeIndividualFeFromGlobal?: boolean;
+  /** Required when mode === 'specific_order': ID of the exact SaleReceipt order to invoice */
+  selectedSaleId?: string;
+  /** Optional customer NIT/Cédula/Razón Social/Email override for mode === 'specific_order' */
+  customerOverride?: Partial<CustomerBillingInfo> | null;
 }
 
 export interface NormalizedInvoiceLine {
@@ -336,7 +340,9 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
     provider,
     targetDate,
     appName,
-    excludeIndividualFeFromGlobal = false
+    excludeIndividualFeFromGlobal = false,
+    selectedSaleId,
+    customerOverride
   } = params;
 
   const todayFallback = saleTimestampToDateKey(new Date());
@@ -400,7 +406,7 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
         totalChargedWithTip
       });
     }
-  } else {
+  } else if (mode === 'by_customer') {
     // mode === 'by_customer': Solo clientes que solicitaron Factura Electrónica, agrupados por Cédula/NIT
     filteredTickets = sales.filter((s) => {
       if (!isElectronicInvoiceSale(s)) return false;
@@ -513,6 +519,108 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
         totalChargedWithTip
       });
     }
+  } else if (mode === 'specific_order') {
+    // mode === 'specific_order': Un cliente en específico (NIT / Cédula) con el pedido exacto que se tomó
+    const targetSale = selectedSaleId ? sales.find((s) => s.id === selectedSaleId) : undefined;
+    if (targetSale) {
+      const overrideDocNum = (customerOverride?.documentNumber ?? '').trim();
+      const overrideDocType = customerOverride?.documentType;
+      const overrideName = (customerOverride?.customerName ?? '').trim();
+      const overrideEmail = (customerOverride?.email ?? '').trim().toLowerCase();
+
+      const rawDocNumber =
+        overrideDocNum ||
+        targetSale.customerDocumentNumber ||
+        targetSale.billingInfo?.documentNumber ||
+        '';
+      const rawDocType =
+        (overrideDocType && overrideDocType !== 'CONSUMIDOR_FINAL'
+          ? overrideDocType
+          : undefined) ||
+        targetSale.customerDocumentType ||
+        targetSale.billingInfo?.documentType ||
+        (rawDocNumber ? 'CC' : 'CONSUMIDOR_FINAL');
+
+      const normId = normalizeCustomerIdentification(rawDocNumber, rawDocType);
+      const resolvedEmail = overrideEmail || getSaleCustomerEmail(targetSale);
+      const storedName = (
+        targetSale.customerName ||
+        targetSale.billingInfo?.customerName ||
+        ''
+      ).trim();
+      const resolvedCustomerName =
+        (overrideName && overrideName.toLowerCase() !== 'consumidor final'
+          ? overrideName
+          : '') ||
+        (storedName && storedName.toLowerCase() !== 'consumidor final'
+          ? storedName
+          : '') ||
+        'Cliente Factura Electrónica';
+
+      const saleDateKey = saleTimestampToDateKey(targetSale.timestamp) || effectiveDay;
+
+      // Enriquecer el ticket en la hoja de auditoría con los datos del cliente asignado
+      const enrichedSaleForAudit: SaleReceipt = {
+        ...targetSale,
+        customerName: resolvedCustomerName,
+        customerDocumentType: normId.cleanDocType as SaleReceipt['customerDocumentType'],
+        customerDocumentNumber: normId.verificationDigit
+          ? `${normId.identification}-${normId.verificationDigit}`
+          : normId.identification,
+        customerEmail: resolvedEmail,
+        requiresElectronicInvoice: true,
+        billingInfo: {
+          customerName: resolvedCustomerName,
+          documentType: normId.cleanDocType as CustomerBillingInfo['documentType'],
+          documentNumber: normId.verificationDigit
+            ? `${normId.identification}-${normId.verificationDigit}`
+            : normId.identification,
+          ...(resolvedEmail ? { email: resolvedEmail } : {}),
+          requiresElectronicInvoice: true
+        }
+      };
+
+      filteredTickets = [enrichedSaleForAudit];
+
+      const rawLines = extractNormalizedSaleLines(targetSale, productsCatalog);
+      const mergedLines = mergeInvoiceLines(rawLines);
+
+      let totalBase = 0;
+      let totalInc = 0;
+      let totalIva = 0;
+      let totalGrossProducts = 0;
+
+      for (const l of mergedLines) {
+        totalBase += l.lineBaseTotal;
+        totalGrossProducts += l.lineGrossTotal;
+        if (l.taxType === 'impoconsumo') totalInc += l.lineTaxTotal;
+        if (l.taxType === 'iva') totalIva += l.lineTaxTotal;
+      }
+
+      const totalDiscount = round2(Number(targetSale.discountAmount) || 0);
+      const totalTip = round2(Number(targetSale.tipAmount) || 0);
+      const totalChargedWithTip = round2(Number(targetSale.total) || 0);
+
+      packages.push({
+        packageKey: `ORDER_${targetSale.id}_${normId.identification}`,
+        invoiceDateKey: saleDateKey,
+        customerName: resolvedCustomerName,
+        documentType: normId.cleanDocType,
+        identification: normId.identification,
+        verificationDigit: normId.verificationDigit,
+        email: resolvedEmail,
+        ticketsCount: 1,
+        ticketIds: [targetSale.id],
+        lines: mergedLines,
+        totalBase: round2(totalBase),
+        totalInc: round2(totalInc),
+        totalIva: round2(totalIva),
+        totalDiscount,
+        totalTip,
+        totalGrossProducts: round2(totalGrossProducts),
+        totalChargedWithTip
+      });
+    }
   }
 
   const totalInvoicesCount = packages.length;
@@ -528,9 +636,23 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
   const safeApp = (appName || 'Chinmi').replace(/[^a-zA-Z0-9_-]/g, '_');
   const providerSlug =
     provider === 'siigo' ? 'SiigoCloud' : provider === 'alegra' ? 'Alegra' : 'ChinmiGeneral';
-  const modeSlug = mode === 'daily_global' ? 'MasivoDia' : 'PorClienteFE';
-  const dateSlug = targetDate || (mode === 'daily_global' ? effectiveDay : 'Consolidado');
-  const suggestedFilename = `FE_${providerSlug}_${modeSlug}_${safeApp}_${dateSlug}.xlsx`;
+
+  let suggestedFilename: string;
+  if (mode === 'specific_order' && packages.length === 1) {
+    const pkg = packages[0];
+    const shortTicket = (pkg.ticketIds[0] || 'pedido').slice(-6).replace(/[^a-zA-Z0-9]/g, '');
+    const idSlug = String(pkg.identification || 'Cliente').replace(/[^a-zA-Z0-9]/g, '');
+    suggestedFilename = `FE_${providerSlug}_Doc_${idSlug}_Pedido_${shortTicket}_${pkg.invoiceDateKey}.xlsx`;
+  } else {
+    const modeSlug =
+      mode === 'daily_global'
+        ? 'MasivoDia'
+        : mode === 'specific_order'
+        ? 'PedidoEspecifico'
+        : 'PorClienteFE';
+    const dateSlug = targetDate || (mode === 'daily_global' ? effectiveDay : 'Consolidado');
+    suggestedFilename = `FE_${providerSlug}_${modeSlug}_${safeApp}_${dateSlug}.xlsx`;
+  }
 
   return {
     packages,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -10,9 +10,12 @@ import {
 } from '../../types';
 import {
   DOCUMENT_TYPE_OPTIONS,
+  extractKnownCustomersFromSales,
   extractTableBillingInfo,
+  formatCustomerDocument,
   isValidEmailFormat,
-  normalizeBillingInfo
+  normalizeBillingInfo,
+  searchKnownCustomers
 } from '../../utils/billing';
 import { calculateOrderTaxBreakdown, resolveOrderItemTax } from '../../utils/taxes';
 import { auth, db } from '../../firebase';
@@ -47,8 +50,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   table,
   onSuccessCheckout
 }) => {
-  const { config, products, checkoutTable } = useApp();
+  const { config, products, sales, checkoutTable } = useApp();
   const { user, empleadoActivo } = useAuth();
+  const knownCustomers = useMemo(() => extractKnownCustomersFromSales(sales), [sales]);
 
   // Persona activa desde donde se realiza el cobro (perfil de empleado activo o titular de la sesión)
   const activeCashierName =
@@ -502,7 +506,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
               <div className="sm:col-span-3">
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                  {customerDocType === 'NIT' ? 'Número de NIT (ej. 900123456-7)' : 'Número de identificación'}
+                  {customerDocType === 'NIT' ? 'Número de NIT (ej. 900123456-7)' : 'Número de NIT o Cédula'}
                 </label>
                 <input
                   type="text"
@@ -511,17 +515,66 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     const val = e.target.value;
                     setCustomerDocNumber(val);
                     if (val.trim() && customerDocType === 'CONSUMIDOR_FINAL') {
-                      setCustomerDocType('CC');
+                      setCustomerDocType(val.includes('-') ? 'NIT' : 'CC');
                     }
                   }}
                   placeholder={
                     DOCUMENT_TYPE_OPTIONS.find((opt) => opt.value === customerDocType)?.placeholder ||
-                    'Ej. 1020304050'
+                    'Buscar o digitar NIT / Cédula'
                   }
                   className="w-full px-3 py-2 text-xs font-mono tabular-nums rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
                 />
               </div>
             </div>
+
+            {customerDocNumber.trim().length >= 4 &&
+              (() => {
+                const matches = searchKnownCustomers(knownCustomers, customerDocNumber, 3).filter(
+                  (prof) =>
+                    !(
+                      prof.documentNumber === customerDocNumber.trim() &&
+                      prof.customerName.toLowerCase() === customerName.trim().toLowerCase() &&
+                      (!prof.email || prof.email.toLowerCase() === customerEmail.trim().toLowerCase())
+                    )
+                );
+                if (matches.length === 0) return null;
+                return (
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
+                      Clientes encontrados por NIT / Cédula (toca para cargar datos):
+                    </span>
+                    <div className="flex flex-col gap-1">
+                      {matches.map((prof) => (
+                        <button
+                          key={prof.key}
+                          type="button"
+                          onClick={() => {
+                            setCustomerDocType(
+                              prof.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : prof.documentType
+                            );
+                            setCustomerDocNumber(prof.documentNumber);
+                            setCustomerName(prof.customerName);
+                            if (prof.email) {
+                              setCustomerEmail(prof.email);
+                              setRequiresElectronicInvoice(true);
+                            }
+                          }}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/40 text-left text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 transition cursor-pointer"
+                        >
+                          <span className="truncate">
+                            <strong className="font-mono tabular-nums">
+                              {formatCustomerDocument(prof.documentType, prof.documentNumber)}
+                            </strong>{' '}
+                            · {prof.customerName}
+                            {prof.email ? ` · ${prof.email}` : ''}
+                          </span>
+                          <span className="font-bold shrink-0">Cargar</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between gap-2">

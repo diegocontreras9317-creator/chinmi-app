@@ -117,6 +117,11 @@ interface AppContextType {
   ) => Promise<{ success: boolean; receipt?: SaleReceipt }>;
   eliminarProducto: (tableId: string, itemId: string) => Promise<void>;
   updateElectronicInvoiceStatus: (saleId: string, status: ElectronicInvoiceStatus) => void;
+  updateSaleBillingInfo: (
+    saleId: string,
+    billingInfo: CustomerBillingInfo,
+    markStatus?: ElectronicInvoiceStatus
+  ) => SaleReceipt | undefined;
   
   // Product & Inventory operations
   addProduct: (product: Omit<Product, 'id'> & { id?: string }) => { success: boolean; error?: string };
@@ -1630,6 +1635,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateSaleBillingInfo = (
+    saleId: string,
+    billingInfo: CustomerBillingInfo,
+    markStatus?: ElectronicInvoiceStatus
+  ): SaleReceipt | undefined => {
+    const nowIso = new Date().toISOString();
+    const normalized = normalizeBillingInfo({
+      ...billingInfo,
+      requiresElectronicInvoice: true
+    });
+    let updatedReceipt: SaleReceipt | undefined;
+
+    const nextSales = salesRef.current.map((s) => {
+      if (s.id !== saleId) return s;
+      const nextStatus: ElectronicInvoiceStatus =
+        markStatus || (s.electronicInvoiceStatus === 'emitida' ? 'emitida' : 'pendiente');
+      updatedReceipt = {
+        ...s,
+        customerName: normalized.customerName,
+        customerDocumentType: normalized.documentType,
+        customerDocumentNumber: normalized.documentNumber,
+        customerEmail: normalized.email || s.customerEmail || '',
+        requiresElectronicInvoice: true,
+        electronicInvoiceStatus: nextStatus,
+        electronicInvoiceIssuedAt:
+          nextStatus === 'emitida'
+            ? s.electronicInvoiceIssuedAt || nowIso
+            : '',
+        billingInfo: normalized
+      };
+      return updatedReceipt;
+    });
+
+    if (!updatedReceipt) return undefined;
+
+    salesRef.current = nextSales;
+    setSales(nextSales);
+    setLatestReceipt((prev) => (prev && prev.id === saleId ? updatedReceipt! : prev));
+    persistChanges(
+      tablesRef.current,
+      productsRef.current,
+      nextSales,
+      perishablesRef.current,
+      suppliersRef.current
+    );
+    if (activeUid && activeUid !== 'default') {
+      saveSaleToFirestore(updatedReceipt, activeUid).catch(console.error);
+    }
+    return updatedReceipt;
+  };
+
   const syncNow = () => {
     setCloudStatus('syncing');
     persistChanges(tablesRef.current, productsRef.current, salesRef.current, perishablesRef.current, suppliersRef.current);
@@ -1681,6 +1737,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cobrarMesa,
         eliminarProducto,
         updateElectronicInvoiceStatus,
+        updateSaleBillingInfo,
         addProduct,
         updateProduct,
         deleteProduct,

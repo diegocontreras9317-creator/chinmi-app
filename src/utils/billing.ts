@@ -193,3 +193,166 @@ export function extractTableBillingInfo(table?: Table | null): {
     fromQrCustomer: false
   };
 }
+
+export interface NormalizedDocumentSearchKey {
+  /** Documento limpio sin puntos, comas, espacios ni guiones (preservando ceros a la izquierda) */
+  compact: string;
+  /** Base del NIT/documento antes del guion de dígito de verificación (preservando ceros a la izquierda) */
+  baseWithoutDv: string;
+}
+
+/**
+ * Normaliza un NIT o Cédula como texto explícito para búsquedas exactas o parciales,
+ * eliminando puntos, espacios y separadores sin convertir a Number() para nunca perder ceros iniciales.
+ */
+export function normalizeDocumentSearchKey(raw?: string | null): NormalizedDocumentSearchKey {
+  const trimmed = String(raw ?? '').trim().toUpperCase();
+  if (!trimmed) {
+    return { compact: '', baseWithoutDv: '' };
+  }
+  const noDotsOrSpaces = trimmed.replace(/[\s.,]/g, '');
+  const parts = noDotsOrSpaces.split('-').filter(Boolean);
+  const baseWithoutDv = (parts[0] || '').replace(/[^0-9A-Z]/g, '');
+  const compact = noDotsOrSpaces.replace(/[^0-9A-Z]/g, '');
+  return {
+    compact,
+    baseWithoutDv: baseWithoutDv || compact
+  };
+}
+
+/**
+ * Compara de forma flexible un número de NIT/Cédula almacenado frente a un texto buscado
+ * (por ejemplo "900.123.456-7" coincide con "900123456", "9001234567" o "900.123.456").
+ */
+export function matchesDocumentNumberQuery(
+  storedDoc?: string | null,
+  query?: string | null
+): boolean {
+  const q = normalizeDocumentSearchKey(query);
+  if (!q.compact) return false;
+  const s = normalizeDocumentSearchKey(storedDoc);
+  if (!s.compact) return false;
+
+  return (
+    s.compact.includes(q.compact) ||
+    s.baseWithoutDv.includes(q.compact) ||
+    (q.baseWithoutDv.length >= 4 && s.baseWithoutDv.includes(q.baseWithoutDv)) ||
+    (q.compact.length >= 5 && q.compact.includes(s.baseWithoutDv) && s.baseWithoutDv.length >= 5)
+  );
+}
+
+export interface KnownCustomerProfile {
+  /** Clave única basada en identificación sin DV (preservando ceros iniciales) */
+  key: string;
+  customerName: string;
+  documentType: CustomerDocumentType;
+  documentNumber: string;
+  email: string;
+  phone?: string;
+  ordersCount: number;
+  totalSpent: number;
+  lastOrderAt: string;
+}
+
+/**
+ * Construye un directorio deduplicado de clientes registrados con NIT o Cédula a partir del historial de ventas.
+ */
+export function extractKnownCustomersFromSales(sales: SaleReceipt[]): KnownCustomerProfile[] {
+  const sortedSales = [...sales].sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+  const map = new Map<string, KnownCustomerProfile>();
+
+  for (const sale of sortedSales) {
+    const rawDocNum = (sale.customerDocumentNumber || sale.billingInfo?.documentNumber || '').trim();
+    const rawDocType =
+      (sale.customerDocumentType || sale.billingInfo?.documentType || 'CONSUMIDOR_FINAL') as CustomerDocumentType;
+    const norm = normalizeDocumentSearchKey(rawDocNum);
+
+    if (
+      !norm.baseWithoutDv ||
+      norm.baseWithoutDv === '222222222222' ||
+      rawDocType === 'CONSUMIDOR_FINAL'
+    ) {
+      continue;
+    }
+
+    const rawName = (sale.customerName || sale.billingInfo?.customerName || '').trim();
+    const cleanName =
+      rawName && rawName.toLowerCase() !== 'consumidor final' ? rawName : '';
+    const cleanEmail = getSaleCustomerEmail(sale).toLowerCase();
+    const cleanPhone = (sale.billingInfo?.phone || '').trim();
+
+    const existing = map.get(norm.baseWithoutDv);
+    if (existing) {
+      existing.ordersCount += 1;
+      existing.totalSpent += Number(sale.total) || 0;
+      if (!existing.customerName && cleanName) {
+        existing.customerName = cleanName;
+      }
+      if (!existing.email && cleanEmail) {
+        existing.email = cleanEmail;
+      }
+      if (!existing.phone && cleanPhone) {
+        existing.phone = cleanPhone;
+      }
+      if (!existing.documentNumber.includes('-') && rawDocNum.includes('-')) {
+        existing.documentNumber = rawDocNum;
+      }
+    } else {
+      map.set(norm.baseWithoutDv, {
+        key: norm.baseWithoutDv,
+        customerName: cleanName || 'Cliente Registrado',
+        documentType: rawDocType,
+        documentNumber: rawDocNum,
+        email: cleanEmail,
+        ...(cleanPhone ? { phone: cleanPhone } : {}),
+        ordersCount: 1,
+        totalSpent: Number(sale.total) || 0,
+        lastOrderAt: sale.timestamp || ''
+      });
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+/**
+ * Busca clientes conocidos priorizando coincidencia por NIT / Cédula y luego por Nombre / Razón Social o Correo.
+ */
+export function searchKnownCustomers(
+  profiles: KnownCustomerProfile[],
+  rawQuery: string,
+  limit = 6
+): KnownCustomerProfile[] {
+  const trimmed = rawQuery.trim();
+  if (!trimmed) return profiles.slice(0, limit);
+
+  const lower = trimmed.toLowerCase();
+  const docKey = normalizeDocumentSearchKey(trimmed);
+
+  const scored: Array<{ profile: KnownCustomerProfile; score: number }> = [];
+
+  for (const profile of profiles) {
+    const pKey = normalizeDocumentSearchKey(profile.documentNumber);
+    let score = 0;
+
+    if (docKey.compact && (pKey.baseWithoutDv === docKey.baseWithoutDv || pKey.compact === docKey.compact)) {
+      score = 100;
+    } else if (docKey.compact && (pKey.baseWithoutDv.startsWith(docKey.compact) || pKey.compact.startsWith(docKey.compact))) {
+      score = 85;
+    } else if (matchesDocumentNumberQuery(profile.documentNumber, trimmed)) {
+      score = 70;
+    } else if (profile.customerName.toLowerCase().includes(lower)) {
+      score = 50;
+    } else if (profile.email && profile.email.toLowerCase().includes(lower)) {
+      score = 40;
+    }
+
+    if (score > 0) {
+      scored.push({ profile, score });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score || b.profile.ordersCount - a.profile.ordersCount);
+  return scored.slice(0, limit).map((item) => item.profile);
+}
+

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem, CustomerBillingInfo } from '../types';
+import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem, CustomerBillingInfo, ElectronicInvoiceStatus } from '../types';
 import { extractTableBillingInfo, normalizeBillingInfo, hasCustomBillingData } from '../utils/billing';
+import { resolveProductTax, resolveOrderItemTax, calculateOrderTaxBreakdown } from '../utils/taxes';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
 import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
 import {
@@ -115,6 +116,7 @@ interface AppContextType {
     }
   ) => Promise<{ success: boolean; receipt?: SaleReceipt }>;
   eliminarProducto: (tableId: string, itemId: string) => Promise<void>;
+  updateElectronicInvoiceStatus: (saleId: string, status: ElectronicInvoiceStatus) => void;
   
   // Product & Inventory operations
   addProduct: (product: Omit<Product, 'id'> & { id?: string }) => { success: boolean; error?: string };
@@ -734,13 +736,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         it => it.productId === product.id && (it.notes || '') === (notes || '')
       );
 
+      const resolvedProdTax = resolveProductTax(product, config.defaultTaxRate);
+
       let updatedItems: OrderItem[];
       if (existingItemIndex > -1) {
         updatedItems = existingOrder.items.map((item, idx) => {
           if (idx === existingItemIndex) {
             return {
               ...item,
-              quantity: item.quantity + quantity
+              quantity: item.quantity + quantity,
+              taxType: resolvedProdTax.taxType,
+              taxRate: resolvedProdTax.taxRate
             };
           }
           return item;
@@ -753,7 +759,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           unitPrice: product.price,
           quantity: quantity,
           notes: notes?.trim() || undefined,
-          addedAt: new Date().toISOString()
+          addedAt: new Date().toISOString(),
+          taxType: resolvedProdTax.taxType,
+          taxRate: resolvedProdTax.taxRate
         };
         updatedItems = [...existingOrder.items, newItem];
       }
@@ -805,6 +813,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let currentItems = [...existingOrder.items];
 
       itemsToAdd.forEach(toAdd => {
+        const resolvedProdTax = resolveProductTax(toAdd.product, config.defaultTaxRate);
         const existingIndex = currentItems.findIndex(
           it => it.productId === toAdd.product.id && (it.notes || '') === (toAdd.notes || '')
         );
@@ -814,7 +823,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ...currentItems[existingIndex],
             quantity: currentItems[existingIndex].quantity + toAdd.quantity,
             customerName: toAdd.customerName || currentItems[existingIndex].customerName,
-            orderedBy: toAdd.orderedBy || currentItems[existingIndex].orderedBy
+            orderedBy: toAdd.orderedBy || currentItems[existingIndex].orderedBy,
+            taxType: resolvedProdTax.taxType,
+            taxRate: resolvedProdTax.taxRate
           };
         } else {
           currentItems.push({
@@ -826,7 +837,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             notes: toAdd.notes?.trim() || undefined,
             addedAt: new Date().toISOString(),
             orderedBy: toAdd.orderedBy || 'cliente',
-            customerName: toAdd.customerName?.trim() || undefined
+            customerName: toAdd.customerName?.trim() || undefined,
+            taxType: resolvedProdTax.taxType,
+            taxRate: resolvedProdTax.taxRate
           });
         }
       });
@@ -1015,18 +1028,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false };
     }
 
-    const subtotal = (items || []).reduce((acc: number, item: any) => {
-      const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
-      const qty = Number(item?.quantity ?? item?.cantidad ?? 0) || 0;
-      return acc + price * qty;
-    }, 0);
+    const fallbackTaxRate = Number(order.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
     const discountPercent = Number(order.discountPercent) || 0;
-    const discountAmount = subtotal * (discountPercent / 100);
-    const productsTotal = subtotal - discountAmount;
-    const taxPercent = Number(order.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
-    // Matemática con impuesto incluido (8% impoconsumo/IVA ya dentro de los precios P.V.P):
-    // Fórmula legal de extracción: Impuesto = Total - (Total / 1.08)
-    const taxAmount = taxPercent > 0 ? (productsTotal - (productsTotal / (1 + (taxPercent / 100)))) : 0;
+    const enrichedItems: OrderItem[] = (items || []).map((item: any) => {
+      const resolvedItemTax = resolveOrderItemTax(item, products, fallbackTaxRate);
+      return {
+        ...item,
+        taxType: resolvedItemTax.taxType,
+        taxRate: resolvedItemTax.taxRate
+      };
+    });
+
+    const taxSummary = calculateOrderTaxBreakdown(
+      enrichedItems as unknown as Array<Partial<OrderItem> & Record<string, unknown>>,
+      {
+        discountPercent,
+        fallbackTaxRate,
+        productsCatalog: products
+      }
+    );
+
+    const subtotal = taxSummary.subtotal;
+    const discountAmount = taxSummary.discountAmount;
+    const productsTotal = taxSummary.productsTotal;
+    const taxAmount = taxSummary.totalTaxAmount;
+    const taxPercent = taxSummary.effectiveTaxPercent;
     const tipAmount = Number(order.tipAmount) || 0;
     // Total a cobrar: exactamente igual a la suma de los productos (Subtotal) menos descuento más propina
     const total = productsTotal + tipAmount;
@@ -1043,14 +1069,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const extracted = extractTableBillingInfo(table);
     const resolvedBilling = normalizeBillingInfo(options?.billingInfo || extracted.billing);
 
+    const isElectronic = Boolean(resolvedBilling.requiresElectronicInvoice || resolvedBilling.email);
+
     const receipt: SaleReceipt = {
       id: options?.receiptId || `tick-${Date.now()}`,
       orderId: order.id,
       tableName: table.name,
-      items: [...items],
+      items: enrichedItems,
       subtotal: Math.round(subtotal),
       taxAmount: Math.round(taxAmount),
       taxPercent: taxPercent,
+      ivaAmount: Math.round(taxSummary.ivaAmount),
+      impoconsumoAmount: Math.round(taxSummary.impoconsumoAmount),
       discountAmount: Math.round(discountAmount),
       discountPercent: discountPercent,
       tipAmount: Math.round(tipAmount),
@@ -1066,6 +1096,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerDocumentType: resolvedBilling.documentType,
       customerDocumentNumber: resolvedBilling.documentNumber,
       ...(resolvedBilling.email ? { customerEmail: resolvedBilling.email } : {}),
+      ...(isElectronic
+        ? {
+            requiresElectronicInvoice: true,
+            electronicInvoiceStatus: 'pendiente' as const
+          }
+        : {}),
       billingInfo: resolvedBilling
     };
 
@@ -1199,20 +1235,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
+    const resolvedProdTax = resolveProductTax(prodData, config.defaultTaxRate);
     const newProd: Product = {
       ...prodData,
+      taxType: resolvedProdTax.taxType,
+      taxRate: resolvedProdTax.taxRate,
       id: prodData.id || `prod-${Date.now()}`
     };
 
     const nextProducts = [newProd, ...products];
     setProducts(nextProducts);
+    if (activeUid && activeUid !== 'default') {
+      saveProductToFirestore(newProd, activeUid).catch(console.error);
+    }
     persistChanges(tables, nextProducts, sales);
     return { success: true };
   };
 
   const updateProduct = (id: string, partial: Partial<Product>) => {
-    const nextProducts = products.map(p => p.id === id ? { ...p, ...partial } : p);
+    let updatedTarget: Product | undefined;
+    const nextProducts = products.map(p => {
+      if (p.id === id) {
+        const merged = { ...p, ...partial };
+        const resolvedProdTax = resolveProductTax(merged, config.defaultTaxRate);
+        updatedTarget = {
+          ...merged,
+          taxType: resolvedProdTax.taxType,
+          taxRate: resolvedProdTax.taxRate
+        };
+        return updatedTarget;
+      }
+      return p;
+    });
     setProducts(nextProducts);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveProductToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(tables, nextProducts, sales);
   };
 
@@ -1551,6 +1609,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateElectronicInvoiceStatus = (saleId: string, status: ElectronicInvoiceStatus) => {
+    const nowIso = new Date().toISOString();
+    let updatedReceipt: SaleReceipt | undefined;
+    const nextSales = salesRef.current.map((s) => {
+      if (s.id !== saleId) return s;
+      updatedReceipt = {
+        ...s,
+        requiresElectronicInvoice: true,
+        electronicInvoiceStatus: status,
+        electronicInvoiceIssuedAt: status === 'emitida' ? nowIso : ''
+      };
+      return updatedReceipt;
+    });
+    salesRef.current = nextSales;
+    setSales(nextSales);
+    persistChanges(tablesRef.current, productsRef.current, nextSales, perishablesRef.current, suppliersRef.current);
+    if (updatedReceipt && activeUid && activeUid !== 'default') {
+      saveSaleToFirestore(updatedReceipt, activeUid).catch(console.error);
+    }
+  };
+
   const syncNow = () => {
     setCloudStatus('syncing');
     persistChanges(tablesRef.current, productsRef.current, salesRef.current, perishablesRef.current, suppliersRef.current);
@@ -1601,6 +1680,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         checkoutTable,
         cobrarMesa,
         eliminarProducto,
+        updateElectronicInvoiceStatus,
         addProduct,
         updateProduct,
         deleteProduct,

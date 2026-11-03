@@ -52,6 +52,8 @@
         "imageUrl": { "type": "string" },
         "sku": { "type": "string" },
         "description": { "type": "string" },
+        "taxType": { "type": "string" },
+        "taxRate": { "type": "number" },
         "userId": { "type": "string" }
       },
       "required": ["id", "name", "category", "price", "stock"]
@@ -135,6 +137,8 @@
         "subtotal": { "type": "number" },
         "taxAmount": { "type": "number" },
         "taxPercent": { "type": "number" },
+        "ivaAmount": { "type": "number" },
+        "impoconsumoAmount": { "type": "number" },
         "discountAmount": { "type": "number" },
         "discountPercent": { "type": "number" },
         "tipAmount": { "type": "number" },
@@ -148,6 +152,9 @@
         "customerDocumentType": { "type": "string" },
         "customerDocumentNumber": { "type": "string" },
         "customerEmail": { "type": "string" },
+        "requiresElectronicInvoice": { "type": "boolean" },
+        "electronicInvoiceStatus": { "type": "string" },
+        "electronicInvoiceIssuedAt": { "type": "string" },
         "billingInfo": { "type": "object" },
         "userId": { "type": "string" }
       },

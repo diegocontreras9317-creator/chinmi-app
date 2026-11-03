@@ -1,4 +1,4 @@
-import { CustomerBillingInfo, CustomerDocumentType, Table } from '../types';
+import { CustomerBillingInfo, CustomerDocumentType, SaleReceipt, Table } from '../types';
 
 export interface DocumentTypeOption {
   value: CustomerDocumentType;
@@ -68,15 +68,25 @@ export function formatCustomerDocument(
   return `${shortLabel} ${cleanNum}`;
 }
 
+export function isValidEmailFormat(email?: string): boolean {
+  const clean = (email || '').trim();
+  if (!clean) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean);
+}
+
 export function normalizeBillingInfo(input?: Partial<CustomerBillingInfo> | null): CustomerBillingInfo {
   const cleanName = (input?.customerName || '').trim();
   const cleanNumber = (input?.documentNumber || '').trim();
+  const cleanEmail = (input?.email || '').trim().toLowerCase();
+  const cleanPhone = (input?.phone || '').trim();
+  const wantsElectronic = Boolean(input?.requiresElectronicInvoice || cleanEmail);
+
   let resolvedType: CustomerDocumentType = (input?.documentType as CustomerDocumentType) || 'CONSUMIDOR_FINAL';
 
   if (cleanNumber && resolvedType === 'CONSUMIDOR_FINAL') {
     resolvedType = 'CC';
   }
-  if (!cleanNumber && resolvedType !== 'CONSUMIDOR_FINAL' && !cleanName) {
+  if (!cleanNumber && resolvedType !== 'CONSUMIDOR_FINAL' && !cleanName && !wantsElectronic) {
     resolvedType = 'CONSUMIDOR_FINAL';
   }
 
@@ -84,8 +94,9 @@ export function normalizeBillingInfo(input?: Partial<CustomerBillingInfo> | null
     customerName: cleanName || 'Consumidor Final',
     documentType: resolvedType,
     documentNumber: cleanNumber,
-    ...(input?.email?.trim() ? { email: input.email.trim() } : {}),
-    ...(input?.phone?.trim() ? { phone: input.phone.trim() } : {})
+    ...(cleanEmail ? { email: cleanEmail } : {}),
+    ...(cleanPhone ? { phone: cleanPhone } : {}),
+    ...(wantsElectronic ? { requiresElectronicInvoice: true } : {})
   };
 }
 
@@ -93,8 +104,24 @@ export function hasCustomBillingData(info?: Partial<CustomerBillingInfo> | null)
   if (!info) return false;
   const cleanName = (info.customerName || '').trim();
   const cleanNum = (info.documentNumber || '').trim();
+  const cleanEmail = (info.email || '').trim();
   const hasRealName = Boolean(cleanName && cleanName.toLowerCase() !== 'consumidor final');
-  return hasRealName || Boolean(cleanNum);
+  return hasRealName || Boolean(cleanNum) || Boolean(cleanEmail) || Boolean(info.requiresElectronicInvoice);
+}
+
+export function isElectronicInvoiceSale(sale?: SaleReceipt | null): boolean {
+  if (!sale) return false;
+  const email = (sale.customerEmail || sale.billingInfo?.email || '').trim();
+  return Boolean(
+    sale.requiresElectronicInvoice ||
+      sale.billingInfo?.requiresElectronicInvoice ||
+      email
+  );
+}
+
+export function getSaleCustomerEmail(sale?: SaleReceipt | null): string {
+  if (!sale) return '';
+  return (sale.customerEmail || sale.billingInfo?.email || '').trim();
 }
 
 /**
@@ -115,26 +142,32 @@ export function extractTableBillingInfo(table?: Table | null): {
     '';
 
   if (callBilling && hasCustomBillingData(callBilling)) {
+    const cleanEmail = (callBilling.email || '').trim().toLowerCase();
+    const wantsElectronic = Boolean(callBilling.requiresElectronicInvoice || cleanEmail);
     return {
       billing: {
         customerName: callBilling.customerName?.trim() || '',
         documentType: callBilling.documentType || (callBilling.documentNumber ? 'CC' : 'CONSUMIDOR_FINAL'),
         documentNumber: callBilling.documentNumber?.trim() || '',
-        ...(callBilling.email?.trim() ? { email: callBilling.email.trim() } : {}),
-        ...(callBilling.phone?.trim() ? { phone: callBilling.phone.trim() } : {})
+        ...(cleanEmail ? { email: cleanEmail } : {}),
+        ...(callBilling.phone?.trim() ? { phone: callBilling.phone.trim() } : {}),
+        ...(wantsElectronic ? { requiresElectronicInvoice: true } : {})
       },
       fromQrCustomer: true
     };
   }
 
   if (orderBilling && hasCustomBillingData(orderBilling)) {
+    const cleanEmail = (orderBilling.email || '').trim().toLowerCase();
+    const wantsElectronic = Boolean(orderBilling.requiresElectronicInvoice || cleanEmail);
     return {
       billing: {
         customerName: orderBilling.customerName?.trim() || '',
         documentType: orderBilling.documentType || (orderBilling.documentNumber ? 'CC' : 'CONSUMIDOR_FINAL'),
         documentNumber: orderBilling.documentNumber?.trim() || '',
-        ...(orderBilling.email?.trim() ? { email: orderBilling.email.trim() } : {}),
-        ...(orderBilling.phone?.trim() ? { phone: orderBilling.phone.trim() } : {})
+        ...(cleanEmail ? { email: cleanEmail } : {}),
+        ...(orderBilling.phone?.trim() ? { phone: orderBilling.phone.trim() } : {}),
+        ...(wantsElectronic ? { requiresElectronicInvoice: true } : {})
       },
       fromQrCustomer: true
     };

@@ -11,8 +11,10 @@ import {
 import {
   DOCUMENT_TYPE_OPTIONS,
   extractTableBillingInfo,
+  isValidEmailFormat,
   normalizeBillingInfo
 } from '../../utils/billing';
+import { calculateOrderTaxBreakdown, resolveOrderItemTax } from '../../utils/taxes';
 import { auth, db } from '../../firebase';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { sanitizeForFirestore } from '../../services/firestoreUserStorage';
@@ -28,6 +30,7 @@ import {
   Loader2,
   UserCheck,
   FileText,
+  Mail,
   AlertCircle
 } from 'lucide-react';
 
@@ -44,7 +47,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   table,
   onSuccessCheckout
 }) => {
-  const { config, checkoutTable } = useApp();
+  const { config, products, checkoutTable } = useApp();
   const { user, empleadoActivo } = useAuth();
 
   // Persona activa desde donde se realiza el cobro (perfil de empleado activo o titular de la sesión)
@@ -68,6 +71,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [customerName, setCustomerName] = useState<string>('');
   const [customerDocType, setCustomerDocType] = useState<CustomerDocumentType>('CONSUMIDOR_FINAL');
   const [customerDocNumber, setCustomerDocNumber] = useState<string>('');
+  const [customerEmail, setCustomerEmail] = useState<string>('');
+  const [requiresElectronicInvoice, setRequiresElectronicInvoice] = useState<boolean>(false);
   const [isFromCustomerQr, setIsFromCustomerQr] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -105,6 +110,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       );
       setCustomerDocType(billing.documentType || 'CONSUMIDOR_FINAL');
       setCustomerDocNumber(billing.documentNumber || '');
+      setCustomerEmail(billing.email || '');
+      setRequiresElectronicInvoice(Boolean(billing.requiresElectronicInvoice || billing.email));
       setIsFromCustomerQr(fromQrCustomer);
     }
   }, [isOpen, table?.id, table?.order?.id, table?.waiterCall?.requestedAt]);
@@ -147,18 +154,29 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     );
   }
 
-  const subtotal = (items || []).reduce((acc: number, item: any) => {
-    const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
-    const qty = Number(item?.quantity ?? item?.cantidad ?? 0) || 0;
-    return acc + price * qty;
-  }, 0);
-
   const discountPercent = Number(order?.discountPercent) || 0;
-  const discountAmount = subtotal * (discountPercent / 100);
-  const productsTotal = subtotal - discountAmount;
-  const taxPercent = Number(order?.taxPercent ?? config?.defaultTaxRate ?? 8) || 8;
-  const taxAmount = taxPercent > 0 ? productsTotal - productsTotal / (1 + taxPercent / 100) : 0;
-  const taxableBase = productsTotal - taxAmount;
+  const fallbackTaxRate = Number(order?.taxPercent ?? config?.defaultTaxRate ?? 8) || 8;
+  const enrichedItems = (items || []).map((item: any) => {
+    const resolvedTax = resolveOrderItemTax(item, products, fallbackTaxRate);
+    return {
+      ...item,
+      taxType: resolvedTax.taxType,
+      taxRate: resolvedTax.taxRate
+    };
+  });
+
+  const taxSummary = calculateOrderTaxBreakdown(enrichedItems, {
+    discountPercent,
+    fallbackTaxRate,
+    productsCatalog: products
+  });
+
+  const subtotal = taxSummary.subtotal;
+  const discountAmount = taxSummary.discountAmount;
+  const productsTotal = taxSummary.productsTotal;
+  const taxPercent = taxSummary.effectiveTaxPercent;
+  const taxAmount = taxSummary.totalTaxAmount;
+  const taxableBase = taxSummary.taxableBase;
   const tipAmount = Number(order?.tipAmount) || 0;
   const total = Math.round(productsTotal + tipAmount);
 
@@ -189,6 +207,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
+    const cleanEmail = customerEmail.trim().toLowerCase();
+    const wantsElectronic = Boolean(requiresElectronicInvoice || cleanEmail);
+
+    if (wantsElectronic && !cleanEmail) {
+      setCheckoutError(
+        'Ingresa el correo electrónico del cliente para poder generar su Facturación Electrónica.'
+      );
+      return;
+    }
+
+    if (cleanEmail && !isValidEmailFormat(cleanEmail)) {
+      setCheckoutError('Ingresa un correo electrónico válido (ejemplo: cliente@correo.com).');
+      return;
+    }
+
     setIsProcessing(true);
     const nowIso = new Date().toISOString();
     const receiptId = `tick-${Date.now()}`;
@@ -196,17 +229,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     const resolvedBilling = normalizeBillingInfo({
       customerName: customerName.trim(),
       documentType: customerDocType,
-      documentNumber: customerDocNumber.trim()
+      documentNumber: customerDocNumber.trim(),
+      email: cleanEmail,
+      requiresElectronicInvoice: wantsElectronic
     });
 
     const receiptPayload = sanitizeForFirestore({
       id: receiptId,
       orderId: order.id,
       tableName: table.name || 'Mesa',
-      items: items,
+      items: enrichedItems,
       subtotal: Math.round(subtotal),
       taxAmount: Math.round(taxAmount),
       taxPercent: taxPercent,
+      ivaAmount: Math.round(taxSummary.ivaAmount),
+      impoconsumoAmount: Math.round(taxSummary.impoconsumoAmount),
       discountAmount: Math.round(discountAmount),
       discountPercent: discountPercent,
       tipAmount: Math.round(tipAmount),
@@ -221,6 +258,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       customerName: resolvedBilling.customerName,
       customerDocumentType: resolvedBilling.documentType,
       customerDocumentNumber: resolvedBilling.documentNumber,
+      customerEmail: resolvedBilling.email || '',
+      requiresElectronicInvoice: Boolean(resolvedBilling.requiresElectronicInvoice),
+      electronicInvoiceStatus: resolvedBilling.requiresElectronicInvoice ? 'pendiente' : '',
       billingInfo: resolvedBilling,
       userId: activeUid
     });
@@ -363,10 +403,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
             <div className="text-right text-xs text-slate-300 space-y-0.5 font-mono tabular-nums">
               <p>Base: $ {new Intl.NumberFormat('es-CO').format(Math.round(taxableBase))}</p>
-              {taxAmount > 0 && (
-                <p>
-                  Impoconsumo ({taxPercent}%): $ {new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))}
-                </p>
+              {taxSummary.buckets.length > 0 ? (
+                taxSummary.buckets.map((bucket) => (
+                  <p key={bucket.key}>
+                    {bucket.nameLabel} ({bucket.taxRate}%): ${' '}
+                    {new Intl.NumberFormat('es-CO').format(Math.round(bucket.taxAmount))}
+                  </p>
+                ))
+              ) : (
+                <p>Exento (0%): $ 0</p>
               )}
               {discountAmount > 0 && (
                 <p className="text-rose-400 font-medium">
@@ -381,16 +426,39 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
           </div>
 
-          {/* Datos del Cliente / A nombre de quién se cobra (NIT, Cédula, etc.) */}
+          {/* Datos del Cliente / A nombre de quién se cobra (NIT, Cédula, Correo Facturación Electrónica) */}
           <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                <span>A nombre de quién se cobra / Facturación</span>
+                <span>Datos del cliente y Facturación Electrónica</span>
               </span>
-              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                {isFromCustomerQr ? 'Recibido del cliente (QR)' : 'Opcional'}
-              </span>
+
+              <div className="flex items-center gap-2">
+                {isFromCustomerQr && (
+                  <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+                    Recibido por QR
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !requiresElectronicInvoice;
+                    setRequiresElectronicInvoice(next);
+                    if (next && customerDocType === 'CONSUMIDOR_FINAL') {
+                      setCustomerDocType('CC');
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                    requiresElectronicInvoice
+                      ? 'bg-orange-600 text-white border-orange-600'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Mail className="w-3 h-3 shrink-0" />
+                  <span>{requiresElectronicInvoice ? 'Factura Electrónica: Sí' : 'Requiere Factura Electrónica'}</span>
+                </button>
+              </div>
             </div>
 
             <div>
@@ -454,6 +522,41 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 />
               </div>
             </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1">
+                  <Mail className="w-3 h-3 text-orange-500 shrink-0" />
+                  <span>
+                    Correo electrónico para Facturación Electrónica
+                    {requiresElectronicInvoice ? ' *' : ''}
+                  </span>
+                </span>
+                {requiresElectronicInvoice && (
+                  <span className="text-[10px] font-semibold text-orange-600 dark:text-orange-400">
+                    Quedará en el listado diario de Facturación Electrónica
+                  </span>
+                )}
+              </label>
+              <input
+                type="email"
+                value={customerEmail}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCustomerEmail(val);
+                  if (val.trim()) {
+                    setRequiresElectronicInvoice(true);
+                  }
+                  if (checkoutError) setCheckoutError(null);
+                }}
+                placeholder="cliente@correo.com (para envío de Factura Electrónica)"
+                className={`w-full px-3 py-2 text-xs rounded-lg border bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40 ${
+                  requiresElectronicInvoice && !customerEmail.trim()
+                    ? 'border-orange-400 dark:border-orange-500'
+                    : 'border-slate-200 dark:border-slate-700'
+                }`}
+              />
+            </div>
           </div>
 
           {/* Tabla Resumen de Productos de la Comanda */}
@@ -463,11 +566,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <span>Importe</span>
             </div>
             <div className="max-h-32 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 px-4 text-xs">
-              {items.map((item: any, idx: number) => {
+              {enrichedItems.map((item: any, idx: number) => {
                 const name = item?.productName || item?.name || item?.producto || 'Producto';
                 const qty = Number(item?.quantity ?? item?.cantidad ?? 1) || 1;
                 const price = Number(item?.unitPrice ?? item?.price ?? 0) || 0;
                 const itemTotal = price * qty;
+                const itemTaxInfo = resolveOrderItemTax(item, products, fallbackTaxRate);
                 return (
                   <div
                     key={item?.id || idx}
@@ -478,6 +582,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         {qty}x
                       </span>
                       <span className="truncate">{name}</span>
+                      <span className="text-[10px] text-slate-400 shrink-0">
+                        · {itemTaxInfo.shortLabel}
+                      </span>
                       {item?.notes && (
                         <span className="text-[10px] text-slate-400 italic">({item.notes})</span>
                       )}

@@ -532,7 +532,9 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
       notes: it.notes?.trim() || '',
       addedAt: it.addedAt || new Date().toISOString(),
       customerName: it.customerName?.trim() || '',
-      orderedBy: it.orderedBy || 'mesero'
+      orderedBy: it.orderedBy || 'mesero',
+      ...(it.taxType ? { taxType: it.taxType } : {}),
+      ...(it.taxRate !== undefined && !Number.isNaN(Number(it.taxRate)) ? { taxRate: Number(it.taxRate) } : {})
     }));
 
     const cleanOrder = sanitizeForFirestore({
@@ -594,7 +596,9 @@ export async function syncTableOrderToFirestore(
       notes: it.notes?.trim() || '',
       addedAt: it.addedAt || nowIso,
       customerName: it.customerName?.trim() || '',
-      orderedBy: it.orderedBy || 'mesero'
+      orderedBy: it.orderedBy || 'mesero',
+      ...(it.taxType ? { taxType: it.taxType } : {}),
+      ...(it.taxRate !== undefined && !Number.isNaN(Number(it.taxRate)) ? { taxRate: Number(it.taxRate) } : {})
     }));
 
     const cleanOrder = sanitizeForFirestore({
@@ -826,8 +830,9 @@ export async function saveProductToFirestore(product: Product, targetUid?: strin
   if (!uid || !product.id) return;
   const path = `users/${uid}/menu/${product.id}`;
   try {
-    await setDoc(doc(db, 'users', uid, 'menu', product.id), { ...product, userId: uid }, { merge: true });
-    await setDoc(doc(db, 'users', uid, 'productos', product.id), { ...product, userId: uid }, { merge: true });
+    const cleanProd = sanitizeForFirestore({ ...product, userId: uid });
+    await setDoc(doc(db, 'users', uid, 'menu', product.id), cleanProd, { merge: true });
+    await setDoc(doc(db, 'users', uid, 'productos', product.id), cleanProd, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;

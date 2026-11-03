@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Table, Product, TableStatus, OrderItem } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import { extractTableBillingInfo, formatCustomerDocument, hasCustomBillingData } from '../../utils/billing';
+import { calculateOrderTaxBreakdown, resolveOrderItemTax, resolveProductTax } from '../../utils/taxes';
 import { auth, db } from '../../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { sanitizeForFirestore } from '../../services/firestoreUserStorage';
@@ -82,52 +83,60 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   }, [products, selectedCategory, searchQuery]);
 
   // Real-time calculations with useMemo to prevent unneeded recomputations
-  const { subtotal, discountPercent, discountAmount, taxableBase, taxPercent, taxAmount, tipAmount, total } = useMemo(() => {
-    const sub = (items || []).reduce(
-      (acc: number, item: OrderItem) =>
-        acc + (Number(item?.unitPrice ?? (item as any)?.price ?? 0) || 0) * (Number(item?.quantity ?? 0) || 0),
-      0
-    );
+  const { subtotal, discountPercent, discountAmount, taxableBase, taxPercent, taxAmount, taxBuckets, tipAmount, total } = useMemo(() => {
     const discPct = Number(order?.discountPercent) || 0;
-    const discAmt = sub * (discPct / 100);
-    const productsTot = sub - discAmt;
-    const taxPct = Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
-    // Matemática con impuesto incluido: Total - (Total / 1.08)
-    const taxAmt = taxPct > 0 ? (productsTot - (productsTot / (1 + (taxPct / 100)))) : 0;
-    const base = productsTot - taxAmt;
+    const fallbackRate = Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
+    const summary = calculateOrderTaxBreakdown(
+      items as unknown as Array<Partial<OrderItem> & Record<string, unknown>>,
+      {
+        discountPercent: discPct,
+        fallbackTaxRate: fallbackRate,
+        productsCatalog: products
+      }
+    );
     const tip = Number(order?.tipAmount) || 0;
-    // Total a cobrar: exactamente igual a la suma de los productos (menos descuento) más propina
-    const tot = productsTot + tip;
+    const tot = summary.productsTotal + tip;
 
     return {
-      subtotal: sub,
-      discountPercent: discPct,
-      discountAmount: discAmt,
-      taxableBase: base,
-      taxPercent: taxPct,
-      taxAmount: taxAmt,
+      subtotal: summary.subtotal,
+      discountPercent: summary.discountPercent,
+      discountAmount: summary.discountAmount,
+      taxableBase: summary.taxableBase,
+      taxPercent: summary.effectiveTaxPercent,
+      taxAmount: summary.totalTaxAmount,
+      taxBuckets: summary.buckets,
       tipAmount: tip,
       total: tot
     };
-  }, [items, order?.discountPercent, order?.taxPercent, order?.tipAmount, config.defaultTaxRate]);
+  }, [items, products, order?.discountPercent, order?.taxPercent, order?.tipAmount, config.defaultTaxRate]);
 
   // Guardar y sincronizar comanda
   const handleSaveAndUpdateComanda = async () => {
     const activeUid = auth.currentUser?.uid || user?.id;
     const nowIso = new Date().toISOString();
     const pedidoId = order?.id || `ord-${table?.id || Date.now()}`;
+    const fallbackRate = Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
 
-    const cleanItems = (items || []).map((it: OrderItem) => ({
-      id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      productId: it.productId || '',
-      name: it.name || 'Producto',
-      unitPrice: Number(it.unitPrice) || 0,
-      quantity: Number(it.quantity) || 1,
-      notes: it.notes?.trim() || '',
-      addedAt: it.addedAt || nowIso,
-      customerName: it.customerName?.trim() || '',
-      orderedBy: it.orderedBy || (empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : 'mesero')
-    }));
+    const cleanItems = (items || []).map((it: OrderItem) => {
+      const resolvedTax = resolveOrderItemTax(
+        it as unknown as Partial<OrderItem> & Record<string, unknown>,
+        products,
+        fallbackRate
+      );
+      return {
+        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: it.productId || '',
+        name: it.name || 'Producto',
+        unitPrice: Number(it.unitPrice) || 0,
+        quantity: Number(it.quantity) || 1,
+        notes: it.notes?.trim() || '',
+        addedAt: it.addedAt || nowIso,
+        customerName: it.customerName?.trim() || '',
+        orderedBy: it.orderedBy || (empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : 'mesero'),
+        taxType: resolvedTax.taxType,
+        taxRate: resolvedTax.taxRate
+      };
+    });
 
     const datosDelPedido = {
       id: pedidoId,
@@ -244,25 +253,41 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     removeOrderItem(table.id, idEliminar);
 
     if (remainingItems.length > 0) {
-      const cleanRemaining = remainingItems.map(it => ({
-        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        productId: it.productId || '',
-        name: it.name || 'Producto',
-        unitPrice: Number(it.unitPrice) || 0,
-        quantity: Number(it.quantity) || 1,
-        notes: it.notes?.trim() || '',
-        addedAt: it.addedAt || nowIso,
-        customerName: it.customerName?.trim() || '',
-        orderedBy: it.orderedBy || 'mesero'
-      }));
+      const fallbackRate = Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
+      const cleanRemaining = remainingItems.map(it => {
+        const resolvedTax = resolveOrderItemTax(
+          it as unknown as Partial<OrderItem> & Record<string, unknown>,
+          products,
+          fallbackRate
+        );
+        return {
+          id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          productId: it.productId || '',
+          name: it.name || 'Producto',
+          unitPrice: Number(it.unitPrice) || 0,
+          quantity: Number(it.quantity) || 1,
+          notes: it.notes?.trim() || '',
+          addedAt: it.addedAt || nowIso,
+          customerName: it.customerName?.trim() || '',
+          orderedBy: it.orderedBy || 'mesero',
+          taxType: resolvedTax.taxType,
+          taxRate: resolvedTax.taxRate
+        };
+      });
 
-      const newSubtotal = cleanRemaining.reduce((acc, it) => acc + (it.unitPrice * it.quantity), 0);
-      const newDiscount = newSubtotal * ((Number(order?.discountPercent) || 0) / 100);
-      const newProductsTot = newSubtotal - newDiscount;
-      const newTaxPct = Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
-      const newTax = newTaxPct > 0 ? (newProductsTot - (newProductsTot / (1 + (newTaxPct / 100)))) : 0;
+      const remSummary = calculateOrderTaxBreakdown(
+        cleanRemaining as unknown as Array<Partial<OrderItem> & Record<string, unknown>>,
+        {
+          discountPercent: Number(order?.discountPercent) || 0,
+          fallbackTaxRate: fallbackRate,
+          productsCatalog: products
+        }
+      );
+      const newSubtotal = remSummary.subtotal;
+      const newDiscount = remSummary.discountAmount;
+      const newTax = remSummary.totalTaxAmount;
       const newTip = Number(order?.tipAmount) || 0;
-      const newTotal = newProductsTot + newTip;
+      const newTotal = remSummary.productsTotal + newTip;
 
       const orderPayload = sanitizeForFirestore({
         id: pedidoId,
@@ -643,7 +668,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                             {product.name}
                           </p>
                           <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                            {product.category}
+                            {product.category} · {resolveProductTax(product, config.defaultTaxRate).shortLabel}
                           </p>
                         </div>
                         <div className="mt-2 flex items-center justify-between">
@@ -698,13 +723,21 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                 </span>
               </div>
               {hasCustomBillingData(extractedCustomerBilling.billing) && (
-                <div className="text-[11px] text-slate-600 dark:text-slate-300 flex items-center justify-between gap-2 pt-1 border-t border-slate-200/70 dark:border-slate-800">
+                <div className="text-[11px] text-slate-600 dark:text-slate-300 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 pt-1 border-t border-slate-200/70 dark:border-slate-800">
                   <span className="truncate">
-                    Cobrar a: <strong className="text-slate-900 dark:text-white">{extractedCustomerBilling.billing.customerName}</strong>
+                    Cobrar a: <strong className="text-slate-900 dark:text-white">{extractedCustomerBilling.billing.customerName || 'Consumidor Final'}</strong>
                     {extractedCustomerBilling.billing.documentNumber
                       ? ` · ${formatCustomerDocument(extractedCustomerBilling.billing.documentType, extractedCustomerBilling.billing.documentNumber)}`
                       : ''}
+                    {extractedCustomerBilling.billing.email
+                      ? ` · ${extractedCustomerBilling.billing.email}`
+                      : ''}
                   </span>
+                  {extractedCustomerBilling.billing.requiresElectronicInvoice && (
+                    <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 shrink-0">
+                      Factura Electrónica
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -734,8 +767,15 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                         <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
                           {item.name}
                         </p>
-                        <p className="text-[11px] font-mono text-slate-500">
-                          {formatCOP(item.unitPrice, false)} / ud
+                        <p className="text-[11px] font-mono tabular-nums text-slate-500">
+                          {formatCOP(item.unitPrice, false)} / ud ·{' '}
+                          {
+                            resolveOrderItemTax(
+                              item as unknown as Partial<OrderItem> & Record<string, unknown>,
+                              products,
+                              config.defaultTaxRate
+                            ).shortLabel
+                          }
                         </p>
                         {item.notes && (
                           <p className="text-[11px] text-amber-600 dark:text-amber-400 italic mt-0.5">
@@ -839,14 +879,33 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                     <span className="font-mono">-{new Intl.NumberFormat('es-CO').format(Math.round(discountAmount))} {config.currency}</span>
                   </div>
                 )}
-                <div className="flex justify-between text-[11px]">
-                  <span>Impuesto ({taxPercent}% inc.):</span>
-                  <span className="font-mono">{new Intl.NumberFormat('es-CO').format(Math.round(taxAmount))} {config.currency}</span>
-                </div>
+                {taxBuckets.length > 0 ? (
+                  taxBuckets.map((bucket) => (
+                    <div key={bucket.key} className="flex justify-between text-[11px]">
+                      <span>{bucket.inclusiveLabel}:</span>
+                      <span className="font-mono tabular-nums">
+                        {new Intl.NumberFormat('es-CO').format(Math.round(bucket.taxAmount))} {config.currency}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex justify-between text-[11px]">
+                    <span>Exento de impuesto (0%):</span>
+                    <span className="font-mono tabular-nums">0 {config.currency}</span>
+                  </div>
+                )}
+                {taxBuckets.length > 0 && (
+                  <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                    <span>Base gravable:</span>
+                    <span className="font-mono tabular-nums">
+                      {new Intl.NumberFormat('es-CO').format(Math.round(taxableBase))} {config.currency}
+                    </span>
+                  </div>
+                )}
                 {tipAmount > 0 && (
                   <div className="flex justify-between text-emerald-600 font-medium">
                     <span>Propina voluntaria:</span>
-                    <span className="font-mono">+{new Intl.NumberFormat('es-CO').format(Math.round(tipAmount))} {config.currency}</span>
+                    <span className="font-mono tabular-nums">+{new Intl.NumberFormat('es-CO').format(Math.round(tipAmount))} {config.currency}</span>
                   </div>
                 )}
               </div>

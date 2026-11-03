@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { formatCOP } from '../../utils/currency';
+import { resolveProductTax } from '../../utils/taxes';
 import {
   Search,
   Plus,
@@ -30,6 +31,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas las categorías');
   const [stockFilter, setStockFilter] = useState<'all' | 'low' | 'out'>('all');
+  const [taxFilter, setTaxFilter] = useState<'all' | 'impoconsumo' | 'iva'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   // Card size state: 'sm' (Pequeño), 'md' (Mediano), 'lg' (Grande)
   const [cardSize, setCardSize] = useState<'sm' | 'md' | 'lg'>(() => {
@@ -57,15 +59,23 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
 
   // Filters
   const filteredProducts = products.filter(prod => {
+    const prodTax = resolveProductTax(prod, config.defaultTaxRate);
     const matchesCat = selectedCategory === 'Todas las categorías' || prod.category === selectedCategory;
-    const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          prod.sku.toLowerCase().includes(searchQuery.toLowerCase());
+    const term = searchQuery.toLowerCase();
+    const matchesSearch =
+      prod.name.toLowerCase().includes(term) ||
+      prod.sku.toLowerCase().includes(term) ||
+      prodTax.shortLabel.toLowerCase().includes(term);
     
     let matchesStock = true;
     if (stockFilter === 'low') matchesStock = prod.stock <= prod.minStock && prod.stock > 0;
     if (stockFilter === 'out') matchesStock = prod.stock <= 0;
 
-    return matchesCat && matchesSearch && matchesStock;
+    let matchesTax = true;
+    if (taxFilter === 'impoconsumo') matchesTax = prodTax.taxType === 'impoconsumo';
+    if (taxFilter === 'iva') matchesTax = prodTax.taxType === 'iva';
+
+    return matchesCat && matchesSearch && matchesStock && matchesTax;
   });
 
   // KPI Calculations
@@ -281,32 +291,66 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
             />
           </div>
 
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs self-start lg:self-auto shrink-0">
-            <button
-              onClick={() => setStockFilter('all')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition ${
-                stockFilter === 'all' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
-              }`}
-            >
-              Todos ({products.length})
-            </button>
-            <button
-              onClick={() => setStockFilter('low')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1 ${
-                stockFilter === 'low' ? 'bg-white dark:bg-slate-900 text-amber-600 shadow-xs' : 'text-slate-500'
-              }`}
-            >
-              <AlertTriangle className="w-3 h-3 text-amber-500" />
-              Bajo Stock ({lowStockCount})
-            </button>
-            <button
-              onClick={() => setStockFilter('out')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition ${
-                stockFilter === 'out' ? 'bg-white dark:bg-slate-900 text-rose-600 shadow-xs' : 'text-slate-500'
-              }`}
-            >
-              Agotados ({outOfStockCount})
-            </button>
+          <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto shrink-0">
+            {/* Tax Type Filter */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => setTaxFilter('all')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer whitespace-nowrap ${
+                  taxFilter === 'all' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                Impuestos: Todos
+              </button>
+              <button
+                type="button"
+                onClick={() => setTaxFilter('impoconsumo')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer whitespace-nowrap ${
+                  taxFilter === 'impoconsumo' ? 'bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs font-bold' : 'text-slate-500'
+                }`}
+              >
+                Impoconsumo
+              </button>
+              <button
+                type="button"
+                onClick={() => setTaxFilter('iva')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer whitespace-nowrap ${
+                  taxFilter === 'iva' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-bold' : 'text-slate-500'
+                }`}
+              >
+                IVA
+              </button>
+            </div>
+
+            {/* Stock Filter */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs">
+              <button
+                onClick={() => setStockFilter('all')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
+                  stockFilter === 'all' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                Todos ({products.length})
+              </button>
+              <button
+                onClick={() => setStockFilter('low')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1 whitespace-nowrap ${
+                  stockFilter === 'low' ? 'bg-white dark:bg-slate-900 text-amber-600 shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                <AlertTriangle className="w-3 h-3 text-amber-500" />
+                Bajo Stock ({lowStockCount})
+              </button>
+              <button
+                onClick={() => setStockFilter('out')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition whitespace-nowrap ${
+                  stockFilter === 'out' ? 'bg-white dark:bg-slate-900 text-rose-600 shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                Agotados ({outOfStockCount})
+              </button>
+            </div>
           </div>
 
         </div>
@@ -328,6 +372,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
             const isLowStock = product.stock <= product.minStock && product.stock > 0;
             const isOutOfStock = product.stock <= 0;
             const margin = Math.round(((product.price - product.cost) / (product.price || 1)) * 100);
+            const resolvedTax = resolveProductTax(product, config.defaultTaxRate);
 
             {/* === MENÚ TAMAÑO PEQUEÑO (COMPACTO) === */}
             if (cardSize === 'sm') {
@@ -363,9 +408,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
 
                     {/* Info Compacta */}
                     <div>
-                      <span className="text-[9px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider truncate block">
-                        {product.category}
-                      </span>
+                      <div className="flex items-center gap-1 text-[9px] font-semibold text-slate-500 dark:text-slate-400 truncate">
+                        <span className="text-orange-600 dark:text-orange-400 font-bold truncate">{product.category}</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="shrink-0">{resolvedTax.shortLabel}</span>
+                      </div>
                       <h3 className="font-bold text-xs text-slate-900 dark:text-white truncate mt-0.5" title={product.name}>
                         {product.name}
                       </h3>
@@ -458,9 +505,15 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
 
                     {/* Info Grande */}
                     <div>
-                      <span className="text-xs font-extrabold text-orange-600 dark:text-orange-400 uppercase tracking-wider">
-                        {product.category}
-                      </span>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                        <span className="font-extrabold text-orange-600 dark:text-orange-400">
+                          {product.category}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-semibold text-slate-600 dark:text-slate-300">
+                          {resolvedTax.shortLabel} inc.
+                        </span>
+                      </div>
                       <h3 className="font-black text-xl text-slate-900 dark:text-white mt-1 leading-tight">
                         {product.name}
                       </h3>
@@ -582,9 +635,15 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
 
                   {/* Info */}
                   <div>
-                    <span className="text-[10px] font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wider">
-                      {product.category}
-                    </span>
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                      <span className="font-semibold text-orange-600 dark:text-orange-400 truncate">
+                        {product.category}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-semibold text-slate-600 dark:text-slate-300 shrink-0">
+                        {resolvedTax.shortLabel}
+                      </span>
+                    </div>
                     <h3 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1 mt-0.5">
                       {product.name}
                     </h3>
@@ -685,6 +744,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                 <tr>
                   <th className="px-4 py-3">Producto</th>
                   <th className="px-4 py-3">Categoría</th>
+                  <th className="px-4 py-3">Impuesto</th>
                   <th className="px-4 py-3">SKU</th>
                   <th className="px-4 py-3 text-right">PVP</th>
                   <th className="px-4 py-3 text-right">Coste</th>
@@ -694,7 +754,9 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredProducts.map((prod) => (
+                {filteredProducts.map((prod) => {
+                  const prodTax = resolveProductTax(prod, config.defaultTaxRate);
+                  return (
                   <tr key={prod.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
                     <td className="px-4 py-3 flex items-center gap-3">
                       <img src={prod.imageUrl} alt={prod.name} className="w-9 h-9 rounded-lg object-cover" />
@@ -704,11 +766,14 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       </div>
                     </td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{prod.category}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                      {prodTax.shortLabel}
+                    </td>
                     <td className="px-4 py-3 font-mono text-slate-400">{prod.sku}</td>
-                    <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                    <td className="px-4 py-3 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white">
                       {formatCOP(prod.price, false)}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-500">
+                    <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-500">
                       {formatCOP(prod.cost, false)}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -757,7 +822,8 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

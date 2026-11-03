@@ -1,6 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Product } from '../../types';
+import { Product, ProductTaxType } from '../../types';
+import {
+  DEFAULT_IMPOCONSUMO_RATE,
+  DEFAULT_IVA_RATE,
+  resolveProductTax
+} from '../../utils/taxes';
 import {
   X,
   Plus,
@@ -11,7 +16,8 @@ import {
   Camera,
   Trash2,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  Percent
 } from 'lucide-react';
 import { compressImageFile } from '../../utils/imageCompressor';
 
@@ -68,6 +74,9 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
   const [isCompressing, setIsCompressing] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const initialResolvedTax = resolveProductTax(productToEdit, config.defaultTaxRate);
+  const [taxType, setTaxType] = useState<ProductTaxType>(initialResolvedTax.taxType);
+  const [taxRate, setTaxRate] = useState<string>(String(initialResolvedTax.taxRate));
   const [description, setDescription] = useState(productToEdit?.description || '');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -91,20 +100,25 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       setSku(productToEdit.sku || '');
       setImageUrl(productToEdit.imageUrl || PRESET_GASTRO_PHOTOS[0].url);
       setDescription(productToEdit.description || '');
+      const resolved = resolveProductTax(productToEdit, config.defaultTaxRate);
+      setTaxType(resolved.taxType);
+      setTaxRate(String(resolved.taxRate));
     } else {
       setName('');
       setCategory(config.categories.filter(c => c !== 'Todas las categorías')[0] || 'Tapas & Entrantes');
       setIsCustomCategory(false);
       setCustomCategoryName('');
-      setPrice('5.50');
-      setCost('1.50');
+      setPrice('15000');
+      setCost('5000');
       setStock('30');
       setMinStock('10');
       setSku(`ART-${Math.floor(100 + Math.random() * 900)}`);
       setImageUrl(PRESET_GASTRO_PHOTOS[0].url);
       setDescription('');
+      setTaxType('impoconsumo');
+      setTaxRate(String(config.defaultTaxRate || DEFAULT_IMPOCONSUMO_RATE));
     }
-  }, [productToEdit, isOpen, config.categories]);
+  }, [productToEdit, isOpen, config.categories, config.defaultTaxRate]);
 
   if (!isOpen) return null;
 
@@ -160,9 +174,24 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
     const numericCost = parseFloat(cost) || 0;
     const numericStock = parseInt(stock, 10) || 0;
     const numericMinStock = parseInt(minStock, 10) || 5;
+    const parsedTaxRate = taxType === 'exento' ? 0 : Math.max(0, parseFloat(taxRate));
+    const finalTaxRate =
+      taxType === 'exento'
+        ? 0
+        : Number.isNaN(parsedTaxRate)
+        ? taxType === 'iva'
+          ? DEFAULT_IVA_RATE
+          : DEFAULT_IMPOCONSUMO_RATE
+        : parsedTaxRate;
+    const finalTaxType: ProductTaxType = finalTaxRate === 0 ? 'exento' : taxType;
 
     if (numericPrice <= 0) {
       setErrorMsg('El precio de venta debe ser mayor a 0.');
+      return;
+    }
+
+    if (finalTaxRate > 100) {
+      setErrorMsg('El porcentaje de impuesto no puede superar el 100%.');
       return;
     }
 
@@ -176,7 +205,9 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
         minStock: numericMinStock,
         sku: sku.trim(),
         imageUrl: imageUrl.trim(),
-        description: description.trim()
+        description: description.trim(),
+        taxType: finalTaxType,
+        taxRate: finalTaxRate
       });
       onClose();
     } else {
@@ -189,7 +220,9 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
         minStock: numericMinStock,
         sku: sku.trim(),
         imageUrl: imageUrl.trim() || PRESET_GASTRO_PHOTOS[0].url,
-        description: description.trim()
+        description: description.trim(),
+        taxType: finalTaxType,
+        taxRate: finalTaxRate
       });
 
       if (!res.success) {
@@ -199,6 +232,22 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       }
     }
   };
+
+  const previewPrice = Math.max(0, parseFloat(price) || 0);
+  const previewRate =
+    taxType === 'exento'
+      ? 0
+      : Math.max(
+          0,
+          Number.isNaN(parseFloat(taxRate))
+            ? taxType === 'iva'
+              ? DEFAULT_IVA_RATE
+              : DEFAULT_IMPOCONSUMO_RATE
+            : parseFloat(taxRate)
+        );
+  const previewTaxAmount =
+    previewRate > 0 ? previewPrice - previewPrice / (1 + previewRate / 100) : 0;
+  const previewBaseAmount = Math.max(0, previewPrice - previewTaxAmount);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
@@ -363,12 +412,12 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
               </label>
               <input
                 type="number"
-                step="0.01"
+                step="any"
                 required
                 disabled={reachedLimit}
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono font-bold focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums font-bold focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
               />
             </div>
 
@@ -378,11 +427,11 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
               </label>
               <input
                 type="number"
-                step="0.01"
+                step="any"
                 disabled={reachedLimit}
                 value={cost}
                 onChange={(e) => setCost(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
               />
             </div>
 
@@ -395,7 +444,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                 disabled={reachedLimit}
                 value={stock}
                 onChange={(e) => setStock(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono font-bold focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums font-bold focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
               />
             </div>
 
@@ -408,8 +457,170 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                 disabled={reachedLimit}
                 value={minStock}
                 onChange={(e) => setMinStock(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
               />
+            </div>
+          </div>
+
+          {/* Impuesto del Producto: Impoconsumo vs IVA */}
+          <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Percent className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                  <span>Impuesto de consumo del producto (incluido en el PVP)</span>
+                </label>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Elige si este producto grava con <strong>Impoconsumo</strong> o con <strong>IVA</strong> al facturar.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              {/* Selector principal de régimen de impuesto */}
+              <div className="sm:col-span-8">
+                <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Tipo de impuesto
+                </span>
+                <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-200/70 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    disabled={reachedLimit}
+                    onClick={() => {
+                      setTaxType('impoconsumo');
+                      if (taxType !== 'impoconsumo' || Number(taxRate) === 0 || Number(taxRate) === 19 || Number(taxRate) === 5) {
+                        setTaxRate(String(DEFAULT_IMPOCONSUMO_RATE));
+                      }
+                    }}
+                    className={`py-2 px-2.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap truncate ${
+                      taxType === 'impoconsumo'
+                        ? 'bg-orange-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Impoconsumo
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={reachedLimit}
+                    onClick={() => {
+                      setTaxType('iva');
+                      if (taxType !== 'iva' || Number(taxRate) === 0 || Number(taxRate) === 8) {
+                        setTaxRate(String(DEFAULT_IVA_RATE));
+                      }
+                    }}
+                    className={`py-2 px-2.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap truncate ${
+                      taxType === 'iva'
+                        ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    IVA
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={reachedLimit}
+                    onClick={() => {
+                      setTaxType('exento');
+                      setTaxRate('0');
+                    }}
+                    className={`py-2 px-2.5 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap truncate ${
+                      taxType === 'exento'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Exento (0%)
+                  </button>
+                </div>
+              </div>
+
+              {/* Porcentaje editable + atajos según selección */}
+              <div className="sm:col-span-4">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                    Tarifa (%)
+                  </label>
+                  {taxType === 'iva' && (
+                    <div className="flex items-center gap-1">
+                      {[19, 5].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          disabled={reachedLimit}
+                          onClick={() => setTaxRate(String(preset))}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold transition cursor-pointer ${
+                            Number(taxRate) === preset
+                              ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                              : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300'
+                          }`}
+                        >
+                          {preset}%
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {taxType === 'impoconsumo' && (
+                    <button
+                      type="button"
+                      disabled={reachedLimit}
+                      onClick={() => setTaxRate('8')}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-bold transition cursor-pointer ${
+                        Number(taxRate) === 8
+                          ? 'bg-orange-600 text-white'
+                          : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300'
+                      }`}
+                    >
+                      8%
+                    </button>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    disabled={reachedLimit || taxType === 'exento'}
+                    value={taxType === 'exento' ? '0' : taxRate}
+                    onChange={(e) => setTaxRate(e.target.value)}
+                    className="w-full pr-7 pl-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums font-bold focus:outline-hidden focus:ring-2 focus:ring-orange-500/50 disabled:opacity-60"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                    %
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Desglose en vivo del PVP */}
+            <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-slate-600 dark:text-slate-300">
+              <span>
+                Base gravable:{' '}
+                <strong className="text-slate-900 dark:text-white">
+                  $ {new Intl.NumberFormat('es-CO').format(Math.round(previewBaseAmount))}
+                </strong>
+              </span>
+              <span>
+                {taxType === 'iva'
+                  ? `IVA (${previewRate}% inc.)`
+                  : taxType === 'exento' || previewRate === 0
+                  ? 'Exento (0%)'
+                  : `Impoconsumo (${previewRate}% inc.)`}
+                :{' '}
+                <strong className="text-orange-600 dark:text-orange-400">
+                  $ {new Intl.NumberFormat('es-CO').format(Math.round(previewTaxAmount))}
+                </strong>
+              </span>
+              <span>
+                PVP Final:{' '}
+                <strong className="text-slate-900 dark:text-white">
+                  $ {new Intl.NumberFormat('es-CO').format(Math.round(previewPrice))}
+                </strong>
+              </span>
             </div>
           </div>
 

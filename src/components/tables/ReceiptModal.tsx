@@ -2,7 +2,8 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { SaleReceipt } from '../../types';
 import { useApp } from '../../context/AppContext';
-import { formatCustomerDocument } from '../../utils/billing';
+import { formatCustomerDocument, getSaleCustomerEmail, isElectronicInvoiceSale } from '../../utils/billing';
+import { getReceiptTaxLines } from '../../utils/taxes';
 import { X, Printer, CheckCircle2 } from 'lucide-react';
 
 interface ReceiptModalProps {
@@ -63,6 +64,10 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     receipt.customerDocumentNumber || receipt.billingInfo?.documentNumber
   );
 
+  const resolvedEmail = getSaleCustomerEmail(receipt);
+  const needsElectronicInvoice = isElectronicInvoiceSale(receipt);
+  const discriminatedTaxLines = getReceiptTaxLines(receipt);
+
   const businessTaxDisplay = config.businessTaxId
     ? config.businessTaxId.toUpperCase().startsWith('NIT')
       ? config.businessTaxId
@@ -107,13 +112,23 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </div>
         </div>
 
-        <div className="pt-1.5 mt-1 border-t border-dotted border-slate-200">
+        <div className="pt-1.5 mt-1 border-t border-dotted border-slate-200 space-y-0.5">
           <p>
             <span className="font-bold">Cliente:</span> {resolvedCustomerName}
           </p>
           {resolvedDocLabel && (
             <p>
               <span className="font-bold">Identificación:</span> {resolvedDocLabel}
+            </p>
+          )}
+          {resolvedEmail && (
+            <p className="break-all">
+              <span className="font-bold">Correo:</span> {resolvedEmail}
+            </p>
+          )}
+          {needsElectronicInvoice && (
+            <p>
+              <span className="font-bold">Facturación:</span> Electrónica solicitada
             </p>
           )}
         </div>
@@ -170,12 +185,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </div>
         )}
 
-        <div className="flex justify-between gap-2 text-slate-600">
-          <span>Impoconsumo / IVA ({receipt.taxPercent}% inc.):</span>
-          <span className="shrink-0">
-            $ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.taxAmount))} COP
-          </span>
-        </div>
+        {discriminatedTaxLines.map((taxLine, idx) => (
+          <div key={idx} className="flex justify-between gap-2 text-slate-600">
+            <span>{taxLine.label}</span>
+            <span className="shrink-0">
+              $ {new Intl.NumberFormat('es-CO').format(Math.round(taxLine.amount))} COP
+            </span>
+          </div>
+        ))}
 
         <div className="flex justify-between gap-2 text-slate-500 text-[10px]">
           <span>Base gravable estimada:</span>

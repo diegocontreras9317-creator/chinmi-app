@@ -84,6 +84,8 @@ export interface Empleado {
 
 export type TableStatus = 'libre' | 'ocupada' | 'cuenta';
 
+export type ProductTaxType = 'impoconsumo' | 'iva' | 'exento';
+
 export interface OrderItem {
   id: string;
   productId: string;
@@ -94,6 +96,8 @@ export interface OrderItem {
   addedAt: string;
   orderedBy?: 'cliente' | 'camarero' | 'cajero';
   customerName?: string;
+  taxType?: ProductTaxType;
+  taxRate?: number;
 }
 
 export type CustomerDocumentType =
@@ -111,6 +115,7 @@ export interface CustomerBillingInfo {
   documentNumber: string;
   email?: string;
   phone?: string;
+  requiresElectronicInvoice?: boolean;
 }
 
 export interface Order {
@@ -171,9 +176,13 @@ export interface Product {
   imageUrl: string;
   sku: string;
   description?: string;
+  taxType?: ProductTaxType;
+  taxRate?: number;
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'bizum';
+
+export type ElectronicInvoiceStatus = 'pendiente' | 'emitida';
 
 export interface SaleReceipt {
   id: string;
@@ -183,6 +192,8 @@ export interface SaleReceipt {
   subtotal: number;
   taxAmount: number;
   taxPercent: number;
+  ivaAmount?: number;
+  impoconsumoAmount?: number;
   discountAmount: number;
   discountPercent: number;
   tipAmount: number;
@@ -198,6 +209,9 @@ export interface SaleReceipt {
   customerDocumentType?: CustomerDocumentType;
   customerDocumentNumber?: string;
   customerEmail?: string;
+  requiresElectronicInvoice?: boolean;
+  electronicInvoiceStatus?: ElectronicInvoiceStatus;
+  electronicInvoiceIssuedAt?: string;
   billingInfo?: CustomerBillingInfo;
 }
 

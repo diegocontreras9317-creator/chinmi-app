@@ -4,9 +4,15 @@ import { Product, Table, OrderItem, CustomerBillingInfo, CustomerDocumentType } 
 import {
   DOCUMENT_TYPE_OPTIONS,
   formatCustomerDocument,
+  isValidEmailFormat,
   normalizeBillingInfo,
   hasCustomBillingData
 } from '../../utils/billing';
+import {
+  calculateOrderTaxBreakdown,
+  resolveOrderItemTax,
+  resolveProductTax
+} from '../../utils/taxes';
 import { auth, db } from '../../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import {
@@ -41,7 +47,8 @@ import {
   Smartphone,
   Eye,
   Check,
-  FileText
+  FileText,
+  Mail
 } from 'lucide-react';
 
 interface CartItem {
@@ -156,6 +163,28 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     } catch {}
     return '';
   });
+  const [customerEmail, setCustomerEmail] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const saved = localStorage.getItem(billingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.email || '';
+      }
+    } catch {}
+    return '';
+  });
+  const [wantsElectronicInvoice, setWantsElectronicInvoice] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const saved = localStorage.getItem(billingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Boolean(parsed.requiresElectronicInvoice || parsed.email);
+      }
+    } catch {}
+    return false;
+  });
   const [showCartBillingFields, setShowCartBillingFields] = useState<boolean>(false);
 
   const [activeItemForNote, setActiveItemForNote] = useState<Product | null>(null);
@@ -171,6 +200,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const [isRequestBillModalOpen, setIsRequestBillModalOpen] = useState(false);
   const [paymentMethodChoice, setPaymentMethodChoice] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('tarjeta');
   const [cashAmountNote, setCashAmountNote] = useState('');
+  const [billRequestError, setBillRequestError] = useState<string | null>(null);
   const [billRequestSuccess, setBillRequestSuccess] = useState<string | null>(null);
 
   // Persist customer billing details locally on phone for convenience
@@ -182,11 +212,13 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         JSON.stringify({
           customerName,
           documentType: customerDocType,
-          documentNumber: customerDocNumber
+          documentNumber: customerDocNumber,
+          email: customerEmail,
+          requiresElectronicInvoice: wantsElectronicInvoice
         })
       );
     } catch {}
-  }, [billingStorageKey, customerName, customerDocType, customerDocNumber]);
+  }, [billingStorageKey, customerName, customerDocType, customerDocNumber, customerEmail, wantsElectronicInvoice]);
 
   // Hydrate from active order billing info if local fields are empty
   useEffect(() => {
@@ -201,7 +233,11 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         setCustomerDocType(orderBilling.documentType);
       }
     }
-  }, [table?.order?.id, table?.order?.billingInfo?.documentNumber, table?.waiterCall?.requestedAt]);
+    if (!customerEmail && orderBilling.email) {
+      setCustomerEmail(orderBilling.email);
+      setWantsElectronicInvoice(true);
+    }
+  }, [table?.order?.id, table?.order?.billingInfo?.documentNumber, table?.order?.billingInfo?.email, table?.waiterCall?.requestedAt]);
 
   // Detail Modal for Product Image & Ingredients
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
@@ -239,18 +275,42 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
   // Cart totals (Precios P.V.P con impuesto incluido: Total a cobrar = Subtotal)
   const cartItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
-  const cartBaseSubtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const cartTaxInclusiveTotal = cartBaseSubtotal; // Total exactamente igual a la suma de los productos
-  // Fórmula legal de extracción: Impuesto = Total - (Total / 1.08)
-  const cartTaxAmount = taxRate > 0 ? Math.round(cartTaxInclusiveTotal - (cartTaxInclusiveTotal / (1 + taxRate / 100))) : 0;
+  const cartTaxSummary = useMemo(() => {
+    const pseudoItems = cart.map((c) => {
+      const resolved = resolveProductTax(c.product, taxRate);
+      return {
+        productId: c.product.id,
+        unitPrice: c.product.price,
+        quantity: c.quantity,
+        taxType: resolved.taxType,
+        taxRate: resolved.taxRate
+      };
+    });
+    return calculateOrderTaxBreakdown(pseudoItems, {
+      discountPercent: 0,
+      fallbackTaxRate: taxRate,
+      productsCatalog: activeProducts
+    });
+  }, [cart, taxRate, activeProducts]);
+  const cartTaxInclusiveTotal = cartTaxSummary.productsTotal;
+  const cartTaxAmount = Math.round(cartTaxSummary.totalTaxAmount);
 
   // Existing table order totals (Precios P.V.P con impuesto incluido)
   const existingOrder = table?.order;
   const existingItemsCount = existingOrder?.items.reduce((acc, it) => acc + it.quantity, 0) || 0;
-  const existingBaseSubtotal = existingOrder?.items.reduce((acc, it) => acc + it.unitPrice * it.quantity, 0) || 0;
   const existingOrderTaxRate = Number(existingOrder?.taxPercent ?? taxRate) || taxRate;
-  const existingTaxInclusiveTotal = existingBaseSubtotal; // Total acumulado sin sumar impuesto al final
-  const existingTaxAmount = existingOrderTaxRate > 0 ? Math.round(existingTaxInclusiveTotal - (existingTaxInclusiveTotal / (1 + existingOrderTaxRate / 100))) : 0;
+  const existingTaxSummary = useMemo(() => {
+    return calculateOrderTaxBreakdown(
+      (existingOrder?.items || []) as unknown as Array<Partial<OrderItem> & Record<string, unknown>>,
+      {
+        discountPercent: Number(existingOrder?.discountPercent) || 0,
+        fallbackTaxRate: existingOrderTaxRate,
+        productsCatalog: activeProducts
+      }
+    );
+  }, [existingOrder?.items, existingOrder?.discountPercent, existingOrderTaxRate, activeProducts]);
+  const existingTaxInclusiveTotal = existingTaxSummary.productsTotal;
+  const existingTaxAmount = Math.round(existingTaxSummary.totalTaxAmount);
 
   // Add product to cart
   const handleAddToCart = (product: Product, notes?: string) => {
@@ -305,10 +365,18 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     const existingOrder = table.order;
     const orderId = existingOrder?.id || `ord-${Date.now()}`;
 
+    const cleanCartEmail = customerEmail.trim().toLowerCase();
+    if (cleanCartEmail && !isValidEmailFormat(cleanCartEmail)) {
+      setPortalErrorMsg('Por favor ingresa un correo electrónico válido para la factura electrónica.');
+      return;
+    }
+
     const candidateBilling: Partial<CustomerBillingInfo> = {
       customerName: customerName.trim(),
       documentType: customerDocType,
-      documentNumber: customerDocNumber.trim()
+      documentNumber: customerDocNumber.trim(),
+      email: cleanCartEmail,
+      requiresElectronicInvoice: Boolean(wantsElectronicInvoice || cleanCartEmail)
     };
     const resolvedBilling: CustomerBillingInfo | null = hasCustomBillingData(candidateBilling)
       ? normalizeBillingInfo(candidateBilling)
@@ -321,30 +389,44 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         : '');
 
     // Sanitización exhaustiva del array de productos para que NINGÚN campo sea undefined
-    const cleanNewItems: OrderItem[] = cart.map(c => ({
-      id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      productId: c.product.id || '',
-      name: c.product.name || 'Producto',
-      unitPrice: Number(c.product.price) || 0,
-      quantity: Number(c.quantity) || 1,
-      notes: c.notes?.trim() || '',
-      addedAt: nowIso,
-      customerName: effectiveCustomerLabel,
-      orderedBy: 'cliente'
-    }));
+    const cleanNewItems: OrderItem[] = cart.map(c => {
+      const resolvedProdTax = resolveProductTax(c.product, taxRate);
+      return {
+        id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: c.product.id || '',
+        name: c.product.name || 'Producto',
+        unitPrice: Number(c.product.price) || 0,
+        quantity: Number(c.quantity) || 1,
+        notes: c.notes?.trim() || '',
+        addedAt: nowIso,
+        customerName: effectiveCustomerLabel,
+        orderedBy: 'cliente',
+        taxType: resolvedProdTax.taxType,
+        taxRate: resolvedProdTax.taxRate
+      };
+    });
 
     // Limpiar también cualquier item preexistente para garantizar que no arrastre undefined
-    const cleanExistingItems: OrderItem[] = (existingOrder?.items || []).map(it => ({
-      id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      productId: it.productId || '',
-      name: it.name || 'Producto',
-      unitPrice: Number(it.unitPrice) || 0,
-      quantity: Number(it.quantity) || 1,
-      notes: it.notes?.trim() || '',
-      addedAt: it.addedAt || nowIso,
-      customerName: it.customerName?.trim() || effectiveCustomerLabel,
-      orderedBy: it.orderedBy || 'cliente'
-    }));
+    const cleanExistingItems: OrderItem[] = (existingOrder?.items || []).map(it => {
+      const resolvedItemTax = resolveOrderItemTax(
+        it as unknown as Partial<OrderItem> & Record<string, unknown>,
+        activeProducts,
+        taxRate
+      );
+      return {
+        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: it.productId || '',
+        name: it.name || 'Producto',
+        unitPrice: Number(it.unitPrice) || 0,
+        quantity: Number(it.quantity) || 1,
+        notes: it.notes?.trim() || '',
+        addedAt: it.addedAt || nowIso,
+        customerName: it.customerName?.trim() || effectiveCustomerLabel,
+        orderedBy: it.orderedBy || 'cliente',
+        taxType: resolvedItemTax.taxType,
+        taxRate: resolvedItemTax.taxRate
+      };
+    });
 
     const cleanAllItems = [...cleanExistingItems, ...cleanNewItems];
 
@@ -448,6 +530,18 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const handleConfirmRequestBill = async () => {
     if (!table) return;
     setPortalErrorMsg(null);
+    setBillRequestError(null);
+
+    const cleanBillEmail = customerEmail.trim().toLowerCase();
+    if (wantsElectronicInvoice && !cleanBillEmail) {
+      setBillRequestError('Ingresa tu correo electrónico para enviarte la Factura Electrónica.');
+      return;
+    }
+    if (cleanBillEmail && !isValidEmailFormat(cleanBillEmail)) {
+      setBillRequestError('Ingresa un correo electrónico válido (ejemplo: nombre@correo.com).');
+      return;
+    }
+
     const methodText = paymentMethodChoice === 'efectivo'
       ? `Efectivo${cashAmountNote ? ` (paga con: ${cashAmountNote})` : ''}`
       : paymentMethodChoice === 'tarjeta'
@@ -457,7 +551,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     const candidateBilling: Partial<CustomerBillingInfo> = {
       customerName: customerName.trim(),
       documentType: customerDocType,
-      documentNumber: customerDocNumber.trim()
+      documentNumber: customerDocNumber.trim(),
+      email: cleanBillEmail,
+      requiresElectronicInvoice: Boolean(wantsElectronicInvoice || cleanBillEmail)
     };
     const hasBilling = hasCustomBillingData(candidateBilling);
     const normalizedBilling = hasBilling
@@ -467,9 +563,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     const docSummary = normalizedBilling
       ? formatCustomerDocument(normalizedBilling.documentType, normalizedBilling.documentNumber)
       : '';
+    const emailSummary = normalizedBilling?.email ? ` · Correo FE: ${normalizedBilling.email}` : '';
     const billingText =
       normalizedBilling && hasCustomBillingData(normalizedBilling)
-        ? ` · Cobrar a: ${normalizedBilling.customerName}${docSummary ? ` (${docSummary})` : ''}`
+        ? ` · Cobrar a: ${normalizedBilling.customerName}${docSummary ? ` (${docSummary})` : ''}${emailSummary}`
         : '';
 
     const nowIso = new Date().toISOString();
@@ -521,7 +618,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     setBillRequestSuccess(
       `¡Cuenta solicitada! ${
         normalizedBilling && hasCustomBillingData(normalizedBilling)
-          ? `A nombre de ${normalizedBilling.customerName}${docSummary ? ` (${docSummary})` : ''} · `
+          ? `A nombre de ${normalizedBilling.customerName}${docSummary ? ` (${docSummary})` : ''}${
+              normalizedBilling.email ? ` · FE a ${normalizedBilling.email}` : ''
+            } · `
           : ''
       }Pago: ${methodText}.`
     );
@@ -604,7 +703,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <span>{table.zone}</span>
                 <span>·</span>
                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700">
-                  🇨🇴 Impuestos ({taxRate}%) incl.
+                  Impuestos incl.
                 </span>
               </div>
             </div>
@@ -879,7 +978,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                             {formatCOP(product.price)}
                           </span>
                           <span className="text-[10px] text-slate-400 font-semibold">
-                            (Imp. incl.)
+                            ({resolveProductTax(product, taxRate).shortLabel} incl.)
                           </span>
                         </div>
                       </div>
@@ -976,7 +1075,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     Consumo Acumulado en Mesa {table.number}
                   </h4>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    Base gravable: {formatCOP(existingTaxInclusiveTotal - existingTaxAmount)} · Impuesto ({existingOrderTaxRate}% inc.): {formatCOP(existingTaxAmount)}
+                    Base gravable: {formatCOP(existingTaxInclusiveTotal - existingTaxAmount)} ·{' '}
+                    {existingTaxSummary.summaryLabel}: {formatCOP(existingTaxAmount)}
                   </p>
                 </div>
               </div>
@@ -1031,6 +1131,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">
                       {activeBillInfo?.customerName || 'Consumidor Final'}
                       {docStr ? ` · ${docStr}` : ''}
+                      {activeBillInfo?.email ? ` · ${activeBillInfo.email}` : ''}
                     </p>
                   </div>
                   {canRequestBill && (
@@ -1236,7 +1337,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  Incluye base gravable ({formatCOP(existingTaxInclusiveTotal - existingTaxAmount)}) e Impoconsumo/IVA ({existingOrderTaxRate}% inc.: {formatCOP(existingTaxAmount)})
+                  Incluye base gravable ({formatCOP(existingTaxInclusiveTotal - existingTaxAmount)}) ·{' '}
+                  {existingTaxSummary.summaryLabel}: {formatCOP(existingTaxAmount)}
                 </p>
               </div>
             ) : (
@@ -1245,14 +1347,32 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               </p>
             )}
 
-            {/* Datos de a nombre de quién se cobra (Nombre / Razón Social + NIT / Cédula) */}
+            {/* Datos de a nombre de quién se cobra (Nombre / Razón Social + NIT / Cédula + Correo FE) */}
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                   <FileText className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
-                  <span>¿A nombre de quién sale el cobro / factura?</span>
+                  <span>Datos para cobro / Factura Electrónica</span>
                 </span>
-                <span className="text-[10px] text-slate-400 font-medium">Opcional</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !wantsElectronicInvoice;
+                    setWantsElectronicInvoice(next);
+                    if (next && customerDocType === 'CONSUMIDOR_FINAL') {
+                      setCustomerDocType('CC');
+                    }
+                    setBillRequestError(null);
+                  }}
+                  className={`px-2 py-1 rounded-md text-[10px] font-bold border transition cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 ${
+                    wantsElectronicInvoice
+                      ? 'bg-rose-900 text-white border-rose-900 dark:bg-rose-700 dark:border-rose-700'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <Mail className="w-3 h-3 shrink-0" />
+                  <span>{wantsElectronicInvoice ? 'Factura Electrónica: Sí' : 'Necesito Factura Electrónica'}</span>
+                </button>
               </div>
 
               <div>
@@ -1316,6 +1436,39 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   />
                 </div>
               </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1 mb-1">
+                  <Mail className="w-3 h-3 text-rose-900 dark:text-rose-400 shrink-0" />
+                  <span>
+                    Correo electrónico para Factura Electrónica
+                    {wantsElectronicInvoice ? ' *' : ' (Opcional)'}
+                  </span>
+                </label>
+                <input
+                  type="email"
+                  value={customerEmail}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCustomerEmail(val);
+                    if (val.trim()) setWantsElectronicInvoice(true);
+                    if (billRequestError) setBillRequestError(null);
+                  }}
+                  placeholder="ejemplo@correo.com"
+                  className={`w-full px-3 py-2 text-xs rounded-md border bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 ${
+                    wantsElectronicInvoice && !customerEmail.trim()
+                      ? 'border-rose-500 dark:border-rose-400'
+                      : 'border-slate-200 dark:border-slate-700'
+                  }`}
+                />
+              </div>
+
+              {billRequestError && (
+                <div className="p-2 rounded-md bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-[11px] font-semibold flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{billRequestError}</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -1422,7 +1575,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               </button>
             </div>
 
-            {/* Customer Name & Optional Tax ID (NIT / Cédula) Input */}
+            {/* Customer Name & Optional Tax ID (NIT / Cédula) + Email FE Input */}
             <div className="px-4 pt-3 pb-2.5 border-b border-slate-100 dark:border-slate-800 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
@@ -1434,9 +1587,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   onClick={() => setShowCartBillingFields((prev) => !prev)}
                   className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer shrink-0"
                 >
-                  {showCartBillingFields || customerDocNumber
-                    ? 'Ocultar NIT / Cédula'
-                    : '+ Agregar NIT / Cédula'}
+                  {showCartBillingFields || customerDocNumber || customerEmail
+                    ? 'Ocultar Factura Electrónica'
+                    : '+ Factura Electrónica / NIT'}
                 </button>
               </div>
               <input
@@ -1447,37 +1600,50 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 className="w-full px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
               />
 
-              {(showCartBillingFields || Boolean(customerDocNumber)) && (
-                <div className="grid grid-cols-5 gap-2 pt-0.5">
-                  <select
-                    value={customerDocType}
-                    onChange={(e) => {
-                      const nextType = e.target.value as CustomerDocumentType;
-                      setCustomerDocType(nextType);
-                      if (nextType === 'CONSUMIDOR_FINAL') setCustomerDocNumber('');
-                    }}
-                    className="col-span-2 px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold focus:outline-hidden"
-                  >
-                    <option value="CONSUMIDOR_FINAL">Sin doc.</option>
-                    <option value="CC">C.C.</option>
-                    <option value="NIT">NIT</option>
-                    <option value="CE">C.E.</option>
-                    <option value="PAS">Pasaporte</option>
-                    <option value="TI">T.I.</option>
-                    <option value="PEP">PPT</option>
-                  </select>
+              {(showCartBillingFields || Boolean(customerDocNumber) || Boolean(customerEmail)) && (
+                <div className="space-y-2 pt-0.5">
+                  <div className="grid grid-cols-5 gap-2">
+                    <select
+                      value={customerDocType}
+                      onChange={(e) => {
+                        const nextType = e.target.value as CustomerDocumentType;
+                        setCustomerDocType(nextType);
+                        if (nextType === 'CONSUMIDOR_FINAL') setCustomerDocNumber('');
+                      }}
+                      className="col-span-2 px-2 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold focus:outline-hidden"
+                    >
+                      <option value="CONSUMIDOR_FINAL">Sin doc.</option>
+                      <option value="CC">C.C.</option>
+                      <option value="NIT">NIT</option>
+                      <option value="CE">C.E.</option>
+                      <option value="PAS">Pasaporte</option>
+                      <option value="TI">T.I.</option>
+                      <option value="PEP">PPT</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={customerDocNumber}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCustomerDocNumber(val);
+                        if (val.trim() && customerDocType === 'CONSUMIDOR_FINAL') {
+                          setCustomerDocType('CC');
+                        }
+                      }}
+                      placeholder={customerDocType === 'NIT' ? 'NIT ej. 900123456-7' : 'N.° de documento'}
+                      className="col-span-3 px-3 py-1.5 text-xs font-mono tabular-nums rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                    />
+                  </div>
                   <input
-                    type="text"
-                    value={customerDocNumber}
+                    type="email"
+                    value={customerEmail}
                     onChange={(e) => {
                       const val = e.target.value;
-                      setCustomerDocNumber(val);
-                      if (val.trim() && customerDocType === 'CONSUMIDOR_FINAL') {
-                        setCustomerDocType('CC');
-                      }
+                      setCustomerEmail(val);
+                      if (val.trim()) setWantsElectronicInvoice(true);
                     }}
-                    placeholder={customerDocType === 'NIT' ? 'NIT ej. 900123456-7' : 'N.° de documento'}
-                    className="col-span-3 px-3 py-1.5 text-xs font-mono tabular-nums rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                    placeholder="Correo electrónico para Factura Electrónica"
+                    className="w-full px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
                   />
                 </div>
               )}
@@ -1555,7 +1721,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
                   <span>Base gravable: {formatCOP(cartTaxInclusiveTotal - cartTaxAmount)}</span>
-                  <span>Impoconsumo/IVA ({taxRate}% inc.): {formatCOP(cartTaxAmount)}</span>
+                  <span>
+                    {cartTaxSummary.summaryLabel}: {formatCOP(cartTaxAmount)}
+                  </span>
                 </div>
               </div>
 

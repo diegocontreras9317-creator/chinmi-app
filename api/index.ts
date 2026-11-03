@@ -1,5 +1,6 @@
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import crypto from 'crypto';
+import fs from 'fs';
 
 const app = express();
 
@@ -21,25 +22,26 @@ const EPAYCO_P_CUST_ID_CLIENTE = process.env.EPAYCO_P_CUST_ID_CLIENTE || '';
 const EPAYCO_P_KEY = process.env.EPAYCO_P_KEY || '';
 
 const epaycoTransactionStore: Record<string, any> = {};
+const storeStateMap: Record<string, any> = {};
 
-import fs from 'fs';
+function getStoreFilePath(storeId: string): string {
+  const safeId = (storeId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `/tmp/gastrobar_state_${safeId}.json`;
+}
 
-let globalAppStateStore: any = null;
-const TMP_SYNC_FILE = '/tmp/gastrobar_state.json';
-
-// Helper to load state from disk if lambda cold starts
-function loadStateFromDisk() {
-  if (globalAppStateStore) return globalAppStateStore;
+function loadStateFromDisk(storeId = 'default') {
+  if (storeStateMap[storeId]) return storeStateMap[storeId];
+  const filePath = getStoreFilePath(storeId);
   try {
-    if (fs.existsSync(TMP_SYNC_FILE)) {
-      const data = fs.readFileSync(TMP_SYNC_FILE, 'utf8');
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf8');
       if (data) {
-        globalAppStateStore = JSON.parse(data);
-        return globalAppStateStore;
+        storeStateMap[storeId] = JSON.parse(data);
+        return storeStateMap[storeId];
       }
     }
-  } catch (e) {
-    // ignore
+  } catch {
+    // ignore read errors on serverless cold start
   }
   return null;
 }
@@ -48,8 +50,9 @@ function loadStateFromDisk() {
 // 1. SINCRONIZACIÓN EN TIEMPO REAL (MESA / CARTA <-> POS)
 // =========================================================================
 
-app.get('/api/sync/state', (_req: Request, res: Response) => {
-  const current = loadStateFromDisk();
+app.get('/api/sync/state', (req: Request, res: Response) => {
+  const storeId = (req.query.storeId as string) || 'default';
+  const current = loadStateFromDisk(storeId);
   if (!current) {
     return res.status(200).json({ empty: true });
   }
@@ -63,19 +66,22 @@ app.post('/api/sync/state', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Formato inválido' });
     }
 
-    globalAppStateStore = {
+    const storeId = (req.query.storeId as string) || payload.storeId || 'default';
+    storeStateMap[storeId] = {
       ...payload,
+      storeId,
       lastModified: new Date().toISOString()
     };
 
     try {
-      fs.writeFileSync(TMP_SYNC_FILE, JSON.stringify(globalAppStateStore), 'utf8');
-    } catch (e) {
+      const filePath = getStoreFilePath(storeId);
+      fs.writeFileSync(filePath, JSON.stringify(storeStateMap[storeId]), 'utf8');
+    } catch {
       // ignore write errors on read-only environments
     }
 
-    return res.json({ success: true, state: globalAppStateStore });
-  } catch (err) {
+    return res.json({ success: true, state: storeStateMap[storeId] });
+  } catch {
     return res.status(500).json({ error: 'Error interno de sincronización' });
   }
 });
@@ -154,7 +160,7 @@ app.all('/api/epayco/confirmation', (req: Request, res: Response) => {
       invoice: x_id_invoice,
       cod_response: codResponse
     });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ error: 'Error procesando webhook de ePayco' });
   }
 });
@@ -176,7 +182,7 @@ app.get('/api/epayco/validate/:refPayco', async (req: Request, res: Response) =>
     );
     const data = await epaycoRes.json();
     return res.status(epaycoRes.status).json(data);
-  } catch (err) {
+  } catch {
     return res.status(502).json({ success: false, error: 'Error validando referencia con ePayco' });
   }
 });

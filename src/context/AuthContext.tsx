@@ -154,84 +154,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let unsubEmpleados: (() => void) | null = null;
     let unsubUserDoc: (() => void) | null = null;
+    let didFinishInitialLoad = false;
 
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      if (unsubEmpleados) {
-        unsubEmpleados();
-        unsubEmpleados = null;
+    const finishLoadingSafely = () => {
+      if (!didFinishInitialLoad) {
+        didFinishInitialLoad = true;
+        setIsLoading(false);
       }
-      if (unsubUserDoc) {
-        unsubUserDoc();
-        unsubUserDoc = null;
-      }
+    };
 
-      if (fbUser) {
-        const uid = fbUser.uid;
-        const cleanEmail = fbUser.email?.toLowerCase() || '';
-        const cleanName = fbUser.displayName || cleanEmail.split('@')[0] || 'Restaurante';
-        const cleanAvatar = fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail || uid)}`;
-        const isMasterOwner = cleanEmail === MASTER_ADMIN_EMAIL;
+    // Tope de seguridad para que nunca se quede congelado en "Verificando credenciales..." en dominios personalizados
+    const safetyBootTimer = setTimeout(finishLoadingSafely, 4000);
 
-        const userRef = doc(db, 'users', uid);
-        let initialUserName = cleanName;
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (fbUser) => {
+        if (unsubEmpleados) {
+          unsubEmpleados();
+          unsubEmpleados = null;
+        }
+        if (unsubUserDoc) {
+          unsubUserDoc();
+          unsubUserDoc = null;
+        }
 
-        try {
-          const snap = await getDoc(userRef);
+        if (fbUser) {
+          const uid = fbUser.uid;
+          const cleanEmail = fbUser.email?.toLowerCase() || '';
+          const cleanName = fbUser.displayName || cleanEmail.split('@')[0] || 'Restaurante';
+          const cleanAvatar =
+            fbUser.photoURL ||
+            `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail || uid)}`;
+          const isMasterOwner = cleanEmail === MASTER_ADMIN_EMAIL;
 
-          if (snap.exists()) {
-            const rawData = snap.data() as Record<string, unknown>;
-            const data = rawData as unknown as User;
-            initialUserName = data.name || cleanName;
-            const parsedExpiry = parseFirestoreExpiryIso(rawData.plan_expira ?? rawData.planExpiresAt);
-            const isExpired = !isMasterOwner && parsedExpiry !== null && new Date(parsedExpiry).getTime() <= Date.now();
-            const storedPlan: PlanType = data.plan || (isMasterOwner ? 'pro' : 'free');
-            const effectivePlan: PlanType = isExpired ? 'free' : storedPlan;
+          const userRef = doc(db, 'users', uid);
+          let initialUserName = cleanName;
 
-            const resolvedUser: User = {
-              id: uid,
-              name: data.name || cleanName,
-              email: data.email || cleanEmail,
-              role: data.role || 'gerente',
-              avatar: data.avatar || cleanAvatar,
-              plan: effectivePlan,
-              ...(effectivePlan === 'pro' && data.billingFrequency ? { billingFrequency: data.billingFrequency } : {}),
-              planExpiresAt: effectivePlan === 'pro' ? parsedExpiry : null,
-              businessName: data.businessName || 'Mi GastroBar',
-              ...(data.businessAddress ? { businessAddress: data.businessAddress } : {}),
-              createdAt: data.createdAt || new Date().toISOString()
-            };
-
-            setUser(resolvedUser);
-
-            if (isExpired && storedPlan === 'pro') {
-              setDoc(
-                userRef,
-                {
-                  plan: 'free',
-                  plan_expira: null,
-                  planExpiresAt: null,
-                  billingFrequency: deleteField()
-                },
-                { merge: true }
-              ).catch(() => {});
-            }
-          } else {
-            const resolvedUser: User = {
-              id: uid,
-              name: cleanName,
-              email: cleanEmail,
-              role: 'gerente',
-              avatar: cleanAvatar,
-              plan: isMasterOwner ? 'pro' : 'free',
-              planExpiresAt: null,
-              businessName: 'Mi GastroBar',
-              createdAt: new Date().toISOString()
-            };
-            setUser(resolvedUser);
-            await setDoc(userRef, resolvedUser, { merge: true });
-          }
-        } catch {
-          setUser({
+          const fallbackUser: User = {
             id: uid,
             name: cleanName,
             email: cleanEmail,
@@ -241,8 +200,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             planExpiresAt: null,
             businessName: 'Mi GastroBar',
             createdAt: new Date().toISOString()
-          });
-        }
+          };
+
+          try {
+            const snap = await Promise.race([
+              getDoc(userRef),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
+            ]);
+
+            if (snap && snap.exists()) {
+              const rawData = snap.data() as Record<string, unknown>;
+              const data = rawData as unknown as User;
+              initialUserName = data.name || cleanName;
+              const parsedExpiry = parseFirestoreExpiryIso(rawData.plan_expira ?? rawData.planExpiresAt);
+              const isExpired =
+                !isMasterOwner && parsedExpiry !== null && new Date(parsedExpiry).getTime() <= Date.now();
+              const storedPlan: PlanType = data.plan || (isMasterOwner ? 'pro' : 'free');
+              const effectivePlan: PlanType = isExpired ? 'free' : storedPlan;
+
+              const resolvedUser: User = {
+                id: uid,
+                name: data.name || cleanName,
+                email: data.email || cleanEmail,
+                role: data.role || 'gerente',
+                avatar: data.avatar || cleanAvatar,
+                plan: effectivePlan,
+                ...(effectivePlan === 'pro' && data.billingFrequency
+                  ? { billingFrequency: data.billingFrequency }
+                  : {}),
+                planExpiresAt: effectivePlan === 'pro' ? parsedExpiry : null,
+                businessName: data.businessName || 'Mi GastroBar',
+                ...(data.businessAddress ? { businessAddress: data.businessAddress } : {}),
+                createdAt: data.createdAt || new Date().toISOString()
+              };
+
+              setUser(resolvedUser);
+
+              if (isExpired && storedPlan === 'pro') {
+                setDoc(
+                  userRef,
+                  {
+                    plan: 'free',
+                    plan_expira: null,
+                    planExpiresAt: null,
+                    billingFrequency: deleteField()
+                  },
+                  { merge: true }
+                ).catch(() => {});
+              }
+            } else if (snap && !snap.exists()) {
+              setUser(fallbackUser);
+              setDoc(userRef, fallbackUser, { merge: true }).catch(() => {});
+            } else {
+              // Si Firestore tardó más de 3s, mostramos de inmediato con perfil base y onSnapshot sincroniza enseguida
+              setUser(fallbackUser);
+            }
+          } catch {
+            setUser(fallbackUser);
+          }
 
         // Suscripción en tiempo real al perfil de suscripción en users/${uid}
         unsubUserDoc = onSnapshot(
@@ -325,10 +340,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setEmpleados([]);
         bloquearPantalla();
       }
-      setIsLoading(false);
-    });
+      finishLoadingSafely();
+      },
+      () => {
+        finishLoadingSafely();
+      }
+    );
 
     return () => {
+      clearTimeout(safetyBootTimer);
       unsubscribe();
       if (unsubEmpleados) unsubEmpleados();
       if (unsubUserDoc) unsubUserDoc();
@@ -458,6 +478,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (errCode === 'auth/popup-blocked') {
         return { success: false, error: 'El navegador bloqueó la ventana emergente de Google. Por favor permite ventanas emergentes.' };
+      }
+
+      if (errCode === 'auth/unauthorized-domain') {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'tu dominio';
+        return {
+          success: false,
+          error: `Para usar Google en ${host}, agrégalo en Firebase Console → Authentication → Settings → Dominios autorizados, o ingresa con correo y contraseña.`
+        };
       }
 
       console.warn('Google Auth notice:', errCode || err);

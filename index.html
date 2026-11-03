@@ -14,7 +14,6 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ChinmiApp" />
-    <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" sizes="512x512" href="/apple-touch-icon.png" />
     <link rel="apple-touch-icon" sizes="192x192" href="/pwa-192x192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/pwa-512x512.png" />
@@ -29,12 +28,45 @@
       (function() {
         try {
           var saved = localStorage.getItem('appgenerica_theme');
-          var isDark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var isDark = saved === 'dark' || (!saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
           if (isDark) {
             document.documentElement.classList.add('dark');
           } else {
             document.documentElement.classList.remove('dark');
           }
+        } catch (e) {}
+
+        try {
+          if ('caches' in window) {
+            caches.delete('chinmi-app-v1').catch(function() {});
+          }
+          window.addEventListener('error', function(ev) {
+            var target = ev && ev.target;
+            if (!target) return;
+            var tag = target.tagName;
+            var url = target.src || target.href || '';
+            if ((tag === 'SCRIPT' || tag === 'LINK') && url.indexOf('/assets/') !== -1) {
+              var reloaded = sessionStorage.getItem('chinmi_asset_reload_once');
+              if (!reloaded) {
+                sessionStorage.setItem('chinmi_asset_reload_once', '1');
+                var p = Promise.resolve();
+                if ('serviceWorker' in navigator) {
+                  p = navigator.serviceWorker.getRegistrations().then(function(regs) {
+                    return Promise.all(regs.map(function(r) { return r.unregister(); }));
+                  }).catch(function() {});
+                }
+                p.then(function() {
+                  if ('caches' in window) {
+                    return caches.keys().then(function(keys) {
+                      return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                    }).catch(function() {});
+                  }
+                }).finally(function() {
+                  window.location.reload();
+                });
+              }
+            }
+          }, true);
         } catch (e) {}
       })();
     </script>

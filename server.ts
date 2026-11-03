@@ -1,5 +1,6 @@
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import crypto from 'crypto';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -51,7 +52,6 @@ const epaycoTransactionStore: Record<string, {
   updatedAt: string;
 }> = {};
 
-import fs from 'fs';
 
 // Almacén multi-tienda en memoria para sincronización en tiempo real aislada por cuenta de restaurante
 const storeStateMap: Record<string, any> = {};
@@ -408,9 +408,40 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    const distPath = path.join(__dirname, 'dist');
+
+    app.use(
+      '/assets',
+      express.static(path.join(distPath, 'assets'), {
+        immutable: true,
+        maxAge: '1y',
+      })
+    );
+
+    app.use(
+      express.static(distPath, {
+        index: false,
+        setHeaders: (res, filePath) => {
+          const base = path.basename(filePath);
+          if (
+            base === 'index.html' ||
+            base === 'sw.js' ||
+            base === 'registerSW.js' ||
+            base === 'manifest.webmanifest' ||
+            base === 'manifest.json'
+          ) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          }
+        },
+      })
+    );
+
+    app.get('*', (req: Request, res: Response) => {
+      if (req.path.startsWith('/api/') || /\.[a-zA-Z0-9]{1,8}$/.test(req.path)) {
+        return res.status(404).end();
+      }
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 

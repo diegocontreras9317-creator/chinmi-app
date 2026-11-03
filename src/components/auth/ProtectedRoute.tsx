@@ -18,10 +18,25 @@ function getInitialPublicRoute(): {
     return { view: 'landing', mode: 'login' };
   }
   const path = window.location.pathname.toLowerCase();
-  if (path === '/registro' || path === '/crear-cuenta') {
+  const params = new URLSearchParams(window.location.search);
+  const accesoParam = (params.get('acceso') || params.get('auth') || '').toLowerCase();
+
+  if (
+    path === '/registro' ||
+    path === '/crear-cuenta' ||
+    accesoParam === 'registro' ||
+    accesoParam === 'crear-cuenta' ||
+    accesoParam === 'register'
+  ) {
     return { view: 'auth', mode: 'register' };
   }
-  if (path === '/acceso' || path === '/login' || path === '/iniciar-sesion') {
+  if (
+    path === '/acceso' ||
+    path === '/login' ||
+    path === '/iniciar-sesion' ||
+    accesoParam === 'login' ||
+    accesoParam === 'iniciar-sesion'
+  ) {
     return { view: 'auth', mode: 'login' };
   }
   return { view: 'landing', mode: 'login' };
@@ -53,7 +68,10 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   useEffect(() => {
     if (isAuthenticated && typeof window !== 'undefined') {
       const path = window.location.pathname.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      const hasAccesoQuery = params.has('acceso') || params.has('auth');
       if (
+        hasAccesoQuery ||
         path === '/acceso' ||
         path === '/login' ||
         path === '/iniciar-sesion' ||
@@ -87,10 +105,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       setPublicView('auth');
 
       if (typeof window !== 'undefined') {
-        const targetPath = targetMode === 'register' ? '/registro' : '/iniciar-sesion';
+        const targetUrl =
+          targetMode === 'register' ? '/?acceso=registro' : '/?acceso=iniciar-sesion';
         try {
-          if (window.location.pathname !== targetPath) {
-            window.history.pushState({ view: 'auth', mode: targetMode }, '', targetPath);
+          if (`${window.location.pathname}${window.location.search}` !== targetUrl) {
+            window.history.pushState({ view: 'auth', mode: targetMode }, '', targetUrl);
           }
         } catch {
           // Ignorar si pushState falla en iframe restringido
@@ -105,7 +124,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     setPublicView('landing');
     if (typeof window !== 'undefined') {
       try {
-        if (window.location.pathname !== '/') {
+        if (window.location.pathname !== '/' || window.location.search !== '') {
           window.history.pushState({ view: 'landing' }, '', '/');
         }
       } catch {

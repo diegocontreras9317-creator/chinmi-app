@@ -109,12 +109,33 @@ export type CustomerDocumentType =
   | 'TI'
   | 'PEP';
 
+export type CustomerPersonType = 'natural' | 'juridica';
+
+export type CustomerTaxRegime =
+  | 'no_responsable_iva'
+  | 'responsable_iva'
+  | 'gran_contribuyente'
+  | 'autorretenedor'
+  | 'regimen_simple';
+
 export interface CustomerBillingInfo {
   customerName: string;
   documentType: CustomerDocumentType;
   documentNumber: string;
+  dv?: string;
+  personType?: CustomerPersonType;
+  firstName?: string;
+  lastName?: string;
+  commercialName?: string;
   email?: string;
   phone?: string;
+  address?: string;
+  city?: string;
+  department?: string;
+  cityCode?: string;
+  departmentCode?: string;
+  taxRegime?: CustomerTaxRegime;
+  fiscalResponsibility?: string;
   requiresElectronicInvoice?: boolean;
 }
 

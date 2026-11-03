@@ -117,6 +117,7 @@ interface AppContextType {
   ) => Promise<{ success: boolean; receipt?: SaleReceipt }>;
   eliminarProducto: (tableId: string, itemId: string) => Promise<void>;
   updateElectronicInvoiceStatus: (saleId: string, status: ElectronicInvoiceStatus) => void;
+  bulkUpdateElectronicInvoiceStatus: (saleIds: string[], status: ElectronicInvoiceStatus) => void;
   updateSaleBillingInfo: (
     saleId: string,
     billingInfo: CustomerBillingInfo,
@@ -1635,6 +1636,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const bulkUpdateElectronicInvoiceStatus = (saleIds: string[], status: ElectronicInvoiceStatus) => {
+    if (!saleIds || saleIds.length === 0) return;
+    const idSet = new Set(saleIds);
+    const nowIso = new Date().toISOString();
+    const updatedReceipts: SaleReceipt[] = [];
+
+    const nextSales = salesRef.current.map((s) => {
+      if (!idSet.has(s.id)) return s;
+      const updated: SaleReceipt = {
+        ...s,
+        requiresElectronicInvoice: true,
+        electronicInvoiceStatus: status,
+        electronicInvoiceIssuedAt: status === 'emitida' ? s.electronicInvoiceIssuedAt || nowIso : ''
+      };
+      updatedReceipts.push(updated);
+      return updated;
+    });
+
+    if (updatedReceipts.length === 0) return;
+    salesRef.current = nextSales;
+    setSales(nextSales);
+    persistChanges(
+      tablesRef.current,
+      productsRef.current,
+      nextSales,
+      perishablesRef.current,
+      suppliersRef.current
+    );
+    if (activeUid && activeUid !== 'default') {
+      for (const rec of updatedReceipts) {
+        saveSaleToFirestore(rec, activeUid).catch(console.error);
+      }
+    }
+  };
+
   const updateSaleBillingInfo = (
     saleId: string,
     billingInfo: CustomerBillingInfo,
@@ -1737,6 +1773,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cobrarMesa,
         eliminarProducto,
         updateElectronicInvoiceStatus,
+        bulkUpdateElectronicInvoiceStatus,
         updateSaleBillingInfo,
         addProduct,
         updateProduct,

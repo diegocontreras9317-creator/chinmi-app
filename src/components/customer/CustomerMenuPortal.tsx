@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Product, Table, OrderItem, CustomerBillingInfo, CustomerDocumentType } from '../../types';
 import {
+  calculateColombiaNitDV,
+  COLOMBIAN_CITIES_DANE,
   DOCUMENT_TYPE_OPTIONS,
   formatCustomerDocument,
   isValidEmailFormat,
@@ -174,6 +176,39 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     } catch {}
     return '';
   });
+  const [customerPhone, setCustomerPhone] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const saved = localStorage.getItem(billingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.phone || '';
+      }
+    } catch {}
+    return '';
+  });
+  const [customerCity, setCustomerCity] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const saved = localStorage.getItem(billingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.city || '';
+      }
+    } catch {}
+    return '';
+  });
+  const [customerAddress, setCustomerAddress] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const saved = localStorage.getItem(billingStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.address || '';
+      }
+    } catch {}
+    return '';
+  });
   const [wantsElectronicInvoice, setWantsElectronicInvoice] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
@@ -214,11 +249,24 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
           documentType: customerDocType,
           documentNumber: customerDocNumber,
           email: customerEmail,
+          phone: customerPhone,
+          city: customerCity,
+          address: customerAddress,
           requiresElectronicInvoice: wantsElectronicInvoice
         })
       );
     } catch {}
-  }, [billingStorageKey, customerName, customerDocType, customerDocNumber, customerEmail, wantsElectronicInvoice]);
+  }, [
+    billingStorageKey,
+    customerName,
+    customerDocType,
+    customerDocNumber,
+    customerEmail,
+    customerPhone,
+    customerCity,
+    customerAddress,
+    wantsElectronicInvoice
+  ]);
 
   // Hydrate from active order billing info if local fields are empty
   useEffect(() => {
@@ -237,7 +285,21 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       setCustomerEmail(orderBilling.email);
       setWantsElectronicInvoice(true);
     }
-  }, [table?.order?.id, table?.order?.billingInfo?.documentNumber, table?.order?.billingInfo?.email, table?.waiterCall?.requestedAt]);
+    if (!customerPhone && orderBilling.phone) {
+      setCustomerPhone(orderBilling.phone);
+    }
+    if (!customerCity && orderBilling.city) {
+      setCustomerCity(orderBilling.city);
+    }
+    if (!customerAddress && orderBilling.address) {
+      setCustomerAddress(orderBilling.address);
+    }
+  }, [
+    table?.order?.id,
+    table?.order?.billingInfo?.documentNumber,
+    table?.order?.billingInfo?.email,
+    table?.waiterCall?.requestedAt
+  ]);
 
   // Detail Modal for Product Image & Ingredients
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
@@ -376,6 +438,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       documentType: customerDocType,
       documentNumber: customerDocNumber.trim(),
       email: cleanCartEmail,
+      phone: customerPhone.trim(),
+      city: customerCity.trim(),
+      address: customerAddress.trim(),
       requiresElectronicInvoice: Boolean(wantsElectronicInvoice || cleanCartEmail)
     };
     const resolvedBilling: CustomerBillingInfo | null = hasCustomBillingData(candidateBilling)
@@ -553,6 +618,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       documentType: customerDocType,
       documentNumber: customerDocNumber.trim(),
       email: cleanBillEmail,
+      phone: customerPhone.trim(),
+      city: customerCity.trim(),
+      address: customerAddress.trim(),
       requiresElectronicInvoice: Boolean(wantsElectronicInvoice || cleanBillEmail)
     };
     const hasBilling = hasCustomBillingData(candidateBilling);
@@ -1415,9 +1483,16 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 </div>
 
                 <div className="sm:col-span-3">
-                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
-                    {customerDocType === 'NIT' ? 'Número de NIT (con DV)' : 'Número de identificación'}
-                  </label>
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                      {customerDocType === 'NIT' ? 'Número de NIT' : 'Número de identificación'}
+                    </label>
+                    {customerDocType === 'NIT' && calculateColombiaNitDV(customerDocNumber) && (
+                      <span className="text-[10px] font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
+                        DV sugerido: {calculateColombiaNitDV(customerDocNumber)}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={customerDocNumber}
@@ -1425,7 +1500,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       const val = e.target.value;
                       setCustomerDocNumber(val);
                       if (val.trim() && customerDocType === 'CONSUMIDOR_FINAL') {
-                        setCustomerDocType('CC');
+                        setCustomerDocType(val.includes('-') ? 'NIT' : 'CC');
                       }
                     }}
                     placeholder={
@@ -1462,6 +1537,53 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   }`}
                 />
               </div>
+
+              {wantsElectronicInvoice && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-0.5">
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                      Teléfono / WhatsApp (Para facturador)
+                    </label>
+                    <input
+                      type="tel"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      placeholder="Ej. 3001234567"
+                      className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                      Ciudad / Municipio
+                    </label>
+                    <input
+                      type="text"
+                      list="qr-colombia-cities"
+                      value={customerCity}
+                      onChange={(e) => setCustomerCity(e.target.value)}
+                      placeholder="Ej. Bogotá D.C., Medellín..."
+                      className="w-full px-2.5 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                    />
+                    <datalist id="qr-colombia-cities">
+                      {COLOMBIAN_CITIES_DANE.map((c) => (
+                        <option key={c.cityCode} value={c.city} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                      Dirección fiscal (Para Factura Electrónica DIAN)
+                    </label>
+                    <input
+                      type="text"
+                      value={customerAddress}
+                      onChange={(e) => setCustomerAddress(e.target.value)}
+                      placeholder="Ej. Calle 90 # 14-20"
+                      className="w-full px-2.5 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+              )}
 
               {billRequestError && (
                 <div className="p-2 rounded-md bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-[11px] font-semibold flex items-center gap-1.5">

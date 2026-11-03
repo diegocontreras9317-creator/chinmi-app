@@ -6,16 +6,20 @@ import {
   PaymentMethod,
   SaleReceipt,
   CustomerDocumentType,
+  CustomerTaxRegime,
   ROLE_PERMISSIONS
 } from '../../types';
 import {
+  calculateColombiaNitDV,
+  COLOMBIAN_CITIES_DANE,
   DOCUMENT_TYPE_OPTIONS,
   extractKnownCustomersFromSales,
   extractTableBillingInfo,
   formatCustomerDocument,
   isValidEmailFormat,
   normalizeBillingInfo,
-  searchKnownCustomers
+  searchKnownCustomers,
+  TAX_REGIME_OPTIONS
 } from '../../utils/billing';
 import { calculateOrderTaxBreakdown, resolveOrderItemTax } from '../../utils/taxes';
 import { auth, db } from '../../firebase';
@@ -34,7 +38,9 @@ import {
   UserCheck,
   FileText,
   Mail,
-  AlertCircle
+  AlertCircle,
+  MapPin,
+  Phone
 } from 'lucide-react';
 
 interface CheckoutModalProps {
@@ -54,7 +60,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const { user, empleadoActivo } = useAuth();
   const knownCustomers = useMemo(() => extractKnownCustomersFromSales(sales), [sales]);
 
-  // Persona activa desde donde se realiza el cobro (perfil de empleado activo o titular de la sesión)
   const activeCashierName =
     empleadoActivo?.nombre?.trim() ||
     user?.name?.trim() ||
@@ -76,7 +81,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [customerDocType, setCustomerDocType] = useState<CustomerDocumentType>('CONSUMIDOR_FINAL');
   const [customerDocNumber, setCustomerDocNumber] = useState<string>('');
   const [customerEmail, setCustomerEmail] = useState<string>('');
+  const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [customerCity, setCustomerCity] = useState<string>('');
+  const [customerAddress, setCustomerAddress] = useState<string>('');
+  const [customerTaxRegime, setCustomerTaxRegime] = useState<CustomerTaxRegime>('no_responsable_iva');
   const [requiresElectronicInvoice, setRequiresElectronicInvoice] = useState<boolean>(false);
+  const [showExtendedFiscalFields, setShowExtendedFiscalFields] = useState<boolean>(false);
   const [isFromCustomerQr, setIsFromCustomerQr] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -95,7 +105,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       const tip = Number(ord.tipAmount) || 0;
       setCashTendered(Math.round(sub - disc + tip).toString());
 
-      // Prellenar método de pago si el cliente lo indicó desde el QR
       const preferred = table.waiterCall?.preferredPaymentMethod;
       if (preferred === 'tarjeta') {
         setPaymentMethod('tarjeta');
@@ -105,8 +114,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         setPaymentMethod('efectivo');
       }
 
-      // Prellenar datos de facturación / cliente si fueron registrados desde el QR o en la comanda
       const { billing, fromQrCustomer } = extractTableBillingInfo(table);
+      const wantsFe = Boolean(billing.requiresElectronicInvoice || billing.email);
       setCustomerName(
         billing.customerName && billing.customerName !== 'Consumidor Final'
           ? billing.customerName
@@ -115,7 +124,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       setCustomerDocType(billing.documentType || 'CONSUMIDOR_FINAL');
       setCustomerDocNumber(billing.documentNumber || '');
       setCustomerEmail(billing.email || '');
-      setRequiresElectronicInvoice(Boolean(billing.requiresElectronicInvoice || billing.email));
+      setCustomerPhone(billing.phone || '');
+      setCustomerCity(billing.city || '');
+      setCustomerAddress(billing.address || '');
+      setCustomerTaxRegime(
+        billing.taxRegime ||
+          (billing.documentType === 'NIT' ? 'responsable_iva' : 'no_responsable_iva')
+      );
+      setRequiresElectronicInvoice(wantsFe);
+      setShowExtendedFiscalFields(
+        Boolean(wantsFe || billing.phone || billing.address || billing.city)
+      );
       setIsFromCustomerQr(fromQrCustomer);
     }
   }, [isOpen, table?.id, table?.order?.id, table?.waiterCall?.requestedAt]);
@@ -188,6 +207,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const change = Math.max(0, cashNumber - total);
   const isCashSufficient = paymentMethod !== 'efectivo' || cashNumber >= total;
 
+  const suggestedNitDv =
+    customerDocType === 'NIT' ? calculateColombiaNitDV(customerDocNumber) : '';
+
   const handleQuickCash = (amount: number) => {
     setCashTendered(Math.round(amount).toString());
   };
@@ -216,7 +238,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     if (wantsElectronic && !cleanEmail) {
       setCheckoutError(
-        'Ingresa el correo electrónico del cliente para poder generar su Facturación Electrónica.'
+        'Ingresa el correo electrónico del cliente para poder enviarle su Facturación Electrónica.'
       );
       return;
     }
@@ -235,6 +257,10 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       documentType: customerDocType,
       documentNumber: customerDocNumber.trim(),
       email: cleanEmail,
+      phone: customerPhone.trim(),
+      city: customerCity.trim(),
+      address: customerAddress.trim(),
+      taxRegime: customerTaxRegime,
       requiresElectronicInvoice: wantsElectronic
     });
 
@@ -270,11 +296,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     });
 
     try {
-      // 1. Guardar recibo único de venta en Firebase (users/uid/ventas/receiptId)
       const ventaRef = doc(db, 'users', activeUid, 'ventas', receiptId);
       await setDoc(ventaRef, receiptPayload, { merge: true });
 
-      // 2. Liberar la mesa en Firebase (users/uid/mesas/table.id)
       const tableFreeData = sanitizeForFirestore({
         id: table.id,
         status: 'libre',
@@ -289,7 +313,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
       await setDoc(mesaRef, tableFreeData, { merge: true });
 
-      // 3. Cerrar la comanda en Firebase (users/uid/pedidos/order.id)
       const orderClosedData = sanitizeForFirestore({
         id: order.id,
         estado: 'pagada',
@@ -320,7 +343,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
-    // 4. Actualizar estado en AppContext con el mismo ID de ticket y datos exactos (sin duplicar escritura)
     const res = checkoutTable(
       table.id,
       paymentMethod,
@@ -342,10 +364,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       onSuccessCheckout(receiptPayload as unknown as SaleReceipt);
     }
     onClose();
-  };
-
-  const handleConfirm = async () => {
-    await cobrarMesa();
   };
 
   return (
@@ -430,7 +448,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
           </div>
 
-          {/* Datos del Cliente / A nombre de quién se cobra (NIT, Cédula, Correo Facturación Electrónica) */}
+          {/* Datos del Cliente / Facturación Electrónica lista para Contadora / Siigo */}
           <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -449,8 +467,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   onClick={() => {
                     const next = !requiresElectronicInvoice;
                     setRequiresElectronicInvoice(next);
-                    if (next && customerDocType === 'CONSUMIDOR_FINAL') {
-                      setCustomerDocType('CC');
+                    if (next) {
+                      setShowExtendedFiscalFields(true);
+                      if (customerDocType === 'CONSUMIDOR_FINAL') {
+                        setCustomerDocType('CC');
+                      }
                     }
                   }}
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
@@ -465,19 +486,6 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                Nombre del cliente o Razón Social
-              </label>
-              <input
-                type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Consumidor Final (o escribe nombre / empresa)"
-                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
-              />
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
               <div className="sm:col-span-2">
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
@@ -490,6 +498,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     setCustomerDocType(nextType);
                     if (nextType === 'CONSUMIDOR_FINAL') {
                       setCustomerDocNumber('');
+                    } else if (nextType === 'NIT') {
+                      setCustomerTaxRegime('responsable_iva');
                     }
                   }}
                   className="w-full px-2.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
@@ -505,9 +515,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
 
               <div className="sm:col-span-3">
-                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                  {customerDocType === 'NIT' ? 'Número de NIT (ej. 900123456-7)' : 'Número de NIT o Cédula'}
-                </label>
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                    {customerDocType === 'NIT' ? 'NIT (auto-calcula DV)' : 'Número de NIT o Cédula'}
+                  </label>
+                  {customerDocType === 'NIT' && suggestedNitDv && (
+                    <span className="text-[10px] font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
+                      DV DIAN: {suggestedNitDv}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={customerDocNumber}
@@ -515,7 +532,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     const val = e.target.value;
                     setCustomerDocNumber(val);
                     if (val.trim() && customerDocType === 'CONSUMIDOR_FINAL') {
-                      setCustomerDocType(val.includes('-') ? 'NIT' : 'CC');
+                      const inferred = val.includes('-') ? 'NIT' : 'CC';
+                      setCustomerDocType(inferred);
+                      if (inferred === 'NIT') setCustomerTaxRegime('responsable_iva');
                     }
                   }}
                   placeholder={
@@ -541,7 +560,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 return (
                   <div className="space-y-1">
                     <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
-                      Clientes encontrados por NIT / Cédula (toca para cargar datos):
+                      Clientes encontrados en historial (toca para cargar todos sus datos fiscales):
                     </span>
                     <div className="flex flex-col gap-1">
                       {matches.map((prof) => (
@@ -549,24 +568,32 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                           key={prof.key}
                           type="button"
                           onClick={() => {
-                            setCustomerDocType(
-                              prof.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : prof.documentType
-                            );
+                            const loadedType =
+                              prof.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : prof.documentType;
+                            setCustomerDocType(loadedType);
                             setCustomerDocNumber(prof.documentNumber);
                             setCustomerName(prof.customerName);
                             if (prof.email) {
                               setCustomerEmail(prof.email);
                               setRequiresElectronicInvoice(true);
                             }
+                            if (prof.phone) setCustomerPhone(prof.phone);
+                            if (prof.city) setCustomerCity(prof.city);
+                            if (prof.address) setCustomerAddress(prof.address);
+                            if (prof.taxRegime) setCustomerTaxRegime(prof.taxRegime);
+                            if (prof.phone || prof.city || prof.address) {
+                              setShowExtendedFiscalFields(true);
+                            }
                           }}
                           className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/70 dark:bg-emerald-950/40 text-left text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 transition cursor-pointer"
                         >
                           <span className="truncate">
                             <strong className="font-mono tabular-nums">
-                              {formatCustomerDocument(prof.documentType, prof.documentNumber)}
+                              {formatCustomerDocument(prof.documentType, prof.documentNumber, prof.dv)}
                             </strong>{' '}
                             · {prof.customerName}
                             {prof.email ? ` · ${prof.email}` : ''}
+                            {prof.city ? ` · ${prof.city}` : ''}
                           </span>
                           <span className="font-bold shrink-0">Cargar</span>
                         </button>
@@ -577,19 +604,36 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               })()}
 
             <div>
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                Nombre completo o Razón Social{requiresElectronicInvoice ? ' *' : ''}
+              </label>
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Consumidor Final (o escribe nombre completo / razón social)"
+                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+              />
+            </div>
+
+            <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between gap-2">
                 <span className="flex items-center gap-1">
                   <Mail className="w-3 h-3 text-orange-500 shrink-0" />
                   <span>
-                    Correo electrónico para Facturación Electrónica
+                    Correo electrónico para envío de Factura Electrónica
                     {requiresElectronicInvoice ? ' *' : ''}
                   </span>
                 </span>
-                {requiresElectronicInvoice && (
-                  <span className="text-[10px] font-semibold text-orange-600 dark:text-orange-400">
-                    Quedará en el listado diario de Facturación Electrónica
-                  </span>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setShowExtendedFiscalFields((prev) => !prev)}
+                  className="text-[10px] font-bold text-orange-600 dark:text-orange-400 hover:underline cursor-pointer whitespace-nowrap"
+                >
+                  {showExtendedFiscalFields
+                    ? 'Ocultar datos contables'
+                    : '+ Teléfono / Dirección / Ciudad'}
+                </button>
               </label>
               <input
                 type="email"
@@ -599,10 +643,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   setCustomerEmail(val);
                   if (val.trim()) {
                     setRequiresElectronicInvoice(true);
+                    setShowExtendedFiscalFields(true);
                   }
                   if (checkoutError) setCheckoutError(null);
                 }}
-                placeholder="cliente@correo.com (para envío de Factura Electrónica)"
+                placeholder="cliente@correo.com (para enviarle la Factura Electrónica)"
                 className={`w-full px-3 py-2 text-xs rounded-lg border bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40 ${
                   requiresElectronicInvoice && !customerEmail.trim()
                     ? 'border-orange-400 dark:border-orange-500'
@@ -610,6 +655,76 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 }`}
               />
             </div>
+
+            {(showExtendedFiscalFields || requiresElectronicInvoice) && (
+              <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700/80 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center gap-1">
+                    <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>Teléfono / Celular</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="Ej. 3001234567"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>Ciudad / Municipio (DANE)</span>
+                  </label>
+                  <input
+                    type="text"
+                    list="checkout-colombia-cities"
+                    value={customerCity}
+                    onChange={(e) => setCustomerCity(e.target.value)}
+                    placeholder="Ej. Bogotá D.C., Medellín..."
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                  />
+                  <datalist id="checkout-colombia-cities">
+                    {COLOMBIAN_CITIES_DANE.map((c) => (
+                      <option key={c.cityCode} value={c.city}>
+                        {c.department} ({c.cityCode})
+                      </option>
+                    ))}
+                  </datalist>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Dirección fiscal (Para Siigo / DIAN)
+                  </label>
+                  <input
+                    type="text"
+                    value={customerAddress}
+                    onChange={(e) => setCustomerAddress(e.target.value)}
+                    placeholder="Ej. Calle 93 # 12-40"
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Régimen tributario cliente
+                  </label>
+                  <select
+                    value={customerTaxRegime}
+                    onChange={(e) => setCustomerTaxRegime(e.target.value as CustomerTaxRegime)}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                  >
+                    {TAX_REGIME_OPTIONS.map((reg) => (
+                      <option key={reg.value} value={reg.value}>
+                        {reg.shortLabel}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Tabla Resumen de Productos de la Comanda */}
@@ -707,7 +822,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
           </div>
 
-          {/* Cash Tendered & Change Calculator (Only for Cash) */}
+          {/* Cash Tendered & Change Calculator */}
           {paymentMethod === 'efectivo' && (
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -781,9 +896,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/40 p-2.5 rounded-xl">
             <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
             <span>
-              Al confirmar, el ticket quedará registrado a cargo de{' '}
-              <strong className="text-slate-700 dark:text-slate-200">{activeCashierName}</strong>, se
-              descontará el stock y la mesa quedará Libre.
+              Al confirmar, el ticket y los datos del cliente quedarán listos para contabilidad y{' '}
+              <strong className="text-slate-700 dark:text-slate-200">{activeCashierName}</strong>{' '}
+              figurará como responsable del cobro.
             </span>
           </div>
 
@@ -801,7 +916,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               type="button"
               id="btn-confirm-checkout"
               disabled={!isCashSufficient || isProcessing}
-              onClick={handleConfirm}
+              onClick={cobrarMesa}
               className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer whitespace-nowrap shrink-0"
             >
               {isProcessing ? (

@@ -1,10 +1,28 @@
 import * as XLSX from 'xlsx';
-import { CustomerBillingInfo, OrderItem, Product, ProductTaxType, SaleReceipt } from '../types';
-import { getSaleCustomerEmail, isElectronicInvoiceSale } from './billing';
+import {
+  CustomerBillingInfo,
+  CustomerPersonType,
+  CustomerTaxRegime,
+  OrderItem,
+  PaymentMethod,
+  Product,
+  ProductTaxType,
+  SaleReceipt
+} from '../types';
+import {
+  calculateColombiaNitDV,
+  getDianDocumentTypeCode,
+  getSaleCustomerEmail,
+  isElectronicInvoiceSale,
+  resolveColombianCity,
+  resolveSaleBillingInfo,
+  splitNaturalPersonName,
+  TAX_REGIME_OPTIONS
+} from './billing';
 import { resolveOrderItemTax } from './taxes';
 
 export type ExportGroupingMode = 'daily_global' | 'by_customer' | 'specific_order';
-export type ExportBillingProvider = 'siigo' | 'alegra' | 'chinmi';
+export type ExportBillingProvider = 'siigo' | 'alegra' | 'world_office' | 'chinmi';
 
 export interface BillingExportParams {
   sales: SaleReceipt[];
@@ -16,9 +34,11 @@ export interface BillingExportParams {
   appName: string;
   /** Optional: omit tickets that already requested individual FE when building the daily global invoice */
   excludeIndividualFeFromGlobal?: boolean;
+  /** Optional for mode === 'by_customer': export only pending FE sales so the accountant doesn't re-upload issued ones */
+  onlyPendingElectronicInvoices?: boolean;
   /** Required when mode === 'specific_order': ID of the exact SaleReceipt order to invoice */
   selectedSaleId?: string;
-  /** Optional customer NIT/Cédula/Razón Social/Email override for mode === 'specific_order' */
+  /** Optional customer NIT/Cédula/Razón Social/Email/Dirección/Ciudad override for mode === 'specific_order' */
   customerOverride?: Partial<CustomerBillingInfo> | null;
 }
 
@@ -29,6 +49,12 @@ export interface NormalizedInvoiceLine {
   codeAndName: string;
   quantity: number;
   unitPricePVP: number;
+  /** Precio unitario original antes de descuento comercial */
+  rawUnitPricePVP: number;
+  /** Precio base unitario antes de descuento */
+  rawUnitBaseWithoutTax: number;
+  /** Porcentaje de descuento aplicado en caja */
+  discountPercent: number;
   unitBaseWithoutTax: number;
   taxType: ProductTaxType;
   taxRate: number;
@@ -42,12 +68,27 @@ export interface ConsolidatedInvoicePackage {
   packageKey: string;
   invoiceDateKey: string; // YYYY-MM-DD
   customerName: string;
+  firstName: string;
+  lastName: string;
+  personType: CustomerPersonType;
   documentType: string;
+  dianDocCode: string;
   identification: string; // Explicit string preserving leading zeros (no DV suffix)
   verificationDigit: string;
   email: string;
+  phone: string;
+  address: string;
+  city: string;
+  department: string;
+  cityCode: string;
+  departmentCode: string;
+  taxRegime: CustomerTaxRegime;
+  fiscalResponsibility: string;
+  paymentMethodLabel: string;
+  siigoPaymentCode: string;
   ticketsCount: number;
   ticketIds: string[];
+  shortTicketRefs: string;
   lines: NormalizedInvoiceLine[];
   totalBase: number;
   totalInc: number;
@@ -67,9 +108,11 @@ export interface BillingExportPreview {
   totalTaxableBase: number;
   totalIncAmount: number;
   totalIvaAmount: number;
+  totalTipsAmount: number;
   totalGrossProducts: number;
   previewHeaders: string[];
   previewRows: Array<Array<string | number>>;
+  includedSheets: string[];
   suggestedFilename: string;
 }
 
@@ -107,7 +150,7 @@ export function saleTimestampToDateKey(rawTimestamp: unknown): string {
 }
 
 /**
- * Convierte YYYY-MM-DD a DD/MM/AAAA para Siigo Cloud.
+ * Convierte YYYY-MM-DD a DD/MM/AAAA para Siigo Cloud / World Office.
  */
 export function formatDateDDMMYYYY(dateKey: string): string {
   const parts = dateKey.split('-');
@@ -149,7 +192,7 @@ export function calculateUnitBaseFromPVP(
 }
 
 /**
- * Etiqueta estándar del impuesto para plantillas de Siigo Cloud y Alegra:
+ * Etiqueta estándar del impuesto para plantillas de Siigo Cloud, Alegra y World Office:
  * "INC 8%", "IVA 19%", "IVA 5%" o "Exento 0%".
  */
 export function getProviderTaxLabel(taxType: ProductTaxType, taxRate: number): string {
@@ -163,14 +206,40 @@ export function getProviderTaxLabel(taxType: ProductTaxType, taxRate: number): s
   return `INC ${rate}%`;
 }
 
+export function getPaymentMethodAccountingMeta(method?: PaymentMethod | string): {
+  label: string;
+  siigoLabel: string;
+  dianCode: string;
+} {
+  if (method === 'tarjeta') {
+    return {
+      label: 'Tarjeta Débito / Crédito',
+      siigoLabel: 'Tarjeta',
+      dianCode: '48'
+    };
+  }
+  if (method === 'bizum') {
+    return {
+      label: 'Transferencia / QR (Nequi - Daviplata)',
+      siigoLabel: 'Transferencia Bancaria',
+      dianCode: '47'
+    };
+  }
+  return {
+    label: 'Efectivo',
+    siigoLabel: 'Efectivo',
+    dianCode: '10'
+  };
+}
+
 /**
  * Normaliza Cédula / NIT como String explícito conservando todos los ceros a la izquierda.
- * Si es NIT con dígito de verificación separado por guion (ej. "0900123456-7"),
- * separa la identificación base ("0900123456") y el DV ("7") sin convertir a Number.
+ * Si es NIT y no trae DV en el texto, calcula automáticamente el DV Módulo 11 de la DIAN.
  */
 export function normalizeCustomerIdentification(
   rawNumber?: string | null,
-  docType?: string | null
+  docType?: string | null,
+  explicitDv?: string | null
 ): { identification: string; verificationDigit: string; cleanDocType: string } {
   const cleanDocType =
     docType && docType !== 'CONSUMIDOR_FINAL' ? String(docType).trim().toUpperCase() : 'CC';
@@ -184,22 +253,29 @@ export function normalizeCustomerIdentification(
     };
   }
 
-  // Eliminamos espacios y puntos de miles, conservando intactos los ceros iniciales
   const compact = raw.replace(/[\s.]/g, '');
 
   if (compact.includes('-')) {
     const [basePart, dvPart = ''] = compact.split('-');
     const safeBase = basePart.trim() || '222222222222';
+    const finalType = cleanDocType === 'CONSUMIDOR_FINAL' ? 'NIT' : cleanDocType;
+    const resolvedDv =
+      String(explicitDv || dvPart || '').trim() ||
+      (finalType === 'NIT' ? calculateColombiaNitDV(safeBase) : '');
     return {
       identification: String(safeBase),
-      verificationDigit: String(dvPart.trim()),
-      cleanDocType: cleanDocType === 'CONSUMIDOR_FINAL' ? 'NIT' : cleanDocType
+      verificationDigit: resolvedDv,
+      cleanDocType: finalType
     };
   }
 
+  const autoDv =
+    String(explicitDv || '').trim() ||
+    (cleanDocType === 'NIT' ? calculateColombiaNitDV(compact) : '');
+
   return {
     identification: String(compact),
-    verificationDigit: '',
+    verificationDigit: autoDv,
     cleanDocType
   };
 }
@@ -216,7 +292,8 @@ function extractNormalizedSaleLines(
   const rawItems = Array.isArray(sale.items) ? sale.items : [];
 
   if (rawItems.length === 0 && sale.subtotal > 0) {
-    const netPVP = (sale.subtotal - sale.discountAmount) > 0 ? sale.subtotal - sale.discountAmount : sale.total;
+    const netPVP =
+      sale.subtotal - sale.discountAmount > 0 ? sale.subtotal - sale.discountAmount : sale.total;
     const fallbackType: ProductTaxType =
       sale.ivaAmount && sale.ivaAmount > 0 && (!sale.impoconsumoAmount || sale.impoconsumoAmount === 0)
         ? 'iva'
@@ -240,6 +317,9 @@ function extractNormalizedSaleLines(
         codeAndName: 'POS-GEN - Consumo Restaurante / Caja',
         quantity: 1,
         unitPricePVP: round2(netPVP),
+        rawUnitPricePVP: round2(sale.subtotal),
+        rawUnitBaseWithoutTax: calculateUnitBaseFromPVP(sale.subtotal, fallbackType, fallbackRate),
+        discountPercent,
         unitBaseWithoutTax: unitBase,
         taxType: fallbackType,
         taxRate: fallbackRate,
@@ -259,9 +339,9 @@ function extractNormalizedSaleLines(
     if (qty <= 0 || rawUnitPVP < 0) continue;
 
     const catalogProduct = productsCatalog?.find((p) => p.id === item.productId);
-    const sku = (catalogProduct?.sku || '').trim();
+    const sku = (catalogProduct?.sku || '').trim() || `PROD-${String(item.productId || '01').slice(-4).toUpperCase()}`;
     const cleanName = (item.name || catalogProduct?.name || 'Producto').trim();
-    const codeAndName = sku ? `${sku} - ${cleanName}` : cleanName;
+    const codeAndName = catalogProduct?.sku?.trim() ? `${catalogProduct.sku.trim()} - ${cleanName}` : cleanName;
 
     const resolvedTax = resolveOrderItemTax(
       item as unknown as Partial<OrderItem> & Record<string, unknown>,
@@ -270,6 +350,11 @@ function extractNormalizedSaleLines(
     );
 
     const effectiveUnitPVP = rawUnitPVP * discountFactor;
+    const rawUnitBase = calculateUnitBaseFromPVP(
+      rawUnitPVP,
+      resolvedTax.taxType,
+      resolvedTax.taxRate
+    );
     const unitBase = calculateUnitBaseFromPVP(
       effectiveUnitPVP,
       resolvedTax.taxType,
@@ -286,6 +371,9 @@ function extractNormalizedSaleLines(
       codeAndName,
       quantity: qty,
       unitPricePVP: round2(effectiveUnitPVP),
+      rawUnitPricePVP: round2(rawUnitPVP),
+      rawUnitBaseWithoutTax: rawUnitBase,
+      discountPercent,
       unitBaseWithoutTax: unitBase,
       taxType: resolvedTax.taxType,
       taxRate: resolvedTax.taxRate,
@@ -301,7 +389,7 @@ function extractNormalizedSaleLines(
 
 /**
  * Agrupa líneas idénticas (mismo producto, mismo precio base sin impuesto y mismo impuesto)
- * sumando cantidades para empaquetar comprobantes limpios en Siigo / Alegra.
+ * sumando cantidades para empaquetar comprobantes limpios en Siigo / Alegra / World Office.
  */
 function mergeInvoiceLines(lines: NormalizedInvoiceLine[]): NormalizedInvoiceLine[] {
   const map = new Map<string, NormalizedInvoiceLine>();
@@ -329,6 +417,25 @@ function mergeInvoiceLines(lines: NormalizedInvoiceLine[]): NormalizedInvoiceLin
   return Array.from(map.values());
 }
 
+function summarizeDominantPaymentMethod(salesList: SaleReceipt[]): {
+  paymentMethodLabel: string;
+  siigoPaymentCode: string;
+} {
+  if (salesList.length === 0) {
+    return { paymentMethodLabel: 'Efectivo', siigoPaymentCode: 'Efectivo' };
+  }
+  const uniqueMethods = Array.from(new Set(salesList.map((s) => s.paymentMethod)));
+  if (uniqueMethods.length === 1) {
+    const meta = getPaymentMethodAccountingMeta(uniqueMethods[0]);
+    return { paymentMethodLabel: meta.label, siigoPaymentCode: meta.siigoLabel };
+  }
+  const metaFirst = getPaymentMethodAccountingMeta(salesList[0].paymentMethod);
+  return {
+    paymentMethodLabel: 'Mixto (Efectivo / Tarjeta / Transferencia)',
+    siigoPaymentCode: metaFirst.siigoLabel
+  };
+}
+
 /**
  * Construye los paquetes consolidados y la vista previa según el Modo de Agrupación y Proveedor.
  */
@@ -341,6 +448,7 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
     targetDate,
     appName,
     excludeIndividualFeFromGlobal = false,
+    onlyPendingElectronicInvoices = false,
     selectedSaleId,
     customerOverride
   } = params;
@@ -385,17 +493,33 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
       const totalChargedWithTip = round2(
         filteredTickets.reduce((acc, s) => acc + (Number(s.total) || 0), 0)
       );
+      const paySummary = summarizeDominantPaymentMethod(filteredTickets);
 
       packages.push({
         packageKey: `GLOBAL_${effectiveDay}`,
         invoiceDateKey: effectiveDay,
         customerName: 'Consumidor Final',
+        firstName: 'Consumidor',
+        lastName: 'Final',
+        personType: 'natural',
         documentType: 'CONSUMIDOR_FINAL',
+        dianDocCode: '13',
         identification: '222222222222',
         verificationDigit: '',
         email: '',
+        phone: '',
+        address: 'Venta en punto de venta',
+        city: 'Bogotá D.C.',
+        department: 'Bogotá D.C.',
+        cityCode: '11001',
+        departmentCode: '11',
+        taxRegime: 'no_responsable_iva',
+        fiscalResponsibility: 'R-99-PN',
+        paymentMethodLabel: paySummary.paymentMethodLabel,
+        siigoPaymentCode: paySummary.siigoPaymentCode,
         ticketsCount: filteredTickets.length,
         ticketIds: filteredTickets.map((t) => t.id),
+        shortTicketRefs: `Lote ${filteredTickets.length} tkt (${effectiveDay})`,
         lines: mergedLines,
         totalBase: round2(totalBase),
         totalInc: round2(totalInc),
@@ -407,9 +531,9 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
       });
     }
   } else if (mode === 'by_customer') {
-    // mode === 'by_customer': Solo clientes que solicitaron Factura Electrónica, agrupados por Cédula/NIT
     filteredTickets = sales.filter((s) => {
       if (!isElectronicInvoiceSale(s)) return false;
+      if (onlyPendingElectronicInvoices && s.electronicInvoiceStatus === 'emitida') return false;
       if (targetDate && saleTimestampToDateKey(s.timestamp) !== targetDate) return false;
       return true;
     });
@@ -418,25 +542,28 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
       string,
       {
         salesList: SaleReceipt[];
-        customerName: string;
-        documentType: string;
+        billing: CustomerBillingInfo;
         identification: string;
         verificationDigit: string;
-        email: string;
+        cleanDocType: string;
         latestDateKey: string;
       }
     >();
 
     for (const sale of filteredTickets) {
-      const rawDocType = sale.customerDocumentType || sale.billingInfo?.documentType || 'CC';
-      const rawDocNumber = sale.customerDocumentNumber || sale.billingInfo?.documentNumber || '';
-      const normId = normalizeCustomerIdentification(rawDocNumber, rawDocType);
-      const email = getSaleCustomerEmail(sale);
+      const resolvedBilling = resolveSaleBillingInfo(sale);
+      const normId = normalizeCustomerIdentification(
+        resolvedBilling.documentNumber,
+        resolvedBilling.documentType,
+        resolvedBilling.dv
+      );
+      const email = getSaleCustomerEmail(sale) || resolvedBilling.email || '';
       const custName =
-        (sale.customerName || sale.billingInfo?.customerName || '').trim() || 'Cliente Factura Electrónica';
+        resolvedBilling.customerName && resolvedBilling.customerName !== 'Consumidor Final'
+          ? resolvedBilling.customerName
+          : 'Cliente Factura Electrónica';
       const saleDateKey = saleTimestampToDateKey(sale.timestamp) || effectiveDay;
 
-      // Clave de agrupación por Cédula/NIT individual (o correo si excepcionalmente no digitó documento)
       const buyerKey =
         normId.identification !== '222222222222'
           ? `ID_${normId.identification}`
@@ -447,13 +574,21 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
       const existing = groupedByCustomer.get(buyerKey);
       if (existing) {
         existing.salesList.push(sale);
-        if (!existing.email && email) existing.email = email;
+        if (!existing.billing.email && email) existing.billing.email = email;
+        if (!existing.billing.phone && resolvedBilling.phone) existing.billing.phone = resolvedBilling.phone;
+        if (!existing.billing.address && resolvedBilling.address) existing.billing.address = resolvedBilling.address;
+        if (!existing.billing.city && resolvedBilling.city) existing.billing.city = resolvedBilling.city;
+        if (!existing.billing.department && resolvedBilling.department) {
+          existing.billing.department = resolvedBilling.department;
+        }
+        if (!existing.billing.cityCode && resolvedBilling.cityCode) {
+          existing.billing.cityCode = resolvedBilling.cityCode;
+        }
         if (
-          existing.customerName === 'Consumidor Final' &&
-          custName &&
+          existing.billing.customerName === 'Consumidor Final' &&
           custName !== 'Consumidor Final'
         ) {
-          existing.customerName = custName;
+          existing.billing.customerName = custName;
         }
         if (saleDateKey > existing.latestDateKey) {
           existing.latestDateKey = saleDateKey;
@@ -461,11 +596,14 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
       } else {
         groupedByCustomer.set(buyerKey, {
           salesList: [sale],
-          customerName: custName,
-          documentType: normId.cleanDocType,
+          billing: {
+            ...resolvedBilling,
+            customerName: custName,
+            email
+          },
           identification: normId.identification,
           verificationDigit: normId.verificationDigit,
-          email,
+          cleanDocType: normId.cleanDocType,
           latestDateKey: saleDateKey
         });
       }
@@ -499,16 +637,39 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
         group.salesList.reduce((acc, s) => acc + (Number(s.total) || 0), 0)
       );
 
+      const b = group.billing;
+      const personType: CustomerPersonType =
+        b.personType || (group.cleanDocType === 'NIT' ? 'juridica' : 'natural');
+      const splitName = splitNaturalPersonName(b.customerName);
+      const cityMeta = resolveColombianCity(b.cityCode || b.city);
+      const paySummary = summarizeDominantPaymentMethod(group.salesList);
+
       packages.push({
         packageKey: buyerKey,
         invoiceDateKey: targetDate || group.latestDateKey || effectiveDay,
-        customerName: group.customerName,
-        documentType: group.documentType,
+        customerName: b.customerName,
+        firstName: personType === 'natural' ? b.firstName || splitName.firstName : '',
+        lastName: personType === 'natural' ? b.lastName || splitName.lastName : '',
+        personType,
+        documentType: group.cleanDocType,
+        dianDocCode: getDianDocumentTypeCode(group.cleanDocType),
         identification: group.identification,
         verificationDigit: group.verificationDigit,
-        email: group.email,
+        email: b.email || '',
+        phone: b.phone || '',
+        address: b.address || '',
+        city: b.city || cityMeta?.city || '',
+        department: b.department || cityMeta?.department || '',
+        cityCode: b.cityCode || cityMeta?.cityCode || '',
+        departmentCode: b.departmentCode || cityMeta?.departmentCode || '',
+        taxRegime:
+          b.taxRegime || (personType === 'juridica' ? 'responsable_iva' : 'no_responsable_iva'),
+        fiscalResponsibility: b.fiscalResponsibility || 'R-99-PN',
+        paymentMethodLabel: paySummary.paymentMethodLabel,
+        siigoPaymentCode: paySummary.siigoPaymentCode,
         ticketsCount: group.salesList.length,
         ticketIds: group.salesList.map((s) => s.id),
+        shortTicketRefs: group.salesList.map((s) => `#${s.id.slice(-6)}`).join(', '),
         lines: mergedLines,
         totalBase: round2(totalBase),
         totalInc: round2(totalInc),
@@ -520,64 +681,91 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
       });
     }
   } else if (mode === 'specific_order') {
-    // mode === 'specific_order': Un cliente en específico (NIT / Cédula) con el pedido exacto que se tomó
     const targetSale = selectedSaleId ? sales.find((s) => s.id === selectedSaleId) : undefined;
     if (targetSale) {
+      const baseBilling = resolveSaleBillingInfo(targetSale);
       const overrideDocNum = (customerOverride?.documentNumber ?? '').trim();
       const overrideDocType = customerOverride?.documentType;
       const overrideName = (customerOverride?.customerName ?? '').trim();
       const overrideEmail = (customerOverride?.email ?? '').trim().toLowerCase();
 
-      const rawDocNumber =
-        overrideDocNum ||
-        targetSale.customerDocumentNumber ||
-        targetSale.billingInfo?.documentNumber ||
-        '';
+      const rawDocNumber = overrideDocNum || baseBilling.documentNumber || '';
       const rawDocType =
         (overrideDocType && overrideDocType !== 'CONSUMIDOR_FINAL'
           ? overrideDocType
           : undefined) ||
-        targetSale.customerDocumentType ||
-        targetSale.billingInfo?.documentType ||
-        (rawDocNumber ? 'CC' : 'CONSUMIDOR_FINAL');
+        (baseBilling.documentType !== 'CONSUMIDOR_FINAL' ? baseBilling.documentType : undefined) ||
+        (rawDocNumber ? (rawDocNumber.includes('-') ? 'NIT' : 'CC') : 'CONSUMIDOR_FINAL');
 
-      const normId = normalizeCustomerIdentification(rawDocNumber, rawDocType);
-      const resolvedEmail = overrideEmail || getSaleCustomerEmail(targetSale);
-      const storedName = (
-        targetSale.customerName ||
-        targetSale.billingInfo?.customerName ||
-        ''
-      ).trim();
+      const normId = normalizeCustomerIdentification(
+        rawDocNumber,
+        rawDocType,
+        customerOverride?.dv || baseBilling.dv
+      );
+      const resolvedEmail = overrideEmail || baseBilling.email || '';
       const resolvedCustomerName =
-        (overrideName && overrideName.toLowerCase() !== 'consumidor final'
-          ? overrideName
-          : '') ||
-        (storedName && storedName.toLowerCase() !== 'consumidor final'
-          ? storedName
+        (overrideName && overrideName.toLowerCase() !== 'consumidor final' ? overrideName : '') ||
+        (baseBilling.customerName && baseBilling.customerName.toLowerCase() !== 'consumidor final'
+          ? baseBilling.customerName
           : '') ||
         'Cliente Factura Electrónica';
 
-      const saleDateKey = saleTimestampToDateKey(targetSale.timestamp) || effectiveDay;
+      const personType: CustomerPersonType =
+        customerOverride?.personType ||
+        baseBilling.personType ||
+        (normId.cleanDocType === 'NIT' ? 'juridica' : 'natural');
 
-      // Enriquecer el ticket en la hoja de auditoría con los datos del cliente asignado
+      const splitName = splitNaturalPersonName(resolvedCustomerName);
+      const resolvedPhone = (customerOverride?.phone ?? baseBilling.phone ?? '').trim();
+      const resolvedAddress = (customerOverride?.address ?? baseBilling.address ?? '').trim();
+      const rawCity = (customerOverride?.city ?? baseBilling.city ?? '').trim();
+      const rawCityCode = (customerOverride?.cityCode ?? baseBilling.cityCode ?? '').trim();
+      const cityMeta = resolveColombianCity(rawCityCode || rawCity);
+      const resolvedCity = cityMeta?.city || rawCity;
+      const resolvedDept =
+        (customerOverride?.department ?? baseBilling.department ?? cityMeta?.department ?? '').trim();
+      const resolvedCityCode = rawCityCode || cityMeta?.cityCode || '';
+      const resolvedDeptCode =
+        (customerOverride?.departmentCode ?? baseBilling.departmentCode ?? cityMeta?.departmentCode ?? '').trim();
+      const resolvedRegime: CustomerTaxRegime =
+        customerOverride?.taxRegime ||
+        baseBilling.taxRegime ||
+        (personType === 'juridica' ? 'responsable_iva' : 'no_responsable_iva');
+      const resolvedFiscalResp =
+        (customerOverride?.fiscalResponsibility ?? baseBilling.fiscalResponsibility ?? 'R-99-PN').trim();
+
+      const saleDateKey = saleTimestampToDateKey(targetSale.timestamp) || effectiveDay;
+      const fullDocDisplay = normId.verificationDigit
+        ? `${normId.identification}-${normId.verificationDigit}`
+        : normId.identification;
+
+      const enrichedBilling: CustomerBillingInfo = {
+        customerName: resolvedCustomerName,
+        documentType: normId.cleanDocType as CustomerBillingInfo['documentType'],
+        documentNumber: fullDocDisplay,
+        ...(normId.verificationDigit ? { dv: normId.verificationDigit } : {}),
+        personType,
+        ...(personType === 'natural' ? { firstName: splitName.firstName, lastName: splitName.lastName } : {}),
+        ...(resolvedEmail ? { email: resolvedEmail } : {}),
+        ...(resolvedPhone ? { phone: resolvedPhone } : {}),
+        ...(resolvedAddress ? { address: resolvedAddress } : {}),
+        ...(resolvedCity ? { city: resolvedCity } : {}),
+        ...(resolvedDept ? { department: resolvedDept } : {}),
+        ...(resolvedCityCode ? { cityCode: resolvedCityCode } : {}),
+        ...(resolvedDeptCode ? { departmentCode: resolvedDeptCode } : {}),
+        taxRegime: resolvedRegime,
+        fiscalResponsibility: resolvedFiscalResp,
+        requiresElectronicInvoice: true
+      };
+
       const enrichedSaleForAudit: SaleReceipt = {
         ...targetSale,
         customerName: resolvedCustomerName,
         customerDocumentType: normId.cleanDocType as SaleReceipt['customerDocumentType'],
-        customerDocumentNumber: normId.verificationDigit
-          ? `${normId.identification}-${normId.verificationDigit}`
-          : normId.identification,
+        customerDocumentNumber: fullDocDisplay,
         customerEmail: resolvedEmail,
         requiresElectronicInvoice: true,
-        billingInfo: {
-          customerName: resolvedCustomerName,
-          documentType: normId.cleanDocType as CustomerBillingInfo['documentType'],
-          documentNumber: normId.verificationDigit
-            ? `${normId.identification}-${normId.verificationDigit}`
-            : normId.identification,
-          ...(resolvedEmail ? { email: resolvedEmail } : {}),
-          requiresElectronicInvoice: true
-        }
+        billingInfo: enrichedBilling
       };
 
       filteredTickets = [enrichedSaleForAudit];
@@ -600,17 +788,33 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
       const totalDiscount = round2(Number(targetSale.discountAmount) || 0);
       const totalTip = round2(Number(targetSale.tipAmount) || 0);
       const totalChargedWithTip = round2(Number(targetSale.total) || 0);
+      const paySummary = summarizeDominantPaymentMethod([targetSale]);
 
       packages.push({
         packageKey: `ORDER_${targetSale.id}_${normId.identification}`,
         invoiceDateKey: saleDateKey,
         customerName: resolvedCustomerName,
+        firstName: personType === 'natural' ? splitName.firstName : '',
+        lastName: personType === 'natural' ? splitName.lastName : '',
+        personType,
         documentType: normId.cleanDocType,
+        dianDocCode: getDianDocumentTypeCode(normId.cleanDocType),
         identification: normId.identification,
         verificationDigit: normId.verificationDigit,
         email: resolvedEmail,
+        phone: resolvedPhone,
+        address: resolvedAddress,
+        city: resolvedCity,
+        department: resolvedDept,
+        cityCode: resolvedCityCode,
+        departmentCode: resolvedDeptCode,
+        taxRegime: resolvedRegime,
+        fiscalResponsibility: resolvedFiscalResp,
+        paymentMethodLabel: paySummary.paymentMethodLabel,
+        siigoPaymentCode: paySummary.siigoPaymentCode,
         ticketsCount: 1,
         ticketIds: [targetSale.id],
+        shortTicketRefs: `#${targetSale.id.slice(-6)}`,
         lines: mergedLines,
         totalBase: round2(totalBase),
         totalInc: round2(totalInc),
@@ -629,13 +833,29 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
   const totalTaxableBase = round2(packages.reduce((acc, p) => acc + p.totalBase, 0));
   const totalIncAmount = round2(packages.reduce((acc, p) => acc + p.totalInc, 0));
   const totalIvaAmount = round2(packages.reduce((acc, p) => acc + p.totalIva, 0));
+  const totalTipsAmount = round2(packages.reduce((acc, p) => acc + p.totalTip, 0));
   const totalGrossProducts = round2(packages.reduce((acc, p) => acc + p.totalGrossProducts, 0));
 
   const { headers: previewHeaders, rows: allMainRows } = buildPrimarySheetRows(packages, provider);
 
+  const includedSheets =
+    provider === 'siigo'
+      ? ['1_Facturas_Siigo_Cloud', '2_Terceros_Clientes_Siigo', '3_Resumen_Compra_Contadora']
+      : provider === 'alegra'
+      ? ['1_Facturas_Alegra', '2_Contactos_Clientes_Alegra', '3_Resumen_Compra_Contadora']
+      : provider === 'world_office'
+      ? ['1_WorldOffice_Loggro', '2_Terceros_DIAN', '3_Resumen_Compra_Contadora']
+      : ['1_Sabana_Clientes_y_Compras', '2_Directorio_Terceros_DIAN', '3_Tickets_y_Cuadre_Caja'];
+
   const safeApp = (appName || 'Chinmi').replace(/[^a-zA-Z0-9_-]/g, '_');
   const providerSlug =
-    provider === 'siigo' ? 'SiigoCloud' : provider === 'alegra' ? 'Alegra' : 'ChinmiGeneral';
+    provider === 'siigo'
+      ? 'SiigoCloud'
+      : provider === 'alegra'
+      ? 'Alegra'
+      : provider === 'world_office'
+      ? 'WorldOffice_Loggro'
+      : 'Contadora_Completo';
 
   let suggestedFilename: string;
   if (mode === 'specific_order' && packages.length === 1) {
@@ -649,7 +869,9 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
         ? 'MasivoDia'
         : mode === 'specific_order'
         ? 'PedidoEspecifico'
-        : 'PorClienteFE';
+        : onlyPendingElectronicInvoices
+        ? 'PendientesContadora'
+        : 'ClientesFE';
     const dateSlug = targetDate || (mode === 'daily_global' ? effectiveDay : 'Consolidado');
     suggestedFilename = `FE_${providerSlug}_${modeSlug}_${safeApp}_${dateSlug}.xlsx`;
   }
@@ -663,9 +885,11 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
     totalTaxableBase,
     totalIncAmount,
     totalIvaAmount,
+    totalTipsAmount,
     totalGrossProducts,
     previewHeaders,
     previewRows: allMainRows.slice(0, 5),
+    includedSheets,
     suggestedFilename
   };
 }
@@ -676,17 +900,29 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
 function buildPrimarySheetRows(
   packages: ConsolidatedInvoicePackage[],
   provider: ExportBillingProvider
-): { headers: string[]; rows: Array<Array<string | number>>; textColumnIndices: number[]; currencyColumnIndices: number[] } {
+): {
+  headers: string[];
+  rows: Array<Array<string | number>>;
+  textColumnIndices: number[];
+  currencyColumnIndices: number[];
+} {
   if (provider === 'siigo') {
     const headers = [
       'Código Comprobante',
-      'Fecha',
+      'Fecha Elaboración',
       'Identificación Tercero',
+      'DV',
       'Sucursal',
+      'Nombre / Razón Social',
+      'Correo Envío FE',
+      'Código Producto',
       'Código/Nombre Producto',
       'Cantidad',
       'Valor Unitario sin impuesto',
-      'Impuesto'
+      '% Descuento',
+      'Impuesto Cargo',
+      'Forma de Pago',
+      'Ref Ticket Caja'
     ];
     const rows: Array<Array<string | number>> = [];
     for (const pkg of packages) {
@@ -696,28 +932,41 @@ function buildPrimarySheetRows(
           'FV-1',
           siigoDate,
           String(pkg.identification),
+          String(pkg.verificationDigit || ''),
           '0',
+          pkg.customerName,
+          pkg.email || '',
+          line.sku,
           line.codeAndName,
           line.quantity,
           line.unitBaseWithoutTax,
-          line.providerTaxLabel
+          0,
+          line.providerTaxLabel,
+          pkg.siigoPaymentCode,
+          pkg.shortTicketRefs
         ]);
       }
     }
     return {
       headers,
       rows,
-      textColumnIndices: [0, 1, 2, 3, 4, 7],
-      currencyColumnIndices: [6]
+      textColumnIndices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14],
+      currencyColumnIndices: [10]
     };
   }
 
   if (provider === 'alegra') {
     const headers = [
+      'Referencia Ticket',
       'Cliente',
+      'Tipo Identificación',
       'Identificación',
+      'DV',
+      'Correo Electrónico FE',
       'Fecha',
       'Vencimiento',
+      'Forma de Pago',
+      'Código Item',
       'Item',
       'Precio Unitario sin impuesto',
       'Cantidad',
@@ -725,13 +974,19 @@ function buildPrimarySheetRows(
     ];
     const rows: Array<Array<string | number>> = [];
     for (const pkg of packages) {
-      const isoDate = pkg.invoiceDateKey; // AAAA-MM-DD
+      const isoDate = pkg.invoiceDateKey;
       for (const line of pkg.lines) {
         rows.push([
+          pkg.shortTicketRefs,
           pkg.customerName,
+          pkg.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : pkg.documentType,
           String(pkg.identification),
+          String(pkg.verificationDigit || ''),
+          pkg.email || '',
           isoDate,
           isoDate,
+          pkg.paymentMethodLabel,
+          line.sku,
           line.codeAndName,
           line.unitBaseWithoutTax,
           line.quantity,
@@ -742,58 +997,328 @@ function buildPrimarySheetRows(
     return {
       headers,
       rows,
-      textColumnIndices: [0, 1, 2, 3, 4, 7],
-      currencyColumnIndices: [5]
+      textColumnIndices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13],
+      currencyColumnIndices: [11]
     };
   }
 
-  // provider === 'chinmi' (Excel General Chinmi App)
+  if (provider === 'world_office') {
+    const headers = [
+      'Fecha (DD/MM/AAAA)',
+      'Tipo Comprobante',
+      'Referencia Ticket',
+      'Tipo Doc DIAN',
+      'Tipo Documento',
+      'NIT / Cédula Tercero',
+      'DV',
+      'Nombre / Razón Social',
+      'Dirección Tercero',
+      'Ciudad',
+      'Código Ciudad DANE',
+      'Teléfono',
+      'Correo Facturación Electrónica',
+      'Código Producto',
+      'Descripción Producto',
+      'Cantidad',
+      'Valor Unitario Base',
+      '% IVA',
+      'Valor IVA Línea',
+      '% Impoconsumo',
+      'Valor INC Línea',
+      'Total Línea PVP',
+      'Forma de Pago'
+    ];
+    const rows: Array<Array<string | number>> = [];
+    for (const pkg of packages) {
+      const woDate = formatDateDDMMYYYY(pkg.invoiceDateKey);
+      for (const line of pkg.lines) {
+        const ivaRate = line.taxType === 'iva' ? line.taxRate : 0;
+        const ivaVal = line.taxType === 'iva' ? line.lineTaxTotal : 0;
+        const incRate = line.taxType === 'impoconsumo' ? line.taxRate : 0;
+        const incVal = line.taxType === 'impoconsumo' ? line.lineTaxTotal : 0;
+
+        rows.push([
+          woDate,
+          'FV',
+          pkg.shortTicketRefs,
+          pkg.dianDocCode,
+          pkg.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : pkg.documentType,
+          String(pkg.identification),
+          String(pkg.verificationDigit || ''),
+          pkg.customerName,
+          pkg.address || 'Ciudad',
+          pkg.city || 'Bogotá D.C.',
+          String(pkg.cityCode || '11001'),
+          String(pkg.phone || ''),
+          pkg.email || '',
+          line.sku,
+          line.productName,
+          line.quantity,
+          line.unitBaseWithoutTax,
+          ivaRate,
+          ivaVal,
+          incRate,
+          incVal,
+          line.lineGrossTotal,
+          pkg.paymentMethodLabel
+        ]);
+      }
+    }
+    return {
+      headers,
+      rows,
+      textColumnIndices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 22],
+      currencyColumnIndices: [16, 18, 20, 21]
+    };
+  }
+
+  // provider === 'chinmi' (Sabana Maestra Completa para Contadora / Cualquier Proveedor DIAN)
   const headers = [
-    'Fecha',
+    'Fecha Compra',
+    'Ref Ticket',
+    'Tipo Persona',
+    'Cód DIAN',
     'Tipo Documento',
-    'Identificación Cliente',
+    'Identificación (Sin DV)',
+    'DV',
     'Cliente / Razón Social',
-    'Correo Electrónico',
-    'Código/Nombre Producto',
+    'Correo Envío FE',
+    'Teléfono Cliente',
+    'Dirección Fiscal',
+    'Ciudad',
+    'Departamento',
+    'Código DANE',
+    'Responsabilidad Fiscal',
+    'SKU Producto',
+    'Producto Consumido',
     'Cantidad',
     'PVP Unitario',
-    'Valor Unitario sin impuesto',
-    'Impuesto',
+    'Base Unitaria sin Impuesto',
+    'Impuesto Aplicado',
     'Base Gravable Línea',
     'Valor Impuesto Línea',
-    'Total Línea PVP'
+    'Total Línea PVP',
+    'Medio de Pago'
   ];
   const rows: Array<Array<string | number>> = [];
   for (const pkg of packages) {
     for (const line of pkg.lines) {
       rows.push([
         pkg.invoiceDateKey,
+        pkg.shortTicketRefs,
+        pkg.personType === 'juridica' ? 'Persona Jurídica' : 'Persona Natural',
+        pkg.dianDocCode,
         pkg.documentType,
         String(pkg.identification),
+        String(pkg.verificationDigit || ''),
         pkg.customerName,
-        pkg.email || 'Sin correo',
-        line.codeAndName,
+        pkg.email || 'Pendiente correo',
+        String(pkg.phone || ''),
+        pkg.address || '',
+        pkg.city || '',
+        pkg.department || '',
+        String(pkg.cityCode || ''),
+        pkg.fiscalResponsibility || 'R-99-PN',
+        line.sku,
+        line.productName,
         line.quantity,
         line.unitPricePVP,
         line.unitBaseWithoutTax,
         line.providerTaxLabel,
         line.lineBaseTotal,
         line.lineTaxTotal,
-        line.lineGrossTotal
+        line.lineGrossTotal,
+        pkg.paymentMethodLabel
       ]);
     }
   }
   return {
     headers,
     rows,
-    textColumnIndices: [0, 1, 2, 3, 4, 5, 9],
-    currencyColumnIndices: [7, 8, 10, 11, 12]
+    textColumnIndices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 24],
+    currencyColumnIndices: [18, 19, 21, 22, 23]
+  };
+}
+
+/**
+ * Construye la Hoja 2: Plantilla de Creación/Actualización de Terceros (Clientes) adaptada al proveedor,
+ * para que la contadora importe clientes nuevos sin rechazos en Siigo / Alegra / World Office.
+ */
+function buildThirdPartiesSheet(
+  packages: ConsolidatedInvoicePackage[],
+  provider: ExportBillingProvider
+): {
+  sheetName: string;
+  headers: string[];
+  rows: Array<Array<string | number>>;
+  textColumnIndices: number[];
+} {
+  // Deduplicar terceros por identificación
+  const uniqueMap = new Map<string, ConsolidatedInvoicePackage>();
+  for (const pkg of packages) {
+    const key = `${pkg.documentType}_${pkg.identification}`;
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, pkg);
+    }
+  }
+  const uniqueClients = Array.from(uniqueMap.values());
+
+  if (provider === 'siigo') {
+    const headers = [
+      'Tipo de Persona',
+      'Código Tipo Documento DIAN',
+      'Tipo Documento',
+      'Identificación (sin DV)',
+      'Dígito Verificación',
+      'Sucursal',
+      'Razón Social (Empresa)',
+      'Nombres (Persona Natural)',
+      'Apellidos (Persona Natural)',
+      'Nombre Comercial',
+      'Dirección',
+      'Código País',
+      'Código Departamento DANE',
+      'Departamento',
+      'Código Ciudad DANE',
+      'Ciudad',
+      'Teléfono',
+      'Correo Recepción Factura Electrónica',
+      'Responsable de IVA',
+      'Código Responsabilidad Fiscal'
+    ];
+    const rows = uniqueClients.map((c) => {
+      const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
+      const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
+      return [
+        isCompany ? 'Empresa' : 'Persona Natural',
+        String(c.dianDocCode),
+        c.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : c.documentType,
+        String(c.identification),
+        String(c.verificationDigit || ''),
+        '0',
+        isCompany ? c.customerName : '',
+        isCompany ? '' : c.firstName || c.customerName,
+        isCompany ? '' : c.lastName || 'Cliente',
+        c.customerName,
+        c.address || 'Dirección pendiente',
+        'Co',
+        String(c.departmentCode || '11'),
+        c.department || 'Bogotá D.C.',
+        String(c.cityCode || '11001'),
+        c.city || 'Bogotá D.C.',
+        String(c.phone || ''),
+        c.email || '',
+        regimeOpt?.siigoIvaResponsible || (isCompany ? 'Sí' : 'No'),
+        c.fiscalResponsibility || 'R-99-PN'
+      ];
+    });
+    return {
+      sheetName: '2_Terceros_Clientes_Siigo',
+      headers,
+      rows,
+      textColumnIndices: headers.map((_, idx) => idx)
+    };
+  }
+
+  if (provider === 'alegra') {
+    const headers = [
+      'Nombre / Razón Social',
+      'Primer Nombre',
+      'Apellidos',
+      'Tipo de Persona',
+      'Tipo de Identificación',
+      'Identificación',
+      'DV',
+      'Correo Electrónico (Envío FE)',
+      'Teléfono / Celular',
+      'Dirección',
+      'Ciudad / Municipio',
+      'Departamento',
+      'Código Municipio DANE',
+      'Régimen Tributario',
+      'Responsabilidad Fiscal DIAN'
+    ];
+    const rows = uniqueClients.map((c) => {
+      const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
+      const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
+      return [
+        c.customerName,
+        isCompany ? '' : c.firstName,
+        isCompany ? '' : c.lastName,
+        isCompany ? 'Persona Jurídica' : 'Persona Natural',
+        c.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : c.documentType,
+        String(c.identification),
+        String(c.verificationDigit || ''),
+        c.email || '',
+        String(c.phone || ''),
+        c.address || '',
+        c.city || '',
+        c.department || '',
+        String(c.cityCode || ''),
+        regimeOpt?.shortLabel || 'No resp. IVA',
+        c.fiscalResponsibility || 'R-99-PN'
+      ];
+    });
+    return {
+      sheetName: '2_Contactos_Clientes_Alegra',
+      headers,
+      rows,
+      textColumnIndices: headers.map((_, idx) => idx)
+    };
+  }
+
+  const headers = [
+    'Código Tipo Doc DIAN',
+    'Tipo Documento',
+    'Identificación (sin DV)',
+    'DV',
+    'Tipo Persona',
+    'Razón Social / Nombre Completo',
+    'Nombres',
+    'Apellidos',
+    'Correo Envío Factura Electrónica',
+    'Teléfono / WhatsApp',
+    'Dirección Fiscal',
+    'Ciudad / Municipio',
+    'Departamento',
+    'Código DANE Municipio',
+    'Régimen Tributario',
+    'Responsabilidad Fiscal DIAN'
+  ];
+  const rows = uniqueClients.map((c) => {
+    const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
+    const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
+    return [
+      String(c.dianDocCode),
+      c.documentType,
+      String(c.identification),
+      String(c.verificationDigit || ''),
+      isCompany ? 'Persona Jurídica' : 'Persona Natural',
+      c.customerName,
+      isCompany ? '' : c.firstName,
+      isCompany ? '' : c.lastName,
+      c.email || '',
+      String(c.phone || ''),
+      c.address || '',
+      c.city || '',
+      c.department || '',
+      String(c.cityCode || ''),
+      regimeOpt?.label || 'No responsable de IVA',
+      c.fiscalResponsibility || 'R-99-PN'
+    ];
+  });
+
+  return {
+    sheetName: provider === 'world_office' ? '2_Terceros_DIAN' : '2_Directorio_Terceros_DIAN',
+    headers,
+    rows,
+    textColumnIndices: headers.map((_, idx) => idx)
   };
 }
 
 /**
  * Crea una hoja de Excel desde una matriz AOA forzando formato Texto explícito ('@')
- * en las columnas de NIT/Cédula, Sucursal, Fechas y Códigos para preservar ceros iniciales.
+ * en las columnas de NIT/Cédula, DV, Códigos DANE, Sucursal y Fechas para nunca perder ceros iniciales.
  */
 function createFormattedWorksheet(
   headers: string[],
@@ -826,7 +1351,6 @@ function createFormattedWorksheet(
     }
   }
 
-  // Ajuste automático de ancho de columnas para lectura cómoda en Excel
   ws['!cols'] = headers.map((header, colIdx) => {
     let maxLen = header.length;
     for (const row of rows) {
@@ -842,23 +1366,27 @@ function createFormattedWorksheet(
 }
 
 /**
- * Genera y descarga el archivo nativo .xlsx según los parámetros seleccionados.
+ * Genera y descarga el paquete contable .xlsx listo para subir al proveedor seleccionado.
  */
 export function downloadBillingExcelFile(params: BillingExportParams): {
   success: boolean;
   filename: string;
   invoicesExported: number;
+  exportedTicketIds: string[];
 } {
   const preview = buildBillingExportPreview(params);
   if (preview.packages.length === 0) {
     return {
       success: false,
       filename: preview.suggestedFilename,
-      invoicesExported: 0
+      invoicesExported: 0,
+      exportedTicketIds: []
     };
   }
 
   const wb = XLSX.utils.book_new();
+
+  // Hoja 1: Comprobantes / Facturas de Venta en el formato exacto del proveedor
   const primary = buildPrimarySheetRows(preview.packages, params.provider);
   const primaryWs = createFormattedWorksheet(
     primary.headers,
@@ -869,157 +1397,89 @@ export function downloadBillingExcelFile(params: BillingExportParams): {
 
   const primarySheetName =
     params.provider === 'siigo'
-      ? 'Siigo_Cloud'
+      ? '1_Facturas_Siigo_Cloud'
       : params.provider === 'alegra'
-      ? 'Alegra_Facturas'
-      : 'Detalle_Productos';
+      ? '1_Facturas_Alegra'
+      : params.provider === 'world_office'
+      ? '1_WorldOffice_Loggro'
+      : '1_Sabana_Clientes_y_Compras';
 
   XLSX.utils.book_append_sheet(wb, primaryWs, primarySheetName);
 
-  // Hoja 2: Directorio / Resumen de Terceros y Comprobantes (con NIT/Cédula como String '@')
+  // Hoja 2: Terceros / Clientes con todos los campos DIAN (DV, DANE, Dirección, Correo FE, Régimen)
+  const thirdParties = buildThirdPartiesSheet(preview.packages, params.provider);
+  const thirdPartiesWs = createFormattedWorksheet(
+    thirdParties.headers,
+    thirdParties.rows,
+    thirdParties.textColumnIndices,
+    []
+  );
+  XLSX.utils.book_append_sheet(wb, thirdPartiesWs, thirdParties.sheetName);
+
+  // Hoja 3: Resumen Contable y Cuadre de Caja (incluye propinas voluntarias no gravadas y medios de pago)
   const summaryHeaders = [
     'Fecha Factura',
+    'Ref Ticket(s)',
     'Tipo Documento',
     'Identificación Tercero',
     'DV',
     'Cliente / Razón Social',
-    'Correo Electrónico FE',
+    'Correo Envío FE',
+    'Teléfono',
+    'Ciudad (DANE)',
+    'Dirección',
+    'Medio de Pago',
     'Tickets Agrupados',
     'Base Gravable',
-    'INC (Impoconsumo)',
-    'IVA',
+    'INC 8% (Impoconsumo)',
+    'IVA 19%',
     'Descuentos',
-    'Propina',
-    'Total Productos PVP',
-    'Total Cobrado en Caja'
+    'Total Factura DIAN (Productos)',
+    'Propina Voluntaria (No gravada)',
+    'Total Recaudado en Caja'
   ];
 
   const summaryRows: Array<Array<string | number>> = preview.packages.map((pkg) => [
-    params.provider === 'siigo' ? formatDateDDMMYYYY(pkg.invoiceDateKey) : pkg.invoiceDateKey,
+    params.provider === 'siigo' || params.provider === 'world_office'
+      ? formatDateDDMMYYYY(pkg.invoiceDateKey)
+      : pkg.invoiceDateKey,
+    pkg.shortTicketRefs,
     pkg.documentType,
     String(pkg.identification),
     String(pkg.verificationDigit || ''),
     pkg.customerName,
     pkg.email || 'Sin correo',
+    String(pkg.phone || ''),
+    pkg.city ? `${pkg.city}${pkg.cityCode ? ` (${pkg.cityCode})` : ''}` : '',
+    pkg.address || '',
+    pkg.paymentMethodLabel,
     pkg.ticketsCount,
     pkg.totalBase,
     pkg.totalInc,
     pkg.totalIva,
     pkg.totalDiscount,
-    pkg.totalTip,
     pkg.totalGrossProducts,
+    pkg.totalTip,
     pkg.totalChargedWithTip
   ]);
 
   const summaryWs = createFormattedWorksheet(
     summaryHeaders,
     summaryRows,
-    [0, 1, 2, 3, 4, 5],
-    [7, 8, 9, 10, 11, 12, 13]
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    [12, 13, 14, 15, 16, 17, 18]
   );
 
   const summarySheetName =
-    params.provider === 'chinmi' ? 'Resumen_Facturacion' : 'Terceros_y_Totales';
+    params.provider === 'chinmi' ? '3_Tickets_y_Cuadre_Caja' : '3_Resumen_Compra_Contadora';
   XLSX.utils.book_append_sheet(wb, summaryWs, summarySheetName);
-
-  // Hoja 3 exclusiva para Excel General Chinmi App: Auditoría completa ticket por ticket de caja
-  if (params.provider === 'chinmi') {
-    const ticketHeaders = [
-      'ID Ticket',
-      'Fecha',
-      'Hora',
-      'Mesa',
-      'Cajero',
-      'Método de Pago',
-      'Tipo Documento',
-      'Identificación Cliente',
-      'Cliente / Razón Social',
-      'Correo Electrónico',
-      'Solicitó FE',
-      'Estado FE',
-      'Subtotal',
-      'Descuento',
-      'Base Gravable',
-      'Impoconsumo',
-      'IVA',
-      'Propina',
-      'Total Cobrado'
-    ];
-
-    const ticketRows: Array<Array<string | number>> = preview.filteredTickets.map((sale) => {
-      const rawDocType = sale.customerDocumentType || sale.billingInfo?.documentType || 'CONSUMIDOR_FINAL';
-      const rawDocNum = sale.customerDocumentNumber || sale.billingInfo?.documentNumber || '';
-      const normId = normalizeCustomerIdentification(rawDocNum, rawDocType);
-      const custName =
-        (sale.customerName || sale.billingInfo?.customerName || '').trim() || 'Consumidor Final';
-      const email = getSaleCustomerEmail(sale) || '';
-      const needsFE = isElectronicInvoiceSale(sale);
-      const feStatus = needsFE
-        ? sale.electronicInvoiceStatus === 'emitida'
-          ? 'Emitida'
-          : 'Pendiente'
-        : 'POS Estándar';
-
-      const dateObj = new Date(sale.timestamp);
-      const dateStr = saleTimestampToDateKey(sale.timestamp);
-      const timeStr = Number.isNaN(dateObj.getTime())
-        ? ''
-        : dateObj.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-
-      const saleLines = extractNormalizedSaleLines(sale, params.productsCatalog);
-      const baseSum = round2(saleLines.reduce((acc, l) => acc + l.lineBaseTotal, 0));
-      const incSum = round2(
-        saleLines
-          .filter((l) => l.taxType === 'impoconsumo')
-          .reduce((acc, l) => acc + l.lineTaxTotal, 0)
-      );
-      const ivaSum = round2(
-        saleLines.filter((l) => l.taxType === 'iva').reduce((acc, l) => acc + l.lineTaxTotal, 0)
-      );
-      const paymentLabel =
-        sale.paymentMethod === 'bizum'
-          ? 'Transferencia / QR'
-          : sale.paymentMethod === 'tarjeta'
-          ? 'Tarjeta'
-          : 'Efectivo';
-
-      return [
-        String(sale.id),
-        dateStr,
-        timeStr,
-        sale.tableName,
-        sale.cashierName,
-        paymentLabel,
-        normId.cleanDocType,
-        String(normId.identification),
-        custName,
-        email || 'Sin correo',
-        needsFE ? 'Sí' : 'No',
-        feStatus,
-        round2(sale.subtotal),
-        round2(sale.discountAmount),
-        baseSum,
-        incSum,
-        ivaSum,
-        round2(sale.tipAmount),
-        round2(sale.total)
-      ];
-    });
-
-    const ticketsWs = createFormattedWorksheet(
-      ticketHeaders,
-      ticketRows,
-      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-      [12, 13, 14, 15, 16, 17, 18]
-    );
-    XLSX.utils.book_append_sheet(wb, ticketsWs, 'Tickets_Caja');
-  }
 
   XLSX.writeFile(wb, preview.suggestedFilename, { bookType: 'xlsx' });
 
   return {
     success: true,
     filename: preview.suggestedFilename,
-    invoicesExported: preview.totalInvoicesCount
+    invoicesExported: preview.totalInvoicesCount,
+    exportedTicketIds: preview.filteredTickets.map((t) => t.id)
   };
 }

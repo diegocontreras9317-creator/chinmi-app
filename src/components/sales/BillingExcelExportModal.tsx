@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   CustomerBillingInfo,
   CustomerDocumentType,
+  CustomerPersonType,
+  CustomerTaxRegime,
   ElectronicInvoiceStatus,
   OrderItem,
   Product,
@@ -9,16 +11,24 @@ import {
 } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import {
+  calculateColombiaNitDV,
+  COLOMBIAN_CITIES_DANE,
   DOCUMENT_TYPE_OPTIONS,
   extractKnownCustomersFromSales,
+  FISCAL_RESPONSIBILITY_OPTIONS,
+  formatAccountantFichaText,
   formatCustomerDocument,
-  getSaleCustomerEmail,
+  getDianDocumentTypeCode,
   isElectronicInvoiceSale,
   isValidEmailFormat,
   KnownCustomerProfile,
   matchesDocumentNumberQuery,
+  normalizeBillingInfo,
   normalizeDocumentSearchKey,
-  searchKnownCustomers
+  resolveColombianCity,
+  resolveSaleBillingInfo,
+  searchKnownCustomers,
+  TAX_REGIME_OPTIONS
 } from '../../utils/billing';
 import { resolveOrderItemTax } from '../../utils/taxes';
 import {
@@ -41,7 +51,12 @@ import {
   Receipt,
   UserCheck,
   Mail,
-  Save
+  Save,
+  Copy,
+  Check,
+  MapPin,
+  Phone,
+  Building2
 } from 'lucide-react';
 
 interface BillingExcelExportModalProps {
@@ -60,6 +75,7 @@ interface BillingExcelExportModalProps {
     billingInfo: CustomerBillingInfo,
     markStatus?: ElectronicInvoiceStatus
   ) => SaleReceipt | undefined;
+  onBulkMarkIssued?: (saleIds: string[], status: ElectronicInvoiceStatus) => void;
 }
 
 const GROUPING_OPTIONS: Array<{
@@ -68,47 +84,58 @@ const GROUPING_OPTIONS: Array<{
   subtitle: string;
 }> = [
   {
-    id: 'daily_global',
-    title: 'Masivo por Día (Venta Global)',
-    subtitle:
-      'Consolida todas las ventas del día seleccionado en un único bloque para facturar el cierre completo en lote.'
-  },
-  {
     id: 'by_customer',
-    title: 'Por Cliente (Consolidado FE)',
+    title: 'Clientes con Factura Electrónica (Lote Contadora)',
     subtitle:
-      'Filtra los clientes que solicitaron Factura Electrónica y agrupa sus consumos por cada Cédula/NIT.'
+      'Agrupa todos los clientes que pidieron Factura Electrónica con sus datos DIAN completos y sus compras listas para subir.'
   },
   {
     id: 'specific_order',
     title: 'Cliente y Pedido Específico (NIT / Cédula)',
     subtitle:
-      'Busca por NIT o Cédula, elige el pedido exacto tomado en mesa y genera la Factura Electrónica de esa comanda.'
+      'Busca o completa todos los datos fiscales de un cliente y genera la factura exacta de un pedido tomado en mesa.'
+  },
+  {
+    id: 'daily_global',
+    title: 'Masivo por Día (Venta Global POS)',
+    subtitle:
+      'Consolida todas las ventas del día seleccionado a Consumidor Final (222222222222) para cierre global en lote.'
   }
 ];
 
 const PROVIDER_OPTIONS: Array<{
   id: ExportBillingProvider;
   title: string;
+  badge: string;
   columnsSummary: string;
 }> = [
   {
     id: 'siigo',
-    title: 'Plantilla Siigo Cloud (.xlsx)',
+    title: 'Paquete Siigo Nube (.xlsx · Facturas + Terceros)',
+    badge: 'Recomendado Siigo',
     columnsSummary:
-      'FV-1 · Fecha DD/MM/AAAA · Identificación Tercero (Texto) · Sucursal 0 · Producto · Cantidad · Base sin impuesto · INC 8% / IVA 19%'
+      'Hoja 1: Comprobantes FV-1 (Base ÷1.08 INC / ÷1.19 IVA) · Hoja 2: Importación de Terceros/Clientes (Cód. DIAN, DV, Ciudad DANE, Correo FE) · Hoja 3: Cuadre de Caja'
   },
   {
     id: 'alegra',
-    title: 'Plantilla Alegra (.xlsx)',
+    title: 'Paquete Alegra (.xlsx · Facturas + Contactos)',
+    badge: 'Alegra Cloud',
     columnsSummary:
-      'Cliente · Identificación (Texto) · Fecha AAAA-MM-DD · Vencimiento · Item · Precio sin impuesto · Cantidad · Impuesto'
+      'Hoja 1: Facturas de Venta (AAAA-MM-DD, Precio base sin impuesto, Impuesto) · Hoja 2: Contactos con Correo para envío directo al cliente · Hoja 3: Totales'
+  },
+  {
+    id: 'world_office',
+    title: 'Plantilla World Office / Loggro / Siigo Pyme (.xlsx)',
+    badge: 'Contable ERP',
+    columnsSummary:
+      'Estructura contable colombiana con NIT, DV separado, Dirección, Código DANE, % y Valor IVA 19%, % y Valor Impoconsumo 8% y Forma de Pago'
   },
   {
     id: 'chinmi',
-    title: 'Excel General Chinmi App (.xlsx)',
+    title: 'Sabana Maestra Contadora · Otros Proveedores DIAN (.xlsx)',
+    badge: 'Universal DIAN',
     columnsSummary:
-      'Control interno de caja en 3 hojas: Detalle desglosado de productos, Resumen por tercero y Auditoría completa de tickets'
+      'Une en una sola tabla 100% de los datos fiscales del cliente + 100% de la compra para Facturatech, MisFacturas, Gosocket, Cadena o Portal DIAN'
   }
 ];
 
@@ -133,7 +160,8 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
   initialMode,
   initialSaleId,
   initialSearchQuery = '',
-  onSaveSaleBilling
+  onSaveSaleBilling,
+  onBulkMarkIssued
 }) => {
   const todayKey = useMemo(() => saleTimestampToDateKey(new Date()), []);
 
@@ -148,12 +176,15 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
   const knownCustomers = useMemo(() => extractKnownCustomersFromSales(sales), [sales]);
 
-  const [mode, setMode] = useState<ExportGroupingMode>('daily_global');
+  const [mode, setMode] = useState<ExportGroupingMode>('by_customer');
   const [provider, setProvider] = useState<ExportBillingProvider>('siigo');
   const [exportDate, setExportDate] = useState<string>(todayKey);
-  const [filterCustomerByDate, setFilterCustomerByDate] = useState<boolean>(true);
-  const [excludeIndividualFeFromGlobal, setExcludeIndividualFeFromGlobal] = useState<boolean>(false);
+  const [filterCustomerByDate, setFilterCustomerByDate] = useState<boolean>(false);
+  const [onlyPendingFeInBatch, setOnlyPendingFeInBatch] = useState<boolean>(true);
+  const [markBatchIssuedOnDownload, setMarkBatchIssuedOnDownload] = useState<boolean>(false);
+  const [excludeIndividualFeFromGlobal, setExcludeIndividualFeFromGlobal] = useState<boolean>(true);
   const [downloadedFile, setDownloadedFile] = useState<string | null>(null);
+  const [fichaCopied, setFichaCopied] = useState<boolean>(false);
 
   // Estado exclusivo para "Cliente y Pedido Específico (NIT / Cédula)"
   const [specificSearchQuery, setSpecificSearchQuery] = useState<string>('');
@@ -161,64 +192,126 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
   const [includeUnassignedOrdersInSearch, setIncludeUnassignedOrdersInSearch] = useState<boolean>(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string>('');
 
-  // Formulario fiscal del cliente específico para el pedido elegido
+  // Formulario fiscal completo del cliente para el pedido elegido
   const [custDocType, setCustDocType] = useState<CustomerDocumentType>('CC');
   const [custDocNumber, setCustDocNumber] = useState<string>('');
+  const [custDv, setCustDv] = useState<string>('');
+  const [custPersonType, setCustPersonType] = useState<CustomerPersonType>('natural');
   const [custName, setCustName] = useState<string>('');
   const [custEmail, setCustEmail] = useState<string>('');
+  const [custPhone, setCustPhone] = useState<string>('');
+  const [custCity, setCustCity] = useState<string>('');
+  const [custAddress, setCustAddress] = useState<string>('');
+  const [custTaxRegime, setCustTaxRegime] = useState<CustomerTaxRegime>('no_responsable_iva');
+  const [custFiscalResp, setCustFiscalResp] = useState<string>('R-99-PN');
   const [markIssuedOnDownload, setMarkIssuedOnDownload] = useState<boolean>(true);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Hidrata el formulario fiscal a partir de un pedido seleccionado (conservando datos si el pedido era Consumidor Final y el cajero ya había buscado un NIT/Cédula)
+  const hydrateCustomerFormFromProfile = (prof: KnownCustomerProfile) => {
+    const cleanType = prof.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : prof.documentType;
+    const normDoc = normalizeDocumentSearchKey(prof.documentNumber);
+    const computedDv =
+      prof.dv || (cleanType === 'NIT' ? calculateColombiaNitDV(normDoc.baseWithoutDv) : '');
+    const pType: CustomerPersonType =
+      prof.personType || (cleanType === 'NIT' ? 'juridica' : 'natural');
+    const reg: CustomerTaxRegime =
+      prof.taxRegime || (pType === 'juridica' ? 'responsable_iva' : 'no_responsable_iva');
+
+    setCustDocType(cleanType);
+    setCustDocNumber(normDoc.baseWithoutDv || prof.documentNumber);
+    setCustDv(computedDv);
+    setCustPersonType(pType);
+    setCustName(prof.customerName);
+    setCustEmail(prof.email || '');
+    setCustPhone(prof.phone || '');
+    setCustCity(prof.city || '');
+    setCustAddress(prof.address || '');
+    setCustTaxRegime(reg);
+    setCustFiscalResp(prof.fiscalResponsibility || 'R-99-PN');
+  };
+
   const hydrateCustomerFormFromSale = (
     sale: SaleReceipt | undefined,
     fallbackQuery?: string
   ) => {
     if (!sale) return;
-    const rawDocType =
-      (sale.customerDocumentType || sale.billingInfo?.documentType || 'CONSUMIDOR_FINAL') as CustomerDocumentType;
-    const rawDocNum = (sale.customerDocumentNumber || sale.billingInfo?.documentNumber || '').trim();
-    const rawName = (sale.customerName || sale.billingInfo?.customerName || '').trim();
-    const rawEmail = getSaleCustomerEmail(sale);
-
+    const resolved = resolveSaleBillingInfo(sale);
+    const normDoc = normalizeDocumentSearchKey(resolved.documentNumber);
     const hasRealSaleCustomer =
-      Boolean(rawDocNum && rawDocNum !== '222222222222') && rawDocType !== 'CONSUMIDOR_FINAL';
+      Boolean(normDoc.baseWithoutDv && normDoc.baseWithoutDv !== '222222222222') &&
+      resolved.documentType !== 'CONSUMIDOR_FINAL';
 
     if (hasRealSaleCustomer) {
-      setCustDocType(rawDocType);
-      setCustDocNumber(rawDocNum);
-      setCustName(rawName && rawName.toLowerCase() !== 'consumidor final' ? rawName : '');
-      setCustEmail(rawEmail);
+      const cleanType = resolved.documentType;
+      const computedDv =
+        resolved.dv || (cleanType === 'NIT' ? calculateColombiaNitDV(normDoc.baseWithoutDv) : '');
+      const pType: CustomerPersonType =
+        resolved.personType || (cleanType === 'NIT' ? 'juridica' : 'natural');
+      setCustDocType(cleanType);
+      setCustDocNumber(normDoc.baseWithoutDv);
+      setCustDv(computedDv);
+      setCustPersonType(pType);
+      setCustName(
+        resolved.customerName && resolved.customerName.toLowerCase() !== 'consumidor final'
+          ? resolved.customerName
+          : ''
+      );
+      setCustEmail(resolved.email || '');
+      setCustPhone(resolved.phone || '');
+      setCustCity(resolved.city || '');
+      setCustAddress(resolved.address || '');
+      setCustTaxRegime(
+        resolved.taxRegime || (pType === 'juridica' ? 'responsable_iva' : 'no_responsable_iva')
+      );
+      setCustFiscalResp(resolved.fiscalResponsibility || 'R-99-PN');
       return;
     }
 
-    // Si el pedido fue cobrado como Consumidor Final, intentamos prellenar con el NIT/Cédula buscado si coincide con un cliente conocido
     const q = (fallbackQuery ?? specificSearchQuery).trim();
     if (q) {
       const matched = searchKnownCustomers(knownCustomers, q, 1)[0];
       if (matched && matchesDocumentNumberQuery(matched.documentNumber, q)) {
-        setCustDocType(matched.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : matched.documentType);
-        setCustDocNumber(matched.documentNumber);
-        setCustName(matched.customerName);
-        setCustEmail(matched.email || '');
+        hydrateCustomerFormFromProfile(matched);
         return;
       }
       const normQ = normalizeDocumentSearchKey(q);
       if (/^\d{5,15}$/.test(normQ.baseWithoutDv)) {
-        setCustDocType(q.includes('-') ? 'NIT' : 'CC');
-        setCustDocNumber(q);
-        setCustName(rawName && rawName.toLowerCase() !== 'consumidor final' ? rawName : '');
-        setCustEmail(rawEmail);
+        const inferredType: CustomerDocumentType = q.includes('-') ? 'NIT' : 'CC';
+        setCustDocType(inferredType);
+        setCustDocNumber(normQ.baseWithoutDv);
+        setCustDv(inferredType === 'NIT' ? calculateColombiaNitDV(normQ.baseWithoutDv) : '');
+        setCustPersonType(inferredType === 'NIT' ? 'juridica' : 'natural');
+        setCustName(
+          resolved.customerName && resolved.customerName.toLowerCase() !== 'consumidor final'
+            ? resolved.customerName
+            : ''
+        );
+        setCustEmail(resolved.email || '');
+        setCustPhone(resolved.phone || '');
+        setCustCity(resolved.city || '');
+        setCustAddress(resolved.address || '');
+        setCustTaxRegime(inferredType === 'NIT' ? 'responsable_iva' : 'no_responsable_iva');
+        setCustFiscalResp('R-99-PN');
         return;
       }
     }
 
-    // Si no había búsqueda por NIT/Cédula pero el formulario tampoco tenía un NIT previo, limpiar para que el cajero ingrese NIT/Cédula
     setCustDocType('CC');
     setCustDocNumber('');
-    setCustName(rawName && rawName.toLowerCase() !== 'consumidor final' ? rawName : '');
-    setCustEmail(rawEmail);
+    setCustDv('');
+    setCustPersonType('natural');
+    setCustName(
+      resolved.customerName && resolved.customerName.toLowerCase() !== 'consumidor final'
+        ? resolved.customerName
+        : ''
+    );
+    setCustEmail(resolved.email || '');
+    setCustPhone(resolved.phone || '');
+    setCustCity(resolved.city || '');
+    setCustAddress(resolved.address || '');
+    setCustTaxRegime('no_responsable_iva');
+    setCustFiscalResp('R-99-PN');
   };
 
   useEffect(() => {
@@ -226,16 +319,24 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     setDownloadedFile(null);
     setSavedNotice(null);
     setValidationError(null);
+    setFichaCopied(false);
+
+    const hasPendingFe = sales.some(
+      (s) => isElectronicInvoiceSale(s) && s.electronicInvoiceStatus !== 'emitida'
+    );
+    const hasAnyFe = sales.some((s) => isElectronicInvoiceSale(s));
 
     const resolvedMode: ExportGroupingMode =
       initialMode ||
       (initialSaleId
         ? 'specific_order'
-        : initialInvoiceFilter === 'electronic'
+        : initialInvoiceFilter === 'electronic' || hasAnyFe
         ? 'by_customer'
         : 'daily_global');
 
     setMode(resolvedMode);
+    setOnlyPendingFeInBatch(hasPendingFe);
+    setMarkBatchIssuedOnDownload(false);
 
     if (initialSelectedDate) {
       setExportDate(initialSelectedDate);
@@ -271,8 +372,15 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       setSelectedSaleId('');
       setCustDocType('CC');
       setCustDocNumber('');
+      setCustDv('');
+      setCustPersonType('natural');
       setCustName('');
       setCustEmail('');
+      setCustPhone('');
+      setCustCity('');
+      setCustAddress('');
+      setCustTaxRegime('no_responsable_iva');
+      setCustFiscalResp('R-99-PN');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -286,7 +394,6 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     latestSaleDateKey
   ]);
 
-  // Clientes conocidos que coinciden con la búsqueda actual por NIT / Cédula / Nombre
   const matchedCustomerProfiles = useMemo(() => {
     if (!specificSearchQuery.trim()) {
       return knownCustomers.slice(0, 4);
@@ -294,7 +401,6 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     return searchKnownCustomers(knownCustomers, specificSearchQuery, 5);
   }, [knownCustomers, specificSearchQuery]);
 
-  // Coincidencia instantánea cuando el usuario digita un NIT o Cédula en el campo de documento del formulario
   const inlineDocProfileSuggestion = useMemo((): KnownCustomerProfile | null => {
     const cleanNum = custDocNumber.trim();
     if (cleanNum.length < 5) return null;
@@ -306,11 +412,12 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     if (!found) return null;
     const sameName = custName.trim().toLowerCase() === found.customerName.trim().toLowerCase();
     const sameEmail = !found.email || custEmail.trim().toLowerCase() === found.email.toLowerCase();
-    if (sameName && sameEmail) return null;
+    const sameAddress =
+      !found.address || custAddress.trim().toLowerCase() === found.address.toLowerCase();
+    if (sameName && sameEmail && sameAddress) return null;
     return found;
-  }, [custDocNumber, custName, custEmail, knownCustomers]);
+  }, [custDocNumber, custName, custEmail, custAddress, knownCustomers]);
 
-  // Pedidos filtrados para el modo "Cliente y Pedido Específico"
   const matchingOrdersForSpecificMode = useMemo(() => {
     const sorted = [...sales].sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
     return sorted.filter((sale) => {
@@ -333,8 +440,12 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
       if (matchesDocumentNumberQuery(storedDoc, q)) return true;
 
-      const name = (sale.customerName || sale.billingInfo?.customerName || 'consumidor final').toLowerCase();
-      const email = getSaleCustomerEmail(sale).toLowerCase();
+      const name = (
+        sale.customerName ||
+        sale.billingInfo?.customerName ||
+        'consumidor final'
+      ).toLowerCase();
+      const email = (sale.customerEmail || sale.billingInfo?.email || '').toLowerCase();
       const itemsText = (sale.items || [])
         .map((it) => `${it.quantity}x ${it.name}`)
         .join(' ')
@@ -374,16 +485,55 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     ).length;
   }, [mode, exportDate, todayKey, sales]);
 
+  const resolvedCityDane = useMemo(() => resolveColombianCity(custCity), [custCity]);
+
+  const buildCurrentSpecificBillingInfo = (): CustomerBillingInfo => {
+    const cleanBaseDoc = normalizeDocumentSearchKey(custDocNumber).baseWithoutDv || custDocNumber.trim();
+    const effectiveType = custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType;
+    const effectiveDv =
+      effectiveType === 'NIT'
+        ? (custDv.trim() || calculateColombiaNitDV(cleanBaseDoc))
+        : '';
+    const fullDoc =
+      effectiveType === 'NIT' && effectiveDv ? `${cleanBaseDoc}-${effectiveDv}` : cleanBaseDoc;
+
+    return normalizeBillingInfo({
+      customerName: custName.trim() || 'Cliente Factura Electrónica',
+      documentType: effectiveType,
+      documentNumber: fullDoc,
+      dv: effectiveDv,
+      personType: custPersonType,
+      email: custEmail.trim().toLowerCase(),
+      phone: custPhone.trim(),
+      city: custCity.trim(),
+      department: resolvedCityDane?.department,
+      cityCode: resolvedCityDane?.cityCode,
+      departmentCode: resolvedCityDane?.departmentCode,
+      address: custAddress.trim(),
+      taxRegime: custTaxRegime,
+      fiscalResponsibility: custFiscalResp,
+      requiresElectronicInvoice: true
+    });
+  };
+
   const customerOverride = useMemo<Partial<CustomerBillingInfo> | null>(() => {
     if (mode !== 'specific_order') return null;
-    return {
-      customerName: custName.trim() || 'Cliente Factura Electrónica',
-      documentType: custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType,
-      documentNumber: custDocNumber.trim(),
-      email: custEmail.trim().toLowerCase(),
-      requiresElectronicInvoice: true
-    };
-  }, [mode, custName, custDocType, custDocNumber, custEmail]);
+    return buildCurrentSpecificBillingInfo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    mode,
+    custName,
+    custDocType,
+    custDocNumber,
+    custDv,
+    custPersonType,
+    custEmail,
+    custPhone,
+    custCity,
+    custAddress,
+    custTaxRegime,
+    custFiscalResp
+  ]);
 
   const preview = useMemo(
     () =>
@@ -395,6 +545,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
         targetDate: effectiveTargetDate,
         appName,
         excludeIndividualFeFromGlobal,
+        onlyPendingElectronicInvoices: mode === 'by_customer' ? onlyPendingFeInBatch : false,
         selectedSaleId,
         customerOverride
       }),
@@ -406,6 +557,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       effectiveTargetDate,
       appName,
       excludeIndividualFeFromGlobal,
+      onlyPendingFeInBatch,
       selectedSaleId,
       customerOverride
     ]
@@ -418,12 +570,8 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     setSavedNotice(null);
     setDownloadedFile(null);
     setSpecificSearchQuery(profile.documentNumber);
-    setCustDocType(profile.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : profile.documentType);
-    setCustDocNumber(profile.documentNumber);
-    setCustName(profile.customerName);
-    setCustEmail(profile.email || '');
+    hydrateCustomerFormFromProfile(profile);
 
-    // Seleccionar automáticamente el pedido más reciente de este NIT/Cédula si el pedido actual no pertenece a él
     const customerOrders = [...sales]
       .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
       .filter((s) =>
@@ -446,12 +594,12 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     setValidationError(null);
     setSavedNotice(null);
     setDownloadedFile(null);
+    setFichaCopied(false);
 
     const rawDocNum = (sale.customerDocumentNumber || sale.billingInfo?.documentNumber || '').trim();
     const rawDocType =
       (sale.customerDocumentType || sale.billingInfo?.documentType || 'CONSUMIDOR_FINAL') as CustomerDocumentType;
 
-    // Si este pedido ya tiene NIT/Cédula propio, cargarlo; si es Consumidor Final y el cajero ya digitó un NIT/Cédula en el formulario, conservar el NIT/Cédula para facturarle este pedido
     if (rawDocNum && rawDocNum !== '222222222222' && rawDocType !== 'CONSUMIDOR_FINAL') {
       hydrateCustomerFormFromSale(sale);
     } else if (!custDocNumber.trim()) {
@@ -480,35 +628,49 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
   const handleSaveCustomerToOrderOnly = () => {
     if (!validateSpecificCustomerFields() || !selectedSale || !onSaveSaleBilling) return;
+    const fullBilling = buildCurrentSpecificBillingInfo();
     onSaveSaleBilling(
       selectedSale.id,
-      {
-        customerName: custName.trim() || 'Cliente Factura Electrónica',
-        documentType: custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType,
-        documentNumber: custDocNumber.trim(),
-        email: custEmail.trim().toLowerCase(),
-        requiresElectronicInvoice: true
-      },
+      fullBilling,
       selectedSale.electronicInvoiceStatus === 'emitida' ? 'emitida' : 'pendiente'
     );
     setSavedNotice(
-      `Cliente (${custDocType} ${custDocNumber.trim()}) vinculado al pedido #${selectedSale.id.slice(-6)}.`
+      `Datos completos de ${fullBilling.customerName} (${formatCustomerDocument(
+        fullBilling.documentType,
+        fullBilling.documentNumber,
+        fullBilling.dv
+      )}) guardados en el pedido #${selectedSale.id.slice(-6)}.`
     );
+  };
+
+  const handleCopyAccountantFicha = () => {
+    if (!selectedSale) return;
+    const fullBilling = buildCurrentSpecificBillingInfo();
+    const tempSale: SaleReceipt = {
+      ...selectedSale,
+      customerName: fullBilling.customerName,
+      customerDocumentType: fullBilling.documentType,
+      customerDocumentNumber: fullBilling.documentNumber,
+      customerEmail: fullBilling.email || '',
+      requiresElectronicInvoice: true,
+      billingInfo: fullBilling
+    };
+    const fichaText = formatAccountantFichaText(tempSale, productsCatalog);
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(fichaText).catch(() => {});
+      setFichaCopied(true);
+      setTimeout(() => setFichaCopied(false), 2600);
+    }
   };
 
   const handleDownload = () => {
     if (mode === 'specific_order') {
       if (!validateSpecificCustomerFields()) return;
       if (selectedSale && onSaveSaleBilling) {
+        const fullBilling = buildCurrentSpecificBillingInfo();
         onSaveSaleBilling(
           selectedSale.id,
-          {
-            customerName: custName.trim() || 'Cliente Factura Electrónica',
-            documentType: custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType,
-            documentNumber: custDocNumber.trim(),
-            email: custEmail.trim().toLowerCase(),
-            requiresElectronicInvoice: true
-          },
+          fullBilling,
           markIssuedOnDownload ? 'emitida' : undefined
         );
       }
@@ -522,20 +684,40 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       targetDate: effectiveTargetDate,
       appName,
       excludeIndividualFeFromGlobal,
+      onlyPendingElectronicInvoices: mode === 'by_customer' ? onlyPendingFeInBatch : false,
       selectedSaleId,
       customerOverride
     });
+
     if (result.success) {
       setDownloadedFile(result.filename);
       if (mode === 'specific_order' && selectedSale) {
         setSavedNotice(
           markIssuedOnDownload
             ? `Datos guardados y pedido #${selectedSale.id.slice(-6)} marcado como FE Emitida.`
-            : `Datos fiscales guardados en el pedido #${selectedSale.id.slice(-6)}.`
+            : `Datos fiscales completos guardados en el pedido #${selectedSale.id.slice(-6)}.`
+        );
+      } else if (
+        mode === 'by_customer' &&
+        markBatchIssuedOnDownload &&
+        onBulkMarkIssued &&
+        result.exportedTicketIds.length > 0
+      ) {
+        onBulkMarkIssued(result.exportedTicketIds, 'emitida');
+        setSavedNotice(
+          `${result.exportedTicketIds.length} venta(s) exportadas y marcadas como FE Emitida.`
         );
       }
     }
   };
+
+  const readinessChecks = useMemo(() => {
+    const hasDoc = Boolean(custDocNumber.trim());
+    const hasName = Boolean(custName.trim());
+    const hasEmail = isValidEmailFormat(custEmail);
+    const hasLocation = Boolean(custCity.trim() || custAddress.trim());
+    return { hasDoc, hasName, hasEmail, hasLocation };
+  }, [custDocNumber, custName, custEmail, custCity, custAddress]);
 
   return (
     <div
@@ -543,7 +725,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       onClick={onClose}
     >
       <div
-        className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[94vh] flex flex-col"
+        className="w-full max-w-5xl bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[95vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -554,10 +736,10 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
             </div>
             <div className="min-w-0">
               <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white truncate">
-                Facturación Electrónica y Exportación Excel (.xlsx)
+                Centro Contable y Facturación Electrónica (.xlsx)
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                Búsqueda por NIT o Cédula por pedido específico · Desglose PVP (÷ 1.08 INC · ÷ 1.19 IVA)
+                Datos completos del cliente (DIAN / Terceros) + Detalle de compra listo para subir a Siigo, Alegra, World Office y otros
               </p>
             </div>
           </div>
@@ -577,10 +759,10 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
           <div className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                1. Modalidad de Facturación Electrónica
+                1. ¿Qué deseas preparar para subir al proveedor de facturación?
               </label>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Global del día, consolidado o pedido específico por NIT/Cédula
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:inline">
+                Incluye Terceros + Productos + Impuestos desglosados
               </span>
             </div>
 
@@ -601,6 +783,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                       setMode(opt.id);
                       setDownloadedFile(null);
                       setValidationError(null);
+                      setSavedNotice(null);
                       if (opt.id === 'specific_order' && !selectedSaleId && sales.length > 0) {
                         const newest = [...sales].sort((a, b) =>
                           (b.timestamp || '').localeCompare(a.timestamp || '')
@@ -648,13 +831,13 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
               })}
             </div>
 
-            {/* Contextual Date Bar for daily_global and by_customer */}
+            {/* Contextual Controls for daily_global and by_customer */}
             {mode !== 'specific_order' && (
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-wrap items-center justify-between gap-3">
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Calendar className="w-3.5 h-3.5 text-orange-500 shrink-0" />
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    {mode === 'daily_global' ? 'Día de caja a consolidar:' : 'Alcance de fecha FE:'}
+                    {mode === 'daily_global' ? 'Día de caja a consolidar:' : 'Periodo de ventas FE:'}
                   </span>
 
                   {mode === 'by_customer' && (
@@ -718,6 +901,35 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                   )}
                 </div>
 
+                {mode === 'by_customer' && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={onlyPendingFeInBatch}
+                        onChange={(e) => {
+                          setOnlyPendingFeInBatch(e.target.checked);
+                          setDownloadedFile(null);
+                        }}
+                        className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                      />
+                      <span>Solo pendientes por subir</span>
+                    </label>
+
+                    {onBulkMarkIssued && (
+                      <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={markBatchIssuedOnDownload}
+                          onChange={(e) => setMarkBatchIssuedOnDownload(e.target.checked)}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span>Marcar como Emitidas al descargar</span>
+                      </label>
+                    )}
+                  </div>
+                )}
+
                 {mode === 'daily_global' && dayIndividualFeCount > 0 && (
                   <label className="inline-flex items-center gap-2 text-[11px] font-medium text-slate-700 dark:text-slate-300 cursor-pointer select-none">
                     <input
@@ -730,14 +942,14 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                       className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                     />
                     <span>
-                      Omitir {dayIndividualFeCount} ticket(s) con FE individual para evitar doble cobro
+                      Excluir {dayIndividualFeCount} ticket(s) con FE individual para no facturar doble
                     </span>
                   </label>
                 )}
               </div>
             )}
 
-            {/* Panel dedicado cuando mode === 'specific_order': Buscar por NIT / Cédula + Elegir Pedido Específico */}
+            {/* Panel dedicado cuando mode === 'specific_order': Buscar por NIT / Cédula + Ficha Completa del Cliente y Compra */}
             {mode === 'specific_order' && (
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-4">
                 {/* Barra de búsqueda por NIT / Cédula y filtro de fecha */}
@@ -745,7 +957,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                       <Search className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                      <span>Buscar cliente por NIT o Cédula y seleccionar el pedido tomado</span>
+                      <span>Buscar cliente por NIT o Cédula y elegir el pedido de la compra</span>
                     </span>
 
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -812,14 +1024,13 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                     )}
                   </div>
 
-                  {/* Directorio rápido de clientes registrados por NIT / Cédula */}
                   {matchedCustomerProfiles.length > 0 && (
                     <div className="space-y-1.5">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                         <span className="text-slate-500 dark:text-slate-400 font-medium">
                           {specificSearchQuery.trim()
-                            ? 'Clientes encontrados por NIT / Cédula (clic para cargar sus datos y ver sus pedidos):'
-                            : 'Clientes frecuentes con NIT / Cédula:'}
+                            ? 'Directorio de clientes encontrados (clic para cargar todos sus datos DIAN):'
+                            : 'Directorio reciente de clientes con NIT / Cédula:'}
                         </span>
                         {specificSearchQuery.trim() && (
                           <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer select-none">
@@ -829,7 +1040,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                               onChange={(e) => setIncludeUnassignedOrdersInSearch(e.target.checked)}
                               className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                             />
-                            <span>Incluir pedidos cobrados como Consumidor Final</span>
+                            <span>Mostrar también tickets de Consumidor Final</span>
                           </label>
                         )}
                       </div>
@@ -851,15 +1062,20 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                             >
                               <div className="min-w-0">
                                 <span className="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white block truncate">
-                                  {formatCustomerDocument(prof.documentType, prof.documentNumber)}
+                                  {formatCustomerDocument(
+                                    prof.documentType,
+                                    prof.documentNumber,
+                                    prof.dv
+                                  )}
                                 </span>
                                 <span className="text-[11px] text-slate-600 dark:text-slate-300 block truncate">
                                   {prof.customerName}
                                   {prof.email ? ` · ${prof.email}` : ''}
+                                  {prof.city ? ` · ${prof.city}` : ''}
                                 </span>
                               </div>
                               <span className="text-[10px] font-mono tabular-nums font-semibold text-orange-600 dark:text-orange-400 shrink-0">
-                                {prof.ordersCount} {prof.ordersCount === 1 ? 'pedido' : 'pedidos'}
+                                {prof.ordersCount} {prof.ordersCount === 1 ? 'compra' : 'compras'}
                               </span>
                             </button>
                           );
@@ -869,16 +1085,16 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                   )}
                 </div>
 
-                {/* Lista de pedidos específicos para seleccionar el que se tomó */}
+                {/* Lista de pedidos específicos */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-bold text-slate-700 dark:text-slate-200">
-                      Selecciona el pedido específico tomado ({matchingOrdersForSpecificMode.length}{' '}
-                      {matchingOrdersForSpecificMode.length === 1 ? 'resultado' : 'resultados'})
+                      Selecciona la compra / pedido tomado ({matchingOrdersForSpecificMode.length}{' '}
+                      {matchingOrdersForSpecificMode.length === 1 ? 'ticket' : 'tickets'})
                     </span>
                     {selectedSale && (
                       <span className="font-mono tabular-nums text-orange-600 dark:text-orange-400 font-semibold">
-                        Seleccionado: #{selectedSale.id.slice(-6)} · {selectedSale.tableName}
+                        Activo: #{selectedSale.id.slice(-6)} · {selectedSale.tableName}
                       </span>
                     )}
                   </div>
@@ -886,23 +1102,24 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                   {matchingOrdersForSpecificMode.length === 0 ? (
                     <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2">
                       <span>
-                        No se encontraron pedidos con el NIT/Cédula o criterio buscado. Si el pedido fue cobrado como Consumidor Final, activa ver todos los pedidos para asignarle este NIT/Cédula.
+                        No se encontraron pedidos con el NIT/Cédula buscado. Activa ver tickets de Consumidor Final para asignarle la compra a este cliente.
                       </span>
                       <button
                         type="button"
                         onClick={() => setIncludeUnassignedOrdersInSearch(true)}
                         className="px-2.5 py-1 rounded-lg bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-300 font-semibold text-[11px] cursor-pointer whitespace-nowrap"
                       >
-                        Mostrar pedidos de Consumidor Final
+                        Ver tickets Consumidor Final
                       </button>
                     </div>
                   ) : (
-                    <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
+                    <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
                       {matchingOrdersForSpecificMode.slice(0, 40).map((sale) => {
                         const isChosen = sale.id === selectedSaleId;
                         const docLabel = formatCustomerDocument(
                           sale.customerDocumentType || sale.billingInfo?.documentType,
-                          sale.customerDocumentNumber || sale.billingInfo?.documentNumber
+                          sale.customerDocumentNumber || sale.billingInfo?.documentNumber,
+                          sale.billingInfo?.dv
                         );
                         const saleCustName =
                           sale.customerName?.trim() ||
@@ -915,7 +1132,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                             key={sale.id}
                             type="button"
                             onClick={() => handleSelectOrderRow(sale)}
-                            className={`w-full px-3.5 py-2.5 text-left transition cursor-pointer flex items-center justify-between gap-3 ${
+                            className={`w-full px-3.5 py-2 text-left transition cursor-pointer flex items-center justify-between gap-3 ${
                               isChosen
                                 ? 'bg-orange-50/80 dark:bg-orange-950/35'
                                 : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
@@ -980,30 +1197,49 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                   )}
                 </div>
 
-                {/* Detalle del Pedido Tomado + Datos Fiscales del Cliente (NIT / Cédula) */}
+                {/* Detalle Completo de la Compra + Datos Fiscales DIAN del Cliente */}
                 {selectedSale && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-1">
-                    {/* Detalle de los productos tomados en ese pedido */}
-                    <div className="lg:col-span-5 p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-col justify-between gap-2.5">
+                    {/* Columna Compra: Productos, SKUs, Impuestos y Medio de Pago */}
+                    <div className="lg:col-span-5 p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-col justify-between gap-3">
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                           <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                             <Receipt className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                            <span>Pedido #{selectedSale.id.slice(-6)} · {selectedSale.tableName}</span>
+                            <span>Datos de la Compra · #{selectedSale.id.slice(-6)}</span>
                           </span>
                           <span className="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                             {new Date(selectedSale.timestamp).toLocaleDateString('es-CO')}
                           </span>
                         </div>
 
-                        <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
+                        <div className="grid grid-cols-2 gap-1.5 text-[11px] bg-slate-50 dark:bg-slate-800/60 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block">Mesa / Cajero</span>
+                            <span className="font-semibold text-slate-800 dark:text-slate-200 truncate block">
+                              {selectedSale.tableName} · {selectedSale.cashierName}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block">Forma de Pago</span>
+                            <span className="font-semibold text-slate-800 dark:text-slate-200 capitalize block">
+                              {selectedSale.paymentMethod === 'bizum'
+                                ? 'Transferencia / QR'
+                                : selectedSale.paymentMethod}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
                           {(selectedSale.items || []).map((item, idx) => {
+                            const prod = productsCatalog.find((p) => p.id === item.productId);
                             const itemTax = resolveOrderItemTax(
                               item as unknown as Partial<OrderItem> & Record<string, unknown>,
                               productsCatalog,
                               Number(selectedSale.taxPercent) || 8
                             );
-                            const lineGross = (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0);
+                            const lineGross =
+                              (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0);
                             return (
                               <div
                                 key={item.id || idx}
@@ -1013,6 +1249,11 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                                   <span className="font-mono tabular-nums font-bold text-orange-600 dark:text-orange-400 mr-1">
                                     {item.quantity}x
                                   </span>
+                                  {prod?.sku && (
+                                    <span className="font-mono text-[10px] text-slate-400 mr-1">
+                                      [{prod.sku}]
+                                    </span>
+                                  )}
                                   <span className="text-slate-800 dark:text-slate-200 font-medium">
                                     {item.name}
                                   </span>
@@ -1029,46 +1270,138 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">
-                          Total de este pedido:
-                        </span>
-                        <span className="font-mono tabular-nums font-extrabold text-slate-900 dark:text-white">
-                          {formatCOP(selectedSale.total)}
-                        </span>
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1 text-xs font-mono tabular-nums">
+                        {selectedSale.discountAmount > 0 && (
+                          <div className="flex items-center justify-between text-[11px] text-rose-600 dark:text-rose-400">
+                            <span>Descuento ({selectedSale.discountPercent}%):</span>
+                            <span>-{formatCOP(selectedSale.discountAmount)}</span>
+                          </div>
+                        )}
+                        {selectedSale.tipAmount > 0 && (
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                            <span>Propina (no gravada):</span>
+                            <span>+{formatCOP(selectedSale.tipAmount)}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-0.5">
+                          <span className="font-sans text-slate-600 dark:text-slate-300 font-semibold">
+                            Total Cobrado:
+                          </span>
+                          <span className="font-extrabold text-slate-900 dark:text-white">
+                            {formatCOP(selectedSale.total)}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Formulario Fiscal del Cliente (NIT / Cédula) */}
+                    {/* Columna Cliente: Ficha Fiscal DIAN Completa para Siigo / Proveedores */}
                     <div className="lg:col-span-7 p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-2.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                         <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                          <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          <span>Cliente receptor de la Factura Electrónica</span>
+                          <Building2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span>Datos Fiscales del Cliente (Para Siigo / DIAN)</span>
                         </span>
 
-                        {onSaveSaleBilling && (
+                        <div className="flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={handleSaveCustomerToOrderOnly}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer"
-                            title="Guardar NIT/Cédula y datos en este pedido"
+                            onClick={handleCopyAccountantFicha}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer whitespace-nowrap"
+                            title="Copiar ficha completa del cliente y su compra para WhatsApp o contabilidad"
                           >
-                            <Save className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                            <span>Guardar en pedido</span>
+                            {fichaCopied ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-500" />
+                                <span className="text-emerald-600 dark:text-emerald-400">Ficha copiada</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3 text-orange-500" />
+                                <span>Copiar Ficha Contadora</span>
+                              </>
+                            )}
                           </button>
-                        )}
+
+                          {onSaveSaleBilling && (
+                            <button
+                              type="button"
+                              onClick={handleSaveCustomerToOrderOnly}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 transition cursor-pointer whitespace-nowrap"
+                              title="Guardar todos estos datos del cliente en el pedido"
+                            >
+                              <Save className="w-3 h-3" />
+                              <span>Guardar datos</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-                        <div className="sm:col-span-2">
+                      {/* Checklist visual rápido de completitud para la Contadora */}
+                      <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                        <span
+                          className={`inline-flex items-center gap-1 font-semibold ${
+                            readinessChecks.hasDoc
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-amber-600 dark:text-amber-400'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3 h-3 shrink-0" />
+                          <span>NIT/Cédula</span>
+                        </span>
+                        <span className="text-slate-300 dark:text-slate-700">·</span>
+                        <span
+                          className={`inline-flex items-center gap-1 font-semibold ${
+                            readinessChecks.hasName
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-amber-600 dark:text-amber-400'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3 h-3 shrink-0" />
+                          <span>Razón Social</span>
+                        </span>
+                        <span className="text-slate-300 dark:text-slate-700">·</span>
+                        <span
+                          className={`inline-flex items-center gap-1 font-semibold ${
+                            readinessChecks.hasEmail
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-amber-600 dark:text-amber-400'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3 h-3 shrink-0" />
+                          <span>Correo envío cliente</span>
+                        </span>
+                        <span className="text-slate-300 dark:text-slate-700">·</span>
+                        <span
+                          className={`inline-flex items-center gap-1 font-semibold ${
+                            readinessChecks.hasLocation
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-slate-400 dark:text-slate-500'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3 h-3 shrink-0" />
+                          <span>Dirección / Ciudad DANE</span>
+                        </span>
+                      </div>
+
+                      {/* Fila 1: Tipo Doc + Número + DV + Tipo Persona */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <div className="sm:col-span-4">
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            Tipo de documento *
+                            Tipo Doc. (Cód. DIAN {getDianDocumentTypeCode(custDocType)}) *
                           </label>
                           <select
                             value={custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType}
                             onChange={(e) => {
-                              setCustDocType(e.target.value as CustomerDocumentType);
+                              const nextType = e.target.value as CustomerDocumentType;
+                              setCustDocType(nextType);
+                              if (nextType === 'NIT') {
+                                setCustPersonType('juridica');
+                                setCustTaxRegime('responsable_iva');
+                                setCustDv(calculateColombiaNitDV(custDocNumber));
+                              } else {
+                                setCustPersonType('natural');
+                                setCustDv('');
+                              }
                               setValidationError(null);
                               setDownloadedFile(null);
                             }}
@@ -1077,33 +1410,75 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                             {DOCUMENT_TYPE_OPTIONS.filter((o) => o.value !== 'CONSUMIDOR_FINAL').map(
                               (opt) => (
                                 <option key={opt.value} value={opt.value}>
-                                  {opt.shortLabel} · {opt.value === 'NIT' ? 'Empresa' : opt.label.split('(')[0].trim()}
+                                  {opt.shortLabel} ({opt.dianCode})
                                 </option>
                               )
                             )}
                           </select>
                         </div>
 
-                        <div className="sm:col-span-3">
+                        <div className={custDocType === 'NIT' ? 'sm:col-span-4' : 'sm:col-span-5'}>
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            {custDocType === 'NIT' ? 'Número de NIT (ej. 900123456-7) *' : 'Número de Cédula / ID *'}
+                            {custDocType === 'NIT' ? 'NIT (Sin DV) *' : 'Número Identificación *'}
                           </label>
                           <input
                             type="text"
                             value={custDocNumber}
                             onChange={(e) => {
-                              const val = e.target.value;
-                              setCustDocNumber(val);
-                              if (val.includes('-') && custDocType === 'CC') {
+                              const rawVal = e.target.value;
+                              if (rawVal.includes('-')) {
+                                const [base, dvPart = ''] = rawVal.split('-');
+                                setCustDocNumber(base.trim());
                                 setCustDocType('NIT');
+                                setCustPersonType('juridica');
+                                setCustTaxRegime('responsable_iva');
+                                setCustDv(dvPart.trim() || calculateColombiaNitDV(base));
+                              } else {
+                                setCustDocNumber(rawVal);
+                                if (custDocType === 'NIT') {
+                                  setCustDv(calculateColombiaNitDV(rawVal));
+                                }
                               }
                               setValidationError(null);
                               setSavedNotice(null);
                               setDownloadedFile(null);
                             }}
-                            placeholder={custDocType === 'NIT' ? '900123456-7' : '1020304050'}
+                            placeholder={custDocType === 'NIT' ? '900123456' : '1020304050'}
                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono tabular-nums text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
                           />
+                        </div>
+
+                        {custDocType === 'NIT' && (
+                          <div className="sm:col-span-1">
+                            <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                              DV
+                            </label>
+                            <input
+                              type="text"
+                              maxLength={1}
+                              value={custDv}
+                              onChange={(e) => setCustDv(e.target.value.replace(/\D/g, ''))}
+                              placeholder="0"
+                              title="Dígito de Verificación DIAN (calculado automáticamente por Módulo 11)"
+                              className="w-full px-1.5 py-1.5 text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400 focus:outline-hidden"
+                            />
+                          </div>
+                        )}
+
+                        <div className="sm:col-span-3">
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Tipo Persona
+                          </label>
+                          <select
+                            value={custPersonType}
+                            onChange={(e) =>
+                              setCustPersonType(e.target.value as CustomerPersonType)
+                            }
+                            className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden"
+                          >
+                            <option value="natural">Natural</option>
+                            <option value="juridica">Jurídica</option>
+                          </select>
                         </div>
                       </div>
 
@@ -1114,20 +1489,23 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                           className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/40 text-left text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 cursor-pointer"
                         >
                           <span className="truncate">
-                            Cliente registrado encontrado:{' '}
+                            Cliente encontrado en historial:{' '}
                             <strong>{inlineDocProfileSuggestion.customerName}</strong>
                             {inlineDocProfileSuggestion.email
                               ? ` · ${inlineDocProfileSuggestion.email}`
                               : ''}
                           </span>
-                          <span className="font-bold shrink-0 underline">Autocompletar</span>
+                          <span className="font-bold shrink-0 underline">Cargar ficha completa</span>
                         </button>
                       )}
 
+                      {/* Fila 2: Nombre / Razón Social + Correo Envío Cliente */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            Nombre completo o Razón Social *
+                            {custPersonType === 'juridica'
+                              ? 'Razón Social de la Empresa *'
+                              : 'Nombres y Apellidos completos *'}
                           </label>
                           <input
                             type="text"
@@ -1137,7 +1515,11 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                               setSavedNotice(null);
                               setDownloadedFile(null);
                             }}
-                            placeholder="Nombre o Razón Social de la empresa"
+                            placeholder={
+                              custPersonType === 'juridica'
+                                ? 'Ej. Inversiones Gastronómicas S.A.S.'
+                                : 'Ej. Carolina Gómez Restrepo'
+                            }
                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
                           />
                         </div>
@@ -1145,7 +1527,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                         <div>
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
                             <Mail className="w-3 h-3 text-orange-500 shrink-0" />
-                            <span>Correo electrónico FE</span>
+                            <span>Correo del cliente (Para envío de la FE) *</span>
                           </label>
                           <input
                             type="email"
@@ -1156,9 +1538,110 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                               setSavedNotice(null);
                               setDownloadedFile(null);
                             }}
-                            placeholder="facturacion@empresa.com"
+                            placeholder="facturacion@cliente.com"
                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
                           />
+                        </div>
+                      </div>
+
+                      {/* Fila 3: Teléfono + Ciudad DANE + Dirección Fiscal */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <div className="sm:col-span-4">
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
+                            <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>Teléfono / Celular</span>
+                          </label>
+                          <input
+                            type="tel"
+                            value={custPhone}
+                            onChange={(e) => setCustPhone(e.target.value)}
+                            placeholder="3001234567"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono tabular-nums text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-4">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span>Ciudad</span>
+                            </label>
+                            {resolvedCityDane && (
+                              <span className="text-[9px] font-mono tabular-nums text-emerald-700 dark:text-emerald-400 font-semibold">
+                                DANE {resolvedCityDane.cityCode}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            list="modal-colombia-cities"
+                            value={custCity}
+                            onChange={(e) => setCustCity(e.target.value)}
+                            placeholder="Bogotá D.C., Medellín..."
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                          />
+                          <datalist id="modal-colombia-cities">
+                            {COLOMBIAN_CITIES_DANE.map((c) => (
+                              <option key={c.cityCode} value={c.city}>
+                                {c.department} ({c.cityCode})
+                              </option>
+                            ))}
+                          </datalist>
+                        </div>
+
+                        <div className="sm:col-span-4">
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Dirección Fiscal
+                          </label>
+                          <input
+                            type="text"
+                            value={custAddress}
+                            onChange={(e) => setCustAddress(e.target.value)}
+                            placeholder="Cra 15 # 85-30"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Fila 4: Régimen Tributario + Responsabilidad Fiscal DIAN */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Régimen Tributario
+                          </label>
+                          <select
+                            value={custTaxRegime}
+                            onChange={(e) => {
+                              const nextReg = e.target.value as CustomerTaxRegime;
+                              setCustTaxRegime(nextReg);
+                              const regMeta = TAX_REGIME_OPTIONS.find((r) => r.value === nextReg);
+                              if (regMeta) setCustFiscalResp(regMeta.defaultFiscalCode);
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden"
+                          >
+                            {TAX_REGIME_OPTIONS.map((reg) => (
+                              <option key={reg.value} value={reg.value}>
+                                {reg.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Responsabilidad Fiscal DIAN
+                          </label>
+                          <select
+                            value={custFiscalResp}
+                            onChange={(e) => setCustFiscalResp(e.target.value)}
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white focus:outline-hidden"
+                          >
+                            {FISCAL_RESPONSIBILITY_OPTIONS.map((opt) => (
+                              <option key={opt.code} value={opt.code}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
 
@@ -1170,7 +1653,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                           className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                         />
                         <span>
-                          Guardar estos datos en el pedido y marcar Factura Electrónica como Emitida al descargar
+                          Guardar todos estos datos del cliente en la compra y marcar como FE Emitida al descargar
                         </span>
                       </label>
                     </div>
@@ -1184,14 +1667,14 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
           <div className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                2. Proveedor de Facturación (Formato del archivo)
+                2. Elige el Proveedor de Facturación Electrónica de tu Contadora
               </label>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Archivo nativo Excel (.xlsx)
+                Incluye hoja de Clientes/Terceros + hoja de Facturas
               </span>
             </div>
 
-            <div className="grid grid-cols-1 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {PROVIDER_OPTIONS.map((prov) => {
                 const isSelected = provider === prov.id;
                 return (
@@ -1202,22 +1685,27 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                       setProvider(prov.id);
                       setDownloadedFile(null);
                     }}
-                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex items-center justify-between gap-3 ${
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex items-start justify-between gap-3 ${
                       isSelected
                         ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-500 dark:border-emerald-500'
                         : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/80 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}
                   >
-                    <div className="min-w-0 space-y-0.5">
-                      <span className="text-xs font-bold text-slate-900 dark:text-white block">
-                        {prov.title}
-                      </span>
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {prov.title}
+                        </span>
+                        <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+                          · {prov.badge}
+                        </span>
+                      </div>
                       <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
                         {prov.columnsSummary}
                       </p>
                     </div>
                     <span
-                      className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                      className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
                         isSelected
                           ? 'border-emerald-600 bg-emerald-600 text-white'
                           : 'border-slate-300 dark:border-slate-600'
@@ -1233,11 +1721,16 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
           {/* Live Fiscal Breakdown & Preview */}
           <div className="space-y-2.5 pt-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                Resumen Contable y Vista Previa del Archivo
-              </span>
-              <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate max-w-[320px]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Vista Previa del Paquete Contable
+                </span>
+                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                  Hojas: {preview.includedSheets.join(' · ')}
+                </span>
+              </div>
+              <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate max-w-[340px]">
                 {preview.suggestedFilename}
               </span>
             </div>
@@ -1249,23 +1742,25 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                   {mode === 'daily_global'
                     ? 'Bloque / Tickets'
                     : mode === 'specific_order'
-                    ? 'Cliente / Pedido'
-                    : 'Facturas (Cédula/NIT)'}
+                    ? 'Tercero Receptor'
+                    : 'Facturas a Subir'}
                 </span>
                 <p className="text-xs sm:text-sm font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5 truncate">
                   {mode === 'daily_global'
-                    ? `${preview.totalInvoicesCount} bloque · ${preview.totalTicketsCount} tkt`
+                    ? `${preview.totalInvoicesCount} lote · ${preview.totalTicketsCount} tkt`
                     : mode === 'specific_order'
                     ? custDocNumber.trim()
-                      ? `${custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType} ${custDocNumber.trim()}`
+                      ? `${custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType} ${custDocNumber.trim()}${
+                          custDocType === 'NIT' && custDv ? `-${custDv}` : ''
+                        }`
                       : 'Sin NIT/Cédula aún'
-                    : `${preview.totalInvoicesCount} fact. · ${preview.totalTicketsCount} tkt`}
+                    : `${preview.totalInvoicesCount} cliente(s) · ${preview.totalTicketsCount} tkt`}
                 </p>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
                 <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
-                  Base Gravable Total
+                  Base Gravable Sin Impuesto
                 </span>
                 <p className="text-sm font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
                   {formatCOP(Math.round(preview.totalTaxableBase))}
@@ -1274,7 +1769,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
                 <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
-                  INC · IVA Desglosado
+                  INC 8% · IVA 19%
                 </span>
                 <p className="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
                   {formatCOP(Math.round(preview.totalIncAmount))} ·{' '}
@@ -1284,7 +1779,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
                 <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
-                  Total Productos PVP
+                  Total Factura DIAN
                 </span>
                 <p className="text-sm font-extrabold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 mt-0.5">
                   {formatCOP(Math.round(preview.totalGrossProducts))}
@@ -1308,21 +1803,34 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
             {/* Preview Table or Empty State */}
             {preview.packages.length === 0 ? (
-              <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 flex items-center gap-2.5 text-xs text-amber-800 dark:text-amber-300">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>
-                  {mode === 'daily_global'
-                    ? `No se encontraron ventas registradas para la fecha ${effectiveTargetDate}. Selecciona otro día con movimiento de caja.`
-                    : mode === 'specific_order'
-                    ? 'Selecciona un pedido en el listado superior para previsualizar y generar su Factura Electrónica.'
-                    : effectiveTargetDate
-                    ? `No hay clientes que hayan solicitado Factura Electrónica el día ${effectiveTargetDate}. Prueba cambiando a "Todas las fechas".`
-                    : 'Aún no hay ventas marcadas con solicitud de Factura Electrónica en el historial.'}
-                </span>
+              <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 flex items-center justify-between gap-2.5 text-xs text-amber-800 dark:text-amber-300 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>
+                    {mode === 'daily_global'
+                      ? `No se encontraron ventas registradas para la fecha ${effectiveTargetDate}.`
+                      : mode === 'specific_order'
+                      ? 'Selecciona un pedido en el listado superior para previsualizar su Factura Electrónica.'
+                      : onlyPendingFeInBatch
+                      ? 'No hay Facturas Electrónicas pendientes por subir en este filtro. Desmarca "Solo pendientes por subir" si deseas volver a descargar las ya emitidas.'
+                      : effectiveTargetDate
+                      ? `No hay clientes con solicitud de Factura Electrónica el día ${effectiveTargetDate}.`
+                      : 'Aún no hay ventas marcadas con solicitud de Factura Electrónica.'}
+                  </span>
+                </div>
+                {mode === 'by_customer' && onlyPendingFeInBatch && (
+                  <button
+                    type="button"
+                    onClick={() => setOnlyPendingFeInBatch(false)}
+                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-[11px] font-bold text-amber-800 dark:text-amber-300 cursor-pointer whitespace-nowrap"
+                  >
+                    Incluir ya emitidas
+                  </button>
+                )}
               </div>
             ) : (
               <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden overflow-x-auto">
-                <table className="w-full text-left text-[11px] min-w-[640px]">
+                <table className="w-full text-left text-[11px] min-w-[680px]">
                   <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 font-semibold">
                     <tr>
                       {preview.previewHeaders.map((header) => (
@@ -1355,7 +1863,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                 {preview.totalLinesCount > preview.previewRows.length && (
                   <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400">
                     Mostrando primeras {preview.previewRows.length} de {preview.totalLinesCount}{' '}
-                    líneas que se incluirán en el archivo .xlsx
+                    líneas totales incluidas en el paquete .xlsx
                   </div>
                 )}
               </div>
@@ -1365,7 +1873,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
               <div className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/80 dark:bg-emerald-950/40 flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-300">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span>
-                  Archivo generado correctamente: <strong className="font-mono">{downloadedFile}</strong>
+                  Paquete listo para la contadora: <strong className="font-mono">{downloadedFile}</strong>
                 </span>
               </div>
             )}
@@ -1375,7 +1883,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
         {/* Footer Actions */}
         <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 flex items-center justify-between gap-3 shrink-0">
           <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:inline">
-            Formato nativo SheetJS (.xlsx) · NIT/Cédula en texto explícito sin pérdida de ceros
+            Incluye Terceros DIAN (NIT, DV, Ciudad DANE, Correo FE) + Compra desglosada en texto explícito
           </span>
 
           <div className="flex items-center gap-2 ml-auto">
@@ -1396,8 +1904,8 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
               <Download className="w-3.5 h-3.5 shrink-0" />
               <span>
                 {mode === 'specific_order'
-                  ? 'Generar FE de este Pedido (.xlsx)'
-                  : 'Descargar Excel (.xlsx)'}
+                  ? 'Descargar Paquete de este Cliente (.xlsx)'
+                  : 'Descargar Paquete Contable (.xlsx)'}
               </span>
             </button>
           </div>

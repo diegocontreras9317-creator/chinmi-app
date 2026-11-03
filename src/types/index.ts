@@ -66,6 +66,7 @@ export interface User {
   plan: PlanType;
   billingFrequency?: BillingFrequency;
   businessName: string;
+  businessAddress?: string;
   createdAt: string;
 }
 
@@ -187,6 +188,17 @@ export type MeasurementUnit = 'kg' | 'g' | 'litros' | 'ml' | 'unidades' | 'atado
 
 export type ExpiryStatus = 'expired' | 'expires_today' | 'expiring_soon' | 'fresh';
 
+export interface Supplier {
+  id: string;
+  name: string;
+  phone: string;
+  hasWhatsapp?: boolean;
+  suppliesProvided: string; // Qué se consigue con ese proveedor
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface PerishableItem {
   id: string;
   name: string;
@@ -197,7 +209,9 @@ export interface PerishableItem {
   entryDate: string; // YYYY-MM-DD
   expiryDate: string; // YYYY-MM-DD
   location: string; // 'Nevera Bar', 'Cuarto Frío Cocina', 'Despensa Seca', etc.
+  supplierId?: string;
   supplier?: string;
+  supplierPhone?: string;
   batchNumber?: string;
   costPerUnit?: number;
   imageUrl?: string;
@@ -209,6 +223,7 @@ export interface AppStateData {
   tables: Table[];
   products: Product[];
   perishables?: PerishableItem[];
+  suppliers?: Supplier[];
   sales: SaleReceipt[];
   version: number;
   lastModified: string;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole, ROLE_PERMISSIONS } from '../../types';
@@ -68,6 +68,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [defaultTaxRate, setDefaultTaxRate] = useState(String(config.defaultTaxRate));
   const [logoUrl, setLogoUrl] = useState(config.logoUrl || '/src/assets/images/restaurant_logo_1790194934242.jpg');
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setAppName(config.appName);
+      setBusinessName(config.businessName);
+      setBusinessAddress(config.businessAddress);
+      setBusinessTaxId(config.businessTaxId);
+      setBusinessPhone(config.businessPhone);
+      setCurrency(config.currency);
+      setDefaultTaxRate(String(config.defaultTaxRate));
+      setLogoUrl(config.logoUrl || '/src/assets/images/restaurant_logo_1790194934242.jpg');
+    }
+  }, [isOpen, config]);
 
   // QR Code & Digital Menu Settings State
   const [allowOrdering, setAllowOrdering] = useState(config.qrSettings?.allowOrdering ?? true);
@@ -427,7 +440,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                  Dirección para Tickets
+                  Dirección del Local (Tickets y Pedidos a Proveedores)
                 </label>
                 <input
                   type="text"

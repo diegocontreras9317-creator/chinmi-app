@@ -12,7 +12,7 @@ import {
   where
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, Empleado } from '../types';
+import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, Empleado, Supplier } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -141,6 +141,26 @@ export function subscribeUserInventory(uid: string, onUpdate: (items: Perishable
   return onSnapshot(colRef, (snap) => {
     const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as PerishableItem));
     onUpdate(items);
+  }, (err) => {
+    handleFirestoreError(err, OperationType.LIST, path);
+    onUpdate([]);
+  });
+}
+
+/**
+ * Escucha en tiempo real los proveedores de despensa de users/${uid}/proveedores
+ */
+export function subscribeUserSuppliers(uid: string, onUpdate: (suppliers: Supplier[]) => void): Unsubscribe {
+  if (!uid) {
+    onUpdate([]);
+    return () => {};
+  }
+  const path = `users/${uid}/proveedores`;
+  const colRef = collection(db, 'users', uid, 'proveedores');
+
+  return onSnapshot(colRef, (snap) => {
+    const suppliers = snap.docs.map(d => ({ id: d.id, ...d.data() } as Supplier));
+    onUpdate(suppliers);
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);
     onUpdate([]);
@@ -314,6 +334,22 @@ export async function getUserSales(targetUid?: string): Promise<SaleReceipt[]> {
   }
 }
 
+export async function getUserSuppliers(targetUid?: string): Promise<Supplier[]> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid) return [];
+
+  const path = `users/${uid}/proveedores`;
+  try {
+    const colRef = collection(db, 'users', uid, 'proveedores');
+    const snap = await getDocs(colRef);
+    if (snap.empty) return [];
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Supplier));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+    return [];
+  }
+}
+
 /**
  * Carga completa del estado desde las subcolecciones del usuario en Firestore.
  * Si no hay sesión activa o es un restaurante nuevo, retorna arreglos vacíos [].
@@ -325,16 +361,18 @@ export async function fetchUserFirestoreData(targetUid?: string): Promise<AppSta
       tables: [],
       products: [],
       perishables: [],
+      suppliers: [],
       sales: [],
       version: 2,
       lastModified: new Date().toISOString()
     };
   }
 
-  const [tables, products, perishables, sales] = await Promise.all([
+  const [tables, products, perishables, suppliers, sales] = await Promise.all([
     getUserTables(uid),
     getUserProducts(uid),
     getUserInventory(uid),
+    getUserSuppliers(uid),
     getUserSales(uid)
   ]);
 
@@ -342,6 +380,7 @@ export async function fetchUserFirestoreData(targetUid?: string): Promise<AppSta
     tables,
     products,
     perishables,
+    suppliers,
     sales,
     version: 2,
     lastModified: new Date().toISOString()
@@ -399,6 +438,13 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
     for (const per of data.perishables || []) {
       if (per.id) {
         await setDoc(doc(db, 'users', uid, 'inventario', per.id), sanitizeForFirestore({ ...per, userId: uid }), { merge: true });
+      }
+    }
+
+    // Sincronizar Proveedores de Despensa
+    for (const sup of data.suppliers || []) {
+      if (sup.id) {
+        await setDoc(doc(db, 'users', uid, 'proveedores', sup.id), sanitizeForFirestore({ ...sup, userId: uid }), { merge: true });
       }
     }
 
@@ -766,7 +812,7 @@ export async function saveInventoryItemToFirestore(item: PerishableItem, targetU
   if (!uid || !item.id) return;
   const path = `users/${uid}/inventario/${item.id}`;
   try {
-    await setDoc(doc(db, 'users', uid, 'inventario', item.id), { ...item, userId: uid }, { merge: true });
+    await setDoc(doc(db, 'users', uid, 'inventario', item.id), sanitizeForFirestore({ ...item, userId: uid }), { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;
@@ -779,6 +825,34 @@ export async function deleteInventoryItemFromFirestore(itemId: string, targetUid
   const path = `users/${uid}/inventario/${itemId}`;
   try {
     await deleteDoc(doc(db, 'users', uid, 'inventario', itemId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+    throw err;
+  }
+}
+
+export async function saveSupplierToFirestore(supplier: Supplier, targetUid?: string): Promise<void> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid || !supplier.id) return;
+  const path = `users/${uid}/proveedores/${supplier.id}`;
+  try {
+    await setDoc(
+      doc(db, 'users', uid, 'proveedores', supplier.id),
+      sanitizeForFirestore({ ...supplier, userId: uid }),
+      { merge: true }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    throw err;
+  }
+}
+
+export async function deleteSupplierFromFirestore(supplierId: string, targetUid?: string): Promise<void> {
+  const uid = getActiveUserId(targetUid);
+  if (!uid || !supplierId) return;
+  const path = `users/${uid}/proveedores/${supplierId}`;
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'proveedores', supplierId));
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
     throw err;

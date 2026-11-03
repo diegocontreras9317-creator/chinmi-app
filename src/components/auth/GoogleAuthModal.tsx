@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { GoogleIcon } from '../common/GoogleIcon';
-import { X, Sparkles, Check, ArrowRight, ShieldCheck, Mail, User, Store } from 'lucide-react';
+import { X, ArrowRight, ShieldCheck, Mail, User, Store, MapPin } from 'lucide-react';
 
 interface GoogleAuthModalProps {
   isOpen: boolean;
@@ -24,6 +24,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const [googleEmail, setGoogleEmail] = useState('');
   const [googleName, setGoogleName] = useState('');
   const [businessName, setBusinessName] = useState('');
+  const [businessAddress, setBusinessAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Initialize GIS if available
@@ -91,6 +92,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         name: cleanName || cleanEmail.split('@')[0],
         email: cleanEmail,
         businessName: businessName.trim() || undefined,
+        businessAddress: businessAddress.trim() || undefined,
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail)}`
       });
 
@@ -198,7 +200,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Nombre de tu bar o terraza (opcional)
+              Nombre de tu local (opcional)
             </label>
             <div className="relative">
               <Store className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -211,6 +213,24 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               />
             </div>
           </div>
+
+          {defaultMode === 'register' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Dirección del local (opcional)
+              </label>
+              <div className="relative">
+                <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  value={businessAddress}
+                  onChange={(e) => setBusinessAddress(e.target.value)}
+                  placeholder="Ej. Cra. 43A # 1-50, El Poblado"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900 focus:border-rose-900"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="pt-2">
             <button

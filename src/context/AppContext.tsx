@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem } from '../types';
+import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier } from '../types';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
 import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
 import {
@@ -9,6 +9,7 @@ import {
   subscribeUserOrders,
   subscribeUserMenu,
   subscribeUserInventory,
+  subscribeUserSuppliers,
   subscribeUserSales,
   saveTableToFirestore,
   saveOrderToFirestore,
@@ -18,6 +19,8 @@ import {
   deleteProductFromFirestore,
   saveInventoryItemToFirestore,
   deleteInventoryItemFromFirestore,
+  saveSupplierToFirestore,
+  deleteSupplierFromFirestore,
   saveSaleToFirestore,
   releaseTableInFirestore
 } from '../services/firestoreUserStorage';
@@ -45,6 +48,7 @@ interface AppContextType {
   tables: Table[];
   products: Product[];
   perishables: PerishableItem[];
+  suppliers: Supplier[];
   sales: SaleReceipt[];
   cloudStatus: CloudSyncStatus;
   theme: 'light' | 'dark';
@@ -89,6 +93,11 @@ interface AppContextType {
   recordPerishableWaste: (id: string, amount: number, reason: string) => void;
   recordPerishableRestock: (id: string, addedAmount: number, newEntryDate?: string, newExpiryDate?: string) => void;
 
+  // Suppliers (Proveedores de Despensa e Insumos)
+  addSupplier: (supplier: Omit<Supplier, 'id' | 'createdAt'>) => Supplier;
+  updateSupplier: (id: string, partial: Partial<Supplier>) => void;
+  deleteSupplier: (id: string) => void;
+
   // Receipt inspection
   latestReceipt: SaleReceipt | null;
   setLatestReceipt: (receipt: SaleReceipt | null) => void;
@@ -105,7 +114,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, updateUserBusinessInfo } = useAuth();
   const [config, setConfig] = useState<AppConfig>(() => {
     try {
       const savedConfig = localStorage.getItem('appgenerica_custom_config');
@@ -135,6 +144,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [tables, setTables] = useState<Table[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [perishables, setPerishables] = useState<PerishableItem[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [sales, setSales] = useState<SaleReceipt[]>([]);
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>('synced');
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -178,11 +188,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const productsRef = React.useRef(products);
   const salesRef = React.useRef(sales);
   const perishablesRef = React.useRef(perishables);
+  const suppliersRef = React.useRef(suppliers);
 
   useEffect(() => { tablesRef.current = tables; }, [tables]);
   useEffect(() => { productsRef.current = products; }, [products]);
   useEffect(() => { salesRef.current = sales; }, [sales]);
   useEffect(() => { perishablesRef.current = perishables; }, [perishables]);
+  useEffect(() => { suppliersRef.current = suppliers; }, [suppliers]);
 
   // Active UID from Firebase auth
   const activeUid = auth.currentUser?.uid || user?.id;
@@ -202,6 +214,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTables([]);
       setProducts([]);
       setPerishables([]);
+      setSuppliers([]);
       setSales([]);
       return;
     }
@@ -367,6 +380,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCloudStatus('synced');
     });
 
+    const unsubSuppliers = subscribeUserSuppliers(activeUid, (newSuppliers) => {
+      suppliersRef.current = newSuppliers;
+      setSuppliers(newSuppliers);
+      setCloudStatus('synced');
+    });
+
     const unsubSales = subscribeUserSales(activeUid, (newSales) => {
       salesRef.current = newSales;
       setSales(newSales);
@@ -378,6 +397,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubOrders();
       unsubMenu();
       unsubInventory();
+      unsubSuppliers();
       unsubSales();
     };
   }, [activeUid]);
@@ -387,25 +407,88 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     newTables: Table[],
     newProducts: Product[],
     newSales: SaleReceipt[],
-    newPerishables?: PerishableItem[]
+    newPerishables?: PerishableItem[],
+    newSuppliers?: Supplier[]
   ) => {
     if (!activeUid || activeUid === 'default') return;
     setCloudStatus('syncing');
     saveUserFirestoreData(activeUid, {
       tables: newTables,
       products: newProducts,
-      perishables: newPerishables ?? perishables,
+      perishables: newPerishables ?? perishablesRef.current,
+      suppliers: newSuppliers ?? suppliersRef.current,
       sales: newSales,
       version: 2,
       lastModified: new Date().toISOString()
     }).catch(() => {});
     setTimeout(() => { setCloudStatus('synced'); }, 300);
-  }, [activeUid, perishables]);
+  }, [activeUid]);
+
+  // Sync registered businessName & businessAddress from authenticated user into config
+  useEffect(() => {
+    if (!user) return;
+    setConfig(prev => {
+      let nextName = prev.businessName;
+      let nextAddr = prev.businessAddress;
+
+      // Prefer user-specific saved config if available
+      try {
+        const userSaved = localStorage.getItem(`appgenerica_custom_config_${user.id}`);
+        if (userSaved) {
+          const parsed = JSON.parse(userSaved);
+          const merged = {
+            ...defaultAppConfig,
+            ...parsed,
+            businessName: user.businessName || parsed.businessName || defaultAppConfig.businessName,
+            businessAddress:
+              user.businessAddress !== undefined
+                ? user.businessAddress
+                : (parsed.businessAddress ?? ''),
+            qrSettings: { ...defaultAppConfig.qrSettings, ...(parsed.qrSettings || {}) }
+          };
+          return merged;
+        }
+      } catch {
+        // ignore
+      }
+
+      if (user.businessName && (prev.businessName === defaultAppConfig.businessName || !prev.businessName)) {
+        nextName = user.businessName;
+      } else if (user.businessName && user.businessName !== 'Mi GastroBar') {
+        nextName = user.businessName;
+      }
+
+      if (user.businessAddress !== undefined) {
+        nextAddr = user.businessAddress;
+      } else if (prev.businessAddress === defaultAppConfig.businessAddress) {
+        nextAddr = '';
+      }
+
+      if (nextName === prev.businessName && nextAddr === prev.businessAddress) {
+        return prev;
+      }
+      return {
+        ...prev,
+        businessName: nextName,
+        businessAddress: nextAddr
+      };
+    });
+  }, [user?.id, user?.businessName, user?.businessAddress]);
 
   const updateConfig = (partial: Partial<AppConfig>) => {
     setConfig(prev => {
       const updated = { ...prev, ...partial };
-      localStorage.setItem('appgenerica_custom_config', JSON.stringify(updated));
+      try {
+        localStorage.setItem('appgenerica_custom_config', JSON.stringify(updated));
+        if (user?.id) {
+          localStorage.setItem(`appgenerica_custom_config_${user.id}`, JSON.stringify(updated));
+        }
+      } catch {
+        // ignore
+      }
+      if (partial.businessName !== undefined || partial.businessAddress !== undefined) {
+        updateUserBusinessInfo(updated.businessName, updated.businessAddress);
+      }
       return updated;
     });
   };
@@ -1049,9 +1132,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     persistChanges(tables, products, sales, nextPerishables);
   };
 
+  // --- Suppliers (Proveedores de Despensa e Insumos) Operations ---
+  const addSupplier = (supplierData: Omit<Supplier, 'id' | 'createdAt'>): Supplier => {
+    const nowIso = new Date().toISOString();
+    const newSupplier: Supplier = {
+      ...supplierData,
+      id: `sup-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: supplierData.name.trim(),
+      phone: supplierData.phone.trim(),
+      hasWhatsapp: supplierData.hasWhatsapp ?? true,
+      suppliesProvided: supplierData.suppliesProvided.trim(),
+      notes: supplierData.notes?.trim() || undefined,
+      createdAt: nowIso,
+      updatedAt: nowIso
+    };
+    const nextSuppliers = [newSupplier, ...suppliersRef.current];
+    suppliersRef.current = nextSuppliers;
+    setSuppliers(nextSuppliers);
+    if (activeUid && activeUid !== 'default') {
+      saveSupplierToFirestore(newSupplier, activeUid).catch(console.error);
+    }
+    return newSupplier;
+  };
+
+  const updateSupplier = (id: string, partial: Partial<Supplier>) => {
+    const nowIso = new Date().toISOString();
+    let updatedTarget: Supplier | undefined;
+    const prevSupplier = suppliersRef.current.find(s => s.id === id);
+
+    const nextSuppliers = suppliersRef.current.map(s => {
+      if (s.id === id) {
+        updatedTarget = {
+          ...s,
+          ...partial,
+          name: partial.name !== undefined ? partial.name.trim() : s.name,
+          phone: partial.phone !== undefined ? partial.phone.trim() : s.phone,
+          hasWhatsapp: partial.hasWhatsapp !== undefined ? partial.hasWhatsapp : (s.hasWhatsapp ?? true),
+          suppliesProvided: partial.suppliesProvided !== undefined ? partial.suppliesProvided.trim() : s.suppliesProvided,
+          updatedAt: nowIso
+        };
+        return updatedTarget;
+      }
+      return s;
+    });
+
+    suppliersRef.current = nextSuppliers;
+    setSuppliers(nextSuppliers);
+
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveSupplierToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
+
+    // Keep linked perishables in sync if supplier name or phone changed
+    if (updatedTarget && (partial.name !== undefined || partial.phone !== undefined)) {
+      let perishablesChanged = false;
+      const nextPerishables = perishablesRef.current.map(p => {
+        const matchesId = p.supplierId === id;
+        const matchesLegacyName = !p.supplierId && prevSupplier && p.supplier?.trim().toLowerCase() === prevSupplier.name.trim().toLowerCase();
+        if (matchesId || matchesLegacyName) {
+          perishablesChanged = true;
+          const updatedItem: PerishableItem = {
+            ...p,
+            supplierId: id,
+            supplier: updatedTarget!.name,
+            supplierPhone: updatedTarget!.phone
+          };
+          if (activeUid && activeUid !== 'default') {
+            saveInventoryItemToFirestore(updatedItem, activeUid).catch(console.error);
+          }
+          return updatedItem;
+        }
+        return p;
+      });
+      if (perishablesChanged) {
+        perishablesRef.current = nextPerishables;
+        setPerishables(nextPerishables);
+      }
+    }
+  };
+
+  const deleteSupplier = (id: string) => {
+    const nextSuppliers = suppliersRef.current.filter(s => s.id !== id);
+    suppliersRef.current = nextSuppliers;
+    setSuppliers(nextSuppliers);
+    if (activeUid && activeUid !== 'default') {
+      deleteSupplierFromFirestore(id, activeUid).catch(console.error);
+    }
+  };
+
   const syncNow = () => {
     setCloudStatus('syncing');
-    persistChanges(tablesRef.current, productsRef.current, salesRef.current, perishablesRef.current);
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, perishablesRef.current, suppliersRef.current);
     setTimeout(() => setCloudStatus('synced'), 400);
   };
 
@@ -1062,6 +1233,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProducts(fresh.products);
     setSales(fresh.sales);
     setPerishables(fresh.perishables || []);
+    setSuppliers(fresh.suppliers || []);
   };
 
   return (
@@ -1072,6 +1244,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tables,
         products,
         perishables,
+        suppliers,
         sales,
         cloudStatus,
         theme,
@@ -1104,6 +1277,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         adjustPerishableQuantity,
         recordPerishableWaste,
         recordPerishableRestock,
+        addSupplier,
+        updateSupplier,
+        deleteSupplier,
         latestReceipt,
         setLatestReceipt,
         newOrderNotification,

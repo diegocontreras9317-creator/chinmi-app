@@ -27,6 +27,7 @@ export interface RegisteredAccount {
   plan: PlanType;
   billingFrequency?: BillingFrequency;
   businessName: string;
+  businessAddress?: string;
   createdAt: string;
   authProvider: 'email' | 'google' | 'facebook';
 }
@@ -59,7 +60,7 @@ interface AuthContextType {
   promptManagerPin: (onSuccess: () => void, title?: string, description?: string) => void;
   closePinModal: () => void;
   loginWithEmail: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
-  loginWithGoogle: (customGoogleProfile?: { name: string; email: string; businessName?: string; avatar?: string }) => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogle: (customGoogleProfile?: { name: string; email: string; businessName?: string; businessAddress?: string; avatar?: string }) => Promise<{ success: boolean; error?: string }>;
   loginWithFacebook: () => Promise<{ success: boolean; error?: string }>;
   sendPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   sendVerificationEmail: () => Promise<{ success: boolean; error?: string; message?: string }>;
@@ -70,8 +71,10 @@ interface AuthContextType {
     role?: UserRole,
     businessName?: string,
     plan?: PlanType,
-    billingFrequency?: BillingFrequency
+    billingFrequency?: BillingFrequency,
+    businessAddress?: string
   ) => Promise<{ success: boolean; error?: string; message?: string }>;
+  updateUserBusinessInfo: (businessName: string, businessAddress: string) => void;
   loginAsDemoRole: (role: UserRole) => void;
   logout: () => void;
   upgradePlan: (newPlan: PlanType, billingFrequency?: BillingFrequency) => void;
@@ -147,6 +150,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               plan: cleanEmail === 'diego.contreras9317@gmail.com' ? 'pro' : (data.plan || 'free'),
               billingFrequency: data.billingFrequency,
               businessName: data.businessName || 'Mi GastroBar',
+              ...(data.businessAddress ? { businessAddress: data.businessAddress } : {}),
               createdAt: data.createdAt || new Date().toISOString()
             };
           } else {
@@ -262,16 +266,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const loginWithGoogle = async (_customGoogleProfile?: {
+  const loginWithGoogle = async (customGoogleProfile?: {
     name: string;
     email: string;
     businessName?: string;
+    businessAddress?: string;
     avatar?: string;
   }): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
 
     try {
-      await signInWithPopup(auth, googleProvider);
+      const cred = await signInWithPopup(auth, googleProvider);
+      if (cred.user && (customGoogleProfile?.businessName || customGoogleProfile?.businessAddress)) {
+        const updates: Record<string, string> = {};
+        if (customGoogleProfile.businessName?.trim()) {
+          updates.businessName = customGoogleProfile.businessName.trim();
+        }
+        if (customGoogleProfile.businessAddress?.trim()) {
+          updates.businessAddress = customGoogleProfile.businessAddress.trim();
+        }
+        if (Object.keys(updates).length > 0) {
+          await setDoc(doc(db, 'users', cred.user.uid), updates, { merge: true }).catch(() => {});
+          setUser(prev => prev ? { ...prev, ...updates } : prev);
+        }
+      }
       setIsLoading(false);
       return { success: true };
     } catch (err: any) {
@@ -367,13 +385,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     role: UserRole = 'gerente',
     businessName: string = 'Mi Negocio Gastro',
     _plan: PlanType = 'free',
-    _billingFrequency?: BillingFrequency
+    _billingFrequency?: BillingFrequency,
+    businessAddress?: string
   ): Promise<{ success: boolean; error?: string; message?: string }> => {
     setIsLoading(true);
 
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
     const cleanBusiness = businessName.trim() || 'Mi Negocio Gastro';
+    const cleanAddress = businessAddress?.trim() || '';
 
     if (!cleanEmail || !cleanEmail.includes('@')) {
       setIsLoading(false);
@@ -403,6 +423,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         avatar,
         plan: cleanEmail === 'diego.contreras9317@gmail.com' ? 'pro' : 'free',
         businessName: cleanBusiness,
+        ...(cleanAddress ? { businessAddress: cleanAddress } : {}),
         createdAt: new Date().toISOString()
       };
 
@@ -434,6 +455,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return { success: false, error: errMsg };
     }
+  };
+
+  const updateUserBusinessInfo = (businessName: string, businessAddress: string) => {
+    const cleanName = businessName.trim();
+    const cleanAddr = businessAddress.trim();
+    setUser(prev => {
+      if (!prev) return prev;
+      const next: User = {
+        ...prev,
+        businessName: cleanName || prev.businessName,
+        businessAddress: cleanAddr
+      };
+      setDoc(
+        doc(db, 'users', prev.id),
+        {
+          businessName: next.businessName,
+          businessAddress: cleanAddr
+        },
+        { merge: true }
+      ).catch(() => {});
+      return next;
+    });
   };
 
   const loginAsDemoRole = (_role: UserRole) => {};
@@ -667,6 +710,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendPasswordReset,
         sendVerificationEmail,
         register,
+        updateUserBusinessInfo,
         loginAsDemoRole,
         logout,
         upgradePlan,

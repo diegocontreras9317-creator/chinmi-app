@@ -11,21 +11,21 @@ import {
   Volume2,
   Trash2,
   Edit2,
-  Filter,
   LayoutGrid,
   List,
   Calendar,
   MapPin,
   Truck,
-  Hash,
+  Phone,
+  PackageCheck,
+  Copy,
+  Check,
   ArrowDownUp,
   Download,
-  Flame,
-  Sparkles,
-  Info
+  MessageCircle
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { PerishableItem, PerishableCategory } from '../../types';
+import { PerishableItem, Supplier } from '../../types';
 import {
   PERISHABLE_CATEGORIES,
   calculateDaysRemaining,
@@ -36,26 +36,36 @@ import { playExpiryAlarm } from '../../utils/audioAlert';
 import { formatCOP } from '../../utils/currency';
 import { NewPerishableModal } from './NewPerishableModal';
 import { PerishableWasteModal } from './PerishableWasteModal';
+import { SupplierModal } from './SupplierModal';
+import { SupplierWhatsappOrderModal, normalizeWhatsappPhone } from './SupplierWhatsappOrderModal';
 
 interface PerishablesModuleProps {
   onOpenSubscription?: () => void;
 }
 
 type FilterStatus = 'all' | 'expired' | 'expiring_soon' | 'low_stock' | 'fresh';
+type ModuleSection = 'insumos' | 'proveedores';
 
 export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
   const {
     perishables,
+    suppliers,
     addPerishable,
     updatePerishable,
     deletePerishable,
-    adjustPerishableQuantity,
     recordPerishableWaste,
-    recordPerishableRestock
+    recordPerishableRestock,
+    addSupplier,
+    updateSupplier,
+    deleteSupplier
   } = useApp();
+
+  // Active section: 'insumos' (Despensa) | 'proveedores' (Directorio de Proveedores)
+  const [activeSection, setActiveSection] = useState<ModuleSection>('insumos');
 
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState('');
+  const [supplierSearchTerm, setSupplierSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -86,11 +96,99 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
   const [soundEnabled, setSoundEnabled] = useState(true);
 
-  // Modals
+  // Modals & inline confirmation states
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<PerishableItem | null>(null);
+  const [preselectedSupplierId, setPreselectedSupplierId] = useState<string | null>(null);
   const [wasteModalItem, setWasteModalItem] = useState<PerishableItem | null>(null);
   const [wasteModalMode, setWasteModalMode] = useState<'waste' | 'restock'>('waste');
+
+  const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [whatsappOrderSupplier, setWhatsappOrderSupplier] = useState<Supplier | null>(null);
+  const [whatsappInitialItems, setWhatsappInitialItems] = useState<
+    Array<{ name: string; quantity: number; unit: string }>
+  >([]);
+  const [confirmDeleteSupplierId, setConfirmDeleteSupplierId] = useState<string | null>(null);
+  const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
+  const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
+  const resolveItemSupplier = (item: PerishableItem) => {
+    const matched =
+      (item.supplierId ? suppliers.find(s => s.id === item.supplierId) : undefined) ||
+      (item.supplier
+        ? suppliers.find(s => s.name.trim().toLowerCase() === item.supplier!.trim().toLowerCase())
+        : undefined);
+
+    const resolvedPhone = matched?.phone || item.supplierPhone || '';
+    const hasWhatsapp = matched
+      ? (matched.hasWhatsapp ?? true) && Boolean(normalizeWhatsappPhone(resolvedPhone))
+      : Boolean(normalizeWhatsappPhone(resolvedPhone));
+
+    return {
+      supplierObj: matched,
+      supplierId: matched?.id || item.supplierId,
+      name: matched?.name || item.supplier || '',
+      phone: resolvedPhone,
+      hasWhatsapp,
+      suppliesProvided: matched?.suppliesProvided || ''
+    };
+  };
+
+  const openWhatsappOrderForItem = (item: PerishableItem) => {
+    const supInfo = resolveItemSupplier(item);
+    if (!supInfo.name || !supInfo.hasWhatsapp) return;
+
+    const targetSupplier: Supplier =
+      supInfo.supplierObj || {
+        id: supInfo.supplierId || `temp-${item.id}`,
+        name: supInfo.name,
+        phone: supInfo.phone,
+        hasWhatsapp: true,
+        suppliesProvided: item.name,
+        createdAt: new Date().toISOString()
+      };
+
+    const suggestedQty =
+      item.quantity <= item.minStock
+        ? Math.max(1, Math.ceil((item.minStock || 1) * 2 - item.quantity))
+        : Math.max(1, item.minStock || 2);
+
+    setWhatsappInitialItems([
+      {
+        name: item.name,
+        quantity: suggestedQty,
+        unit: item.unit || 'kg'
+      }
+    ]);
+    setWhatsappOrderSupplier(targetSupplier);
+  };
+
+  const handleAppendSupplyToSupplier = (supplierId: string, newItemName: string) => {
+    const target = suppliers.find(s => s.id === supplierId);
+    if (!target || !newItemName.trim()) return;
+    const currentItems = (target.suppliesProvided || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    const exists = currentItems.some(
+      existing => existing.toLowerCase() === newItemName.trim().toLowerCase()
+    );
+    if (!exists) {
+      updateSupplier(supplierId, {
+        suppliesProvided: [...currentItems, newItemName.trim()].join(', ')
+      });
+    }
+  };
+
+  const handleCopyPhone = (id: string, phone: string) => {
+    if (!phone) return;
+    navigator.clipboard?.writeText(phone).catch(() => {});
+    setCopiedPhoneId(id);
+    setTimeout(() => {
+      setCopiedPhoneId(prev => (prev === id ? null : prev));
+    }, 1800);
+  };
 
   // Compute metrics and alarms
   const metrics = useMemo(() => {
@@ -138,12 +236,15 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
   // Filter items
   const filteredItems = useMemo(() => {
+    const q = searchTerm.toLowerCase();
     return perishables.filter((item) => {
+      const supInfo = resolveItemSupplier(item);
       const matchesSearch =
-        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (item.supplier && item.supplier.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.location && item.location.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.batchNumber && item.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()));
+        item.name.toLowerCase().includes(q) ||
+        (supInfo.name && supInfo.name.toLowerCase().includes(q)) ||
+        (supInfo.phone && supInfo.phone.toLowerCase().includes(q)) ||
+        (item.location && item.location.toLowerCase().includes(q)) ||
+        (item.batchNumber && item.batchNumber.toLowerCase().includes(q));
 
       const matchesCategory =
         selectedCategory === 'all' || item.category === selectedCategory;
@@ -164,7 +265,21 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
       return matchesSearch && matchesCategory && matchesStatus;
     });
-  }, [perishables, searchTerm, selectedCategory, statusFilter]);
+  }, [perishables, suppliers, searchTerm, selectedCategory, statusFilter]);
+
+  // Filter suppliers
+  const filteredSuppliers = useMemo(() => {
+    const q = supplierSearchTerm.trim().toLowerCase();
+    if (!q) return suppliers;
+    return suppliers.filter((sup) => {
+      return (
+        sup.name.toLowerCase().includes(q) ||
+        sup.phone.toLowerCase().includes(q) ||
+        (sup.suppliesProvided && sup.suppliesProvided.toLowerCase().includes(q)) ||
+        (sup.notes && sup.notes.toLowerCase().includes(q))
+      );
+    });
+  }, [suppliers, supplierSearchTerm]);
 
   const handleTestAlarm = (type: 'critical' | 'warning' = 'critical') => {
     playExpiryAlarm(type);
@@ -186,6 +301,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
       'Estado',
       'Ubicacion',
       'Proveedor',
+      'Telefono Proveedor',
       'Lote',
       'Costo COP'
     ];
@@ -193,6 +309,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
     const rows = perishables.map((item) => {
       const days = calculateDaysRemaining(item.expiryDate);
       const status = getExpiryStatus(item.expiryDate, item.alarmDaysBeforeExpiry);
+      const supInfo = resolveItemSupplier(item);
       return [
         `"${item.id}"`,
         `"${item.name}"`,
@@ -205,7 +322,8 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         days,
         `"${status}"`,
         `"${item.location}"`,
-        `"${item.supplier || ''}"`,
+        `"${supInfo.name}"`,
+        `"${supInfo.phone}"`,
         `"${item.batchNumber || ''}"`,
         item.costPerUnit || 0
       ].join(',');
@@ -236,7 +354,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                 Despensa & Insumos Frescos
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Control de ingreso, fecha de caducidad y alarma para verduras, frutas e insumos de bar y cocina
+                Control de caducidad, existencias y directorio de proveedores con contacto directo
               </p>
             </div>
           </div>
@@ -261,7 +379,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             }`}
           >
             {soundEnabled ? <Volume2 className="w-4 h-4 text-amber-600 animate-pulse" /> : <BellOff className="w-4 h-4" />}
-            <span className="hidden sm:inline">{soundEnabled ? 'Alarma Sonora ON' : 'Silenciada'}</span>
+            <span className="hidden sm:inline">{soundEnabled ? 'Alarma ON' : 'Silenciada'}</span>
           </button>
 
           {/* Test Alarm Button */}
@@ -272,7 +390,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             className="px-3 py-2 rounded-xl text-xs font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900 hover:bg-rose-100 transition cursor-pointer flex items-center gap-1.5"
           >
             <Bell className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Probar Alarma</span>
+            <span className="hidden lg:inline">Probar Alarma</span>
           </button>
 
           {/* Export CSV */}
@@ -283,7 +401,20 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             className="px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition cursor-pointer flex items-center gap-1.5 shadow-xs"
           >
             <Download className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Exportar CSV</span>
+            <span className="hidden lg:inline">Exportar CSV</span>
+          </button>
+
+          {/* Add Supplier Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setEditingSupplier(null);
+              setIsSupplierModalOpen(true);
+            }}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-2.5 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs font-bold transition cursor-pointer whitespace-nowrap shadow-xs"
+          >
+            <Truck className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
+            <span>+ Proveedor</span>
           </button>
 
           {/* Add Perishable Button */}
@@ -291,15 +422,355 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             type="button"
             onClick={() => {
               setEditingItem(null);
+              setPreselectedSupplierId(null);
               setIsNewModalOpen(true);
             }}
-            className="flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold transition cursor-pointer flex-1 sm:flex-initial whitespace-nowrap shadow-xs"
+            className="flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold transition cursor-pointer flex-1 sm:flex-initial whitespace-nowrap shadow-xs"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Nuevo Insumo</span>
+            <span>Nuevo Insumo</span>
           </button>
         </div>
       </div>
+
+      {/* SECTION TABS: INSUMOS EN DESPENSA vs PROVEEDORES */}
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-1 sm:gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveSection('insumos')}
+            className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition cursor-pointer flex items-center gap-2 ${
+              activeSection === 'insumos'
+                ? 'border-rose-950 dark:border-rose-400 text-rose-950 dark:text-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Apple className="w-4 h-4" />
+            <span>Insumos en Despensa</span>
+            <span className={`px-2 py-0.5 rounded-md text-[11px] font-mono ${
+              activeSection === 'insumos'
+                ? 'bg-rose-950 text-white dark:bg-rose-900/60 dark:text-rose-200'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              {perishables.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSection('proveedores')}
+            className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition cursor-pointer flex items-center gap-2 ${
+              activeSection === 'proveedores'
+                ? 'border-rose-950 dark:border-rose-400 text-rose-950 dark:text-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            <span>Proveedores</span>
+            <span className={`px-2 py-0.5 rounded-md text-[11px] font-mono ${
+              activeSection === 'proveedores'
+                ? 'bg-rose-950 text-white dark:bg-rose-900/60 dark:text-rose-200'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              {suppliers.length}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {activeSection === 'proveedores' ? (
+        /* === DIRECTORIO DE PROVEEDORES DE DESPENSA E INSUMOS === */
+        <div className="space-y-4">
+          {/* Search & Add Bar */}
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xs">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={supplierSearchTerm}
+                onChange={(e) => setSupplierSearchTerm(e.target.value)}
+                placeholder="Buscar por nombre de proveedor, teléfono o qué se consigue con él..."
+                className="w-full pl-10 pr-4 py-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-850 text-slate-900 dark:text-white placeholder:text-slate-400 outline-hidden focus:ring-2 focus:ring-rose-900"
+              />
+              {supplierSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSupplierSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setEditingSupplier(null);
+                setIsSupplierModalOpen(true);
+              }}
+              className="px-4 py-2.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Agregar Proveedor Manualmente</span>
+            </button>
+          </div>
+
+          {filteredSuppliers.length === 0 ? (
+            <div className="p-10 sm:p-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="w-12 h-12 mx-auto rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 flex items-center justify-center">
+                <Truck className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {supplierSearchTerm
+                  ? 'No se encontraron proveedores con esa búsqueda'
+                  : 'Aún no has registrado proveedores'}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                {supplierSearchTerm
+                  ? 'Intenta buscar por otro nombre, número telefónico o insumo.'
+                  : 'Agrega manualmente tus proveedores con su número telefónico e indica qué insumos o productos consigues con cada uno.'}
+              </p>
+              {!supplierSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingSupplier(null);
+                    setIsSupplierModalOpen(true);
+                  }}
+                  className="px-4 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                >
+                  + Registrar Primer Proveedor
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredSuppliers.map((sup) => {
+                const suppliedList = (sup.suppliesProvided || '')
+                  .split(',')
+                  .map(s => s.trim())
+                  .filter(Boolean);
+
+                const linkedItems = perishables.filter(
+                  p =>
+                    p.supplierId === sup.id ||
+                    (!p.supplierId &&
+                      p.supplier &&
+                      p.supplier.trim().toLowerCase() === sup.name.trim().toLowerCase())
+                );
+
+                const cleanDigits = sup.phone.replace(/[^\d+]/g, '');
+                const hasWhatsapp =
+                  (sup.hasWhatsapp ?? true) && Boolean(normalizeWhatsappPhone(sup.phone));
+
+                return (
+                  <div
+                    key={sup.id}
+                    className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col justify-between overflow-hidden shadow-xs hover:shadow-md transition"
+                  >
+                    <div className="p-4 sm:p-5 space-y-3.5">
+                      {/* Header: Name + Phone */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="font-black text-base text-slate-900 dark:text-white leading-snug truncate">
+                              {sup.name}
+                            </h4>
+                            {hasWhatsapp ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900 text-[10px] font-bold shrink-0">
+                                <MessageCircle className="w-3 h-3" />
+                                <span>WhatsApp</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold shrink-0">
+                                Solo llamada
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-mono font-bold text-xs border border-slate-200 dark:border-slate-700">
+                              <Phone className="w-3 h-3 text-rose-900 dark:text-rose-400" />
+                              <span>{sup.phone}</span>
+                            </span>
+
+                            {cleanDigits && (
+                              <a
+                                href={`tel:${cleanDigits}`}
+                                className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                              >
+                                Llamar
+                              </a>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPhone(sup.id, sup.phone)}
+                              title="Copiar teléfono"
+                              className="p-1.5 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                            >
+                              {copiedPhoneId === sup.id ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botón directo de Pedido por WhatsApp cuando el proveedor tiene WhatsApp */}
+                      {hasWhatsapp && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWhatsappInitialItems([]);
+                            setWhatsappOrderSupplier(sup);
+                          }}
+                          className="w-full py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          <MessageCircle className="w-4 h-4 shrink-0" />
+                          <span>Armar y Enviar Pedido por WhatsApp</span>
+                        </button>
+                      )}
+
+                      {/* Qué se consigue con este proveedor */}
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800 space-y-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                          <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Se consigue con este proveedor</span>
+                        </span>
+
+                        {suppliedList.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {suppliedList.map((itemLabel) => (
+                              <span
+                                key={itemLabel}
+                                className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold"
+                              >
+                                {itemLabel}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-400">Sin detalle registrado</p>
+                        )}
+                      </div>
+
+                      {/* Insumos activos vinculados en despensa */}
+                      {linkedItems.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                            En tu despensa actual ({linkedItems.length}):
+                          </span>
+                          <div className="space-y-1">
+                            {linkedItems.slice(0, 4).map((li) => {
+                              const low = li.quantity <= li.minStock;
+                              return (
+                                <div
+                                  key={li.id}
+                                  className="flex items-center justify-between text-xs px-2.5 py-1 rounded-md bg-stone-50 dark:bg-slate-800/50 border border-stone-200/70 dark:border-slate-800"
+                                >
+                                  <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">
+                                    {li.name}
+                                  </span>
+                                  <span
+                                    className={`font-mono font-bold shrink-0 ml-2 ${
+                                      low
+                                        ? 'text-blue-600 dark:text-blue-400'
+                                        : 'text-slate-600 dark:text-slate-300'
+                                    }`}
+                                  >
+                                    {li.quantity} {li.unit} {low ? '· Bajo' : ''}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            {linkedItems.length > 4 && (
+                              <span className="text-[11px] text-slate-400 block pl-1">
+                                +{linkedItems.length - 4} insumo(s) más
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {sup.notes && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 bg-stone-50 dark:bg-slate-850 px-3 py-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                          {sup.notes}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Footer actions */}
+                    <div className="px-4 py-3 bg-slate-50 dark:bg-slate-850 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingItem(null);
+                          setPreselectedSupplierId(sup.id);
+                          setIsNewModalOpen(true);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 text-[11px] font-bold transition cursor-pointer flex items-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
+                        <span>Registrar Insumo</span>
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingSupplier(sup);
+                            setIsSupplierModalOpen(true);
+                          }}
+                          title="Editar proveedor"
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700 transition cursor-pointer"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        {confirmDeleteSupplierId === sup.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                deleteSupplier(sup.id);
+                                setConfirmDeleteSupplierId(null);
+                              }}
+                              className="px-2 py-1 rounded-md bg-rose-600 text-white text-[10px] font-bold cursor-pointer"
+                            >
+                              Eliminar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteSupplierId(null)}
+                              className="px-1.5 py-1 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteSupplierId(sup.id)}
+                            title="Eliminar proveedor"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
 
       {/* ALARM BANNER (When critical items exist) */}
       {metrics.hasAlarms && (
@@ -732,6 +1203,19 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                         <MapPin className="w-2.5 h-2.5 text-stone-500 shrink-0" />
                         <span className="truncate">{item.location}</span>
                       </p>
+                      {(() => {
+                        const supInfo = resolveItemSupplier(item);
+                        if (!supInfo.name) return null;
+                        return (
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                            <Truck className="w-2.5 h-2.5 text-rose-900 dark:text-rose-400 shrink-0" />
+                            <span className="truncate">
+                              {supInfo.name}
+                              {supInfo.phone ? ` · ${supInfo.phone}` : ''}
+                            </span>
+                          </p>
+                        );
+                      })()}
                     </div>
 
                     {/* Stock & Expiry */}
@@ -848,16 +1332,34 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                         <h4 className="font-black text-xl text-slate-900 dark:text-white leading-snug">
                           {item.name}
                         </h4>
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1.5">
                           <span className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 px-2.5 py-0.5 rounded-md font-medium border border-stone-200 dark:border-stone-700">
                             <MapPin className="w-3.5 h-3.5 text-stone-600 dark:text-stone-400" />
                             <span>{item.location}</span>
                           </span>
-                          {item.supplier && (
-                            <span className="bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg font-medium">
-                              Proveedor: {item.supplier}
-                            </span>
-                          )}
+                          {(() => {
+                            const supInfo = resolveItemSupplier(item);
+                            if (!supInfo.name) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSupplierSearchTerm(supInfo.name);
+                                  setActiveSection('proveedores');
+                                }}
+                                title="Ver en directorio de proveedores"
+                                className="inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-750 px-2.5 py-0.5 rounded-md font-semibold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                              >
+                                <Truck className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
+                                <span>{supInfo.name}</span>
+                                {supInfo.phone && (
+                                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                    · {supInfo.phone}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -963,18 +1465,36 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                         <Edit2 className="w-4 h-4" />
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`¿Eliminar "${item.name}" del inventario de insumos?`)) {
-                            deletePerishable(item.id);
-                          }
-                        }}
-                        className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                        title="Eliminar insumo"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {confirmDeleteItemId === item.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              deletePerishable(item.id);
+                              setConfirmDeleteItemId(null);
+                            }}
+                            className="px-2 py-1 rounded-md bg-rose-600 text-white text-[10px] font-bold cursor-pointer"
+                          >
+                            Eliminar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteItemId(null)}
+                            className="px-1.5 py-1 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
+                          >
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteItemId(item.id)}
+                          className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                          title="Eliminar insumo"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1100,16 +1620,44 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                     </div>
 
                     {/* Batch & Supplier info if available */}
-                    {(item.batchNumber || item.supplier) && (
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-800">
-                        {item.batchNumber && (
-                          <span className="font-mono">Lote: {item.batchNumber}</span>
-                        )}
-                        {item.supplier && (
-                          <span className="truncate max-w-[140px]">Prov: {item.supplier}</span>
-                        )}
-                      </div>
-                    )}
+                    {(() => {
+                      const supInfo = resolveItemSupplier(item);
+                      if (!item.batchNumber && !supInfo.name) return null;
+                      return (
+                        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex-wrap">
+                          {supInfo.name && (
+                            <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSupplierSearchTerm(supInfo.name);
+                                  setActiveSection('proveedores');
+                                }}
+                                title="Ver contacto del proveedor"
+                                className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300 hover:text-rose-900 dark:hover:text-rose-300 truncate cursor-pointer"
+                              >
+                                <Truck className="w-3 h-3 text-rose-900 dark:text-rose-400 shrink-0" />
+                                <span className="truncate">{supInfo.name}</span>
+                              </button>
+                              {supInfo.hasWhatsapp && (
+                                <button
+                                  type="button"
+                                  onClick={() => openWhatsappOrderForItem(item)}
+                                  title="Pedir este insumo por WhatsApp al proveedor"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900 text-[10px] font-bold hover:bg-emerald-100 transition cursor-pointer shrink-0"
+                                >
+                                  <MessageCircle className="w-2.5 h-2.5" />
+                                  <span>Pedir</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {item.batchNumber && (
+                            <span className="font-mono text-[10px] text-slate-400">Lote: {item.batchNumber}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {item.notes && (
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 italic bg-amber-50/50 dark:bg-amber-950/20 p-2 rounded-xl border border-amber-200/50 line-clamp-2">
@@ -1162,18 +1710,36 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm(`¿Eliminar "${item.name}" del inventario de insumos?`)) {
-                          deletePerishable(item.id);
-                        }
-                      }}
-                      title="Eliminar insumo"
-                      className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {confirmDeleteItemId === item.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            deletePerishable(item.id);
+                            setConfirmDeleteItemId(null);
+                          }}
+                          className="px-2 py-1 rounded-md bg-rose-600 text-white text-[10px] font-bold cursor-pointer"
+                        >
+                          Sí
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteItemId(null)}
+                          className="px-1.5 py-1 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold cursor-pointer"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteItemId(item.id)}
+                        title="Eliminar insumo"
+                        className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1189,8 +1755,8 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-500 dark:text-slate-400 font-bold">
                   <th className="py-3 px-4">Alimento / Insumo</th>
                   <th className="py-3 px-3">Categoría</th>
+                  <th className="py-3 px-3">Proveedor & Teléfono</th>
                   <th className="py-3 px-3">Ubicación</th>
-                  <th className="py-3 px-3">Fecha Ingreso</th>
                   <th className="py-3 px-3">Fecha Caducidad</th>
                   <th className="py-3 px-3">Alarma / Estado</th>
                   <th className="py-3 px-3 text-right">Stock Actual</th>
@@ -1235,15 +1801,45 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                         {item.category}
                       </td>
 
+                      <td className="py-3 px-3">
+                        {(() => {
+                          const supInfo = resolveItemSupplier(item);
+                          if (!supInfo.name) {
+                            return <span className="text-slate-400">—</span>;
+                          }
+                          return (
+                            <div className="space-y-1">
+                              <span className="font-semibold text-slate-800 dark:text-slate-200 block">
+                                {supInfo.name}
+                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {supInfo.phone && (
+                                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                    {supInfo.phone}
+                                  </span>
+                                )}
+                                {supInfo.hasWhatsapp && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openWhatsappOrderForItem(item)}
+                                    title="Pedir por WhatsApp"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900 text-[10px] font-bold hover:bg-emerald-100 transition cursor-pointer"
+                                  >
+                                    <MessageCircle className="w-2.5 h-2.5" />
+                                    <span>WhatsApp</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </td>
+
                       <td className="py-3 px-3 text-slate-600 dark:text-slate-300">
                         <span className="flex items-center gap-1">
                           <MapPin className="w-3 h-3 text-stone-500" />
                           <span>{item.location}</span>
                         </span>
-                      </td>
-
-                      <td className="py-3 px-3 font-mono text-slate-600 dark:text-slate-300">
-                        {item.entryDate}
                       </td>
 
                       <td className="py-3 px-3 font-mono font-bold text-slate-900 dark:text-white">
@@ -1313,6 +1909,8 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
           </div>
         </div>
       )}
+        </>
+      )}
 
       {/* MODALS */}
       <NewPerishableModal
@@ -1320,6 +1918,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         onClose={() => {
           setIsNewModalOpen(false);
           setEditingItem(null);
+          setPreselectedSupplierId(null);
         }}
         onSave={(itemData) => {
           if (editingItem) {
@@ -1329,6 +1928,27 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
           }
         }}
         editingItem={editingItem}
+        suppliers={suppliers}
+        preselectedSupplierId={preselectedSupplierId}
+        onSaveNewSupplier={(supData) => addSupplier(supData)}
+        onAppendSupplyToSupplier={handleAppendSupplyToSupplier}
+      />
+
+      <SupplierModal
+        isOpen={isSupplierModalOpen}
+        onClose={() => {
+          setIsSupplierModalOpen(false);
+          setEditingSupplier(null);
+        }}
+        onSave={(supData) => {
+          if (editingSupplier) {
+            updateSupplier(editingSupplier.id, supData);
+          } else {
+            addSupplier(supData);
+          }
+        }}
+        editingSupplier={editingSupplier}
+        existingPantryItemNames={perishables.map(p => p.name)}
       />
 
       <PerishableWasteModal
@@ -1342,6 +1962,28 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         onConfirmRestock={(id, amount, newEntryDate, newExpiryDate) => {
           recordPerishableRestock(id, amount, newEntryDate, newExpiryDate);
         }}
+      />
+
+      <SupplierWhatsappOrderModal
+        isOpen={!!whatsappOrderSupplier}
+        onClose={() => {
+          setWhatsappOrderSupplier(null);
+          setWhatsappInitialItems([]);
+        }}
+        supplier={whatsappOrderSupplier}
+        linkedPantryItems={
+          whatsappOrderSupplier
+            ? perishables.filter(
+                p =>
+                  p.supplierId === whatsappOrderSupplier.id ||
+                  (!p.supplierId &&
+                    p.supplier &&
+                    p.supplier.trim().toLowerCase() ===
+                      whatsappOrderSupplier.name.trim().toLowerCase())
+              )
+            : []
+        }
+        initialItems={whatsappInitialItems}
       />
 
     </div>

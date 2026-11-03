@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Calendar, AlertTriangle, Package, MapPin, Truck, Hash, DollarSign, Image as ImageIcon, Sparkles, Upload, Camera, RefreshCw } from 'lucide-react';
-import { PerishableItem, PerishableCategory, MeasurementUnit } from '../../types';
+import { X, Calendar, AlertTriangle, Package, MapPin, Truck, Phone, PackageCheck, Hash, DollarSign, Image as ImageIcon, Camera, MessageCircle } from 'lucide-react';
+import { PerishableItem, PerishableCategory, MeasurementUnit, Supplier } from '../../types';
 import { PERISHABLE_CATEGORIES, MEASUREMENT_UNITS, STORAGE_LOCATIONS, calculateDaysRemaining } from '../../utils/perishableUtils';
-import { formatCOP } from '../../utils/currency';
 import { compressImageFile } from '../../utils/imageCompressor';
 
 interface NewPerishableModalProps {
@@ -10,6 +9,10 @@ interface NewPerishableModalProps {
   onClose: () => void;
   onSave: (item: Omit<PerishableItem, 'id'>) => void;
   editingItem?: PerishableItem | null;
+  suppliers?: Supplier[];
+  preselectedSupplierId?: string | null;
+  onSaveNewSupplier?: (supplier: Omit<Supplier, 'id' | 'createdAt'>) => Supplier;
+  onAppendSupplyToSupplier?: (supplierId: string, newItemName: string) => void;
 }
 
 const PRESET_IMAGES: Record<string, string> = {
@@ -36,7 +39,11 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
   isOpen,
   onClose,
   onSave,
-  editingItem
+  editingItem,
+  suppliers = [],
+  preselectedSupplierId = null,
+  onSaveNewSupplier,
+  onAppendSupplyToSupplier
 }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState<PerishableCategory>('Verduras & Hortalizas');
@@ -46,7 +53,12 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
   const [entryDate, setEntryDate] = useState<string>(getTodayIso());
   const [expiryDate, setExpiryDate] = useState<string>(getDefaultExpiryIso());
   const [location, setLocation] = useState<string>(STORAGE_LOCATIONS[0]);
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('__manual__');
   const [supplier, setSupplier] = useState('');
+  const [supplierPhone, setSupplierPhone] = useState('');
+  const [manualSupplierHasWhatsapp, setManualSupplierHasWhatsapp] = useState<boolean>(true);
+  const [manualSupplierProducts, setManualSupplierProducts] = useState('');
+  const [saveToSupplierDirectory, setSaveToSupplierDirectory] = useState<boolean>(true);
   const [batchNumber, setBatchNumber] = useState('');
   const [costPerUnit, setCostPerUnit] = useState<number>(0);
   const [imageUrl, setImageUrl] = useState('');
@@ -92,7 +104,26 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
         setCustomLocation(editingItem.location);
       }
 
-      setSupplier(editingItem.supplier || '');
+      const matchedSup =
+        suppliers.find(s => s.id === editingItem.supplierId) ||
+        (editingItem.supplier
+          ? suppliers.find(s => s.name.trim().toLowerCase() === editingItem.supplier!.trim().toLowerCase())
+          : undefined);
+
+      if (matchedSup) {
+        setSelectedSupplierId(matchedSup.id);
+        setSupplier(matchedSup.name);
+        setSupplierPhone(matchedSup.phone);
+        setManualSupplierProducts(matchedSup.suppliesProvided);
+        setSaveToSupplierDirectory(false);
+      } else {
+        setSelectedSupplierId('__manual__');
+        setSupplier(editingItem.supplier || '');
+        setSupplierPhone(editingItem.supplierPhone || '');
+        setManualSupplierProducts('');
+        setSaveToSupplierDirectory(Boolean(editingItem.supplier && !matchedSup));
+      }
+
       setBatchNumber(editingItem.batchNumber || '');
       setCostPerUnit(editingItem.costPerUnit || 0);
       setImageUrl(editingItem.imageUrl || '');
@@ -111,7 +142,27 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setLocation(STORAGE_LOCATIONS[0]);
       setIsCustomLocation(false);
       setCustomLocation('');
-      setSupplier('');
+
+      const preselected = preselectedSupplierId
+        ? suppliers.find(s => s.id === preselectedSupplierId)
+        : undefined;
+
+      if (preselected) {
+        setSelectedSupplierId(preselected.id);
+        setSupplier(preselected.name);
+        setSupplierPhone(preselected.phone);
+        setManualSupplierHasWhatsapp(preselected.hasWhatsapp ?? true);
+        setManualSupplierProducts(preselected.suppliesProvided);
+        setSaveToSupplierDirectory(false);
+      } else {
+        setSelectedSupplierId('__manual__');
+        setSupplier('');
+        setSupplierPhone('');
+        setManualSupplierHasWhatsapp(true);
+        setManualSupplierProducts('');
+        setSaveToSupplierDirectory(true);
+      }
+
       setBatchNumber('');
       setCostPerUnit(0);
       setImageUrl('');
@@ -119,7 +170,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setAlarmDaysBeforeExpiry(3);
     }
     setError(null);
-  }, [editingItem, isOpen]);
+  }, [editingItem, isOpen, preselectedSupplierId, suppliers]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isCompressing, setIsCompressing] = useState(false);
@@ -183,6 +234,45 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       return;
     }
 
+    let finalSupplierId: string | undefined = undefined;
+    let finalSupplierName: string | undefined = supplier.trim() || undefined;
+    let finalSupplierPhone: string | undefined = supplierPhone.trim() || undefined;
+
+    if (selectedSupplierId !== '__manual__') {
+      const existingSup = suppliers.find(s => s.id === selectedSupplierId);
+      if (existingSup) {
+        finalSupplierId = existingSup.id;
+        finalSupplierName = existingSup.name;
+        finalSupplierPhone = existingSup.phone;
+        if (onAppendSupplyToSupplier && name.trim()) {
+          onAppendSupplyToSupplier(existingSup.id, name.trim());
+        }
+      }
+    } else if (finalSupplierName && saveToSupplierDirectory && onSaveNewSupplier) {
+      // Check if supplier with same name already exists
+      const duplicate = suppliers.find(
+        s => s.name.trim().toLowerCase() === finalSupplierName!.toLowerCase()
+      );
+      if (duplicate) {
+        finalSupplierId = duplicate.id;
+        if (!finalSupplierPhone) finalSupplierPhone = duplicate.phone;
+        if (onAppendSupplyToSupplier && name.trim()) {
+          onAppendSupplyToSupplier(duplicate.id, name.trim());
+        }
+      } else {
+        const suppliesText = manualSupplierProducts.trim()
+          ? manualSupplierProducts.trim()
+          : name.trim();
+        const created = onSaveNewSupplier({
+          name: finalSupplierName,
+          phone: finalSupplierPhone || 'Sin teléfono',
+          hasWhatsapp: Boolean(finalSupplierPhone) && manualSupplierHasWhatsapp,
+          suppliesProvided: suppliesText
+        });
+        finalSupplierId = created.id;
+      }
+    }
+
     onSave({
       name: name.trim(),
       category: finalCategory,
@@ -192,7 +282,9 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       entryDate,
       expiryDate,
       location: finalLocation,
-      supplier: supplier.trim() || undefined,
+      supplierId: finalSupplierId,
+      supplier: finalSupplierName,
+      supplierPhone: finalSupplierPhone,
       batchNumber: batchNumber.trim() || undefined,
       costPerUnit: Number(costPerUnit) || 0,
       imageUrl: imageUrl.trim() || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80',
@@ -507,22 +599,160 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
             </div>
           </div>
 
-          {/* Supplier, Batch & Cost */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1">
-                <Truck className="w-3.5 h-3.5 text-slate-400" />
-                <span>Proveedor</span>
+          {/* Proveedor & Contacto Manual o Guardado */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Truck className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
+                <span>Proveedor del Insumo</span>
               </label>
-              <input
-                type="text"
-                value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
-                placeholder="Ej. Abastos, Fruver del Sol..."
-                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
-              />
+
+              {suppliers.length > 0 && (
+                <select
+                  value={selectedSupplierId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedSupplierId(val);
+                    if (val === '__manual__') {
+                      setSupplier('');
+                      setSupplierPhone('');
+                      setManualSupplierProducts('');
+                      setSaveToSupplierDirectory(true);
+                    } else {
+                      const found = suppliers.find(s => s.id === val);
+                      if (found) {
+                        setSupplier(found.name);
+                        setSupplierPhone(found.phone);
+                        setManualSupplierProducts(found.suppliesProvided);
+                        setSaveToSupplierDirectory(false);
+                      }
+                    }
+                  }}
+                  className="px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold text-xs cursor-pointer"
+                >
+                  <option value="__manual__">+ Ingresar proveedor manualmente</option>
+                  {suppliers.map((sup) => (
+                    <option key={sup.id} value={sup.id}>
+                      {sup.name} ({sup.phone})
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
+            {selectedSupplierId !== '__manual__' ? (
+              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="space-y-0.5">
+                  <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+                    <span>{supplier}</span>
+                    {supplierPhone && (
+                      <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                        Tel: {supplierPhone}
+                      </span>
+                    )}
+                  </div>
+                  {manualSupplierProducts && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Se consigue: <span className="font-medium text-slate-700 dark:text-slate-300">{manualSupplierProducts}</span>
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedSupplierId('__manual__');
+                    setSupplier('');
+                    setSupplierPhone('');
+                    setManualSupplierProducts('');
+                    setSaveToSupplierDirectory(true);
+                  }}
+                  className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline shrink-0 cursor-pointer self-start sm:self-center"
+                >
+                  Cambiar / Escribir otro
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                      <Truck className="w-3 h-3 text-slate-400" />
+                      <span>Nombre del Proveedor</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={supplier}
+                      onChange={(e) => setSupplier(e.target.value)}
+                      placeholder="Ej. Abastos, Fruver del Sol..."
+                      className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                      <Phone className="w-3 h-3 text-slate-400" />
+                      <span>Número Telefónico</span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={supplierPhone}
+                      onChange={(e) => setSupplierPhone(e.target.value)}
+                      placeholder="Ej. 300 123 4567"
+                      className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                {supplier.trim() && (
+                  <div className="pt-1 space-y-2">
+                    <div>
+                      <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                        <PackageCheck className="w-3 h-3 text-emerald-600" />
+                        <span>¿Qué se consigue con este proveedor?</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={manualSupplierProducts}
+                        onChange={(e) => setManualSupplierProducts(e.target.value)}
+                        placeholder={name.trim() ? `Ej. ${name.trim()}, frutas cítricas, hierbas...` : 'Ej. Verduras, frutas, pulpas, hielo...'}
+                        className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                      />
+                    </div>
+
+                    {onSaveNewSupplier && (
+                      <div className="flex flex-wrap items-center gap-4 pt-0.5">
+                        <label className="inline-flex items-center gap-2 cursor-pointer select-none text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={saveToSupplierDirectory}
+                            onChange={(e) => setSaveToSupplierDirectory(e.target.checked)}
+                            className="rounded border-slate-300 text-rose-950 focus:ring-rose-900"
+                          />
+                          <span>Guardar en mi Directorio de Proveedores</span>
+                        </label>
+
+                        {saveToSupplierDirectory && supplierPhone.trim() && (
+                          <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                            <input
+                              type="checkbox"
+                              checked={manualSupplierHasWhatsapp}
+                              onChange={(e) => setManualSupplierHasWhatsapp(e.target.checked)}
+                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-600"
+                            />
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>Tiene WhatsApp</span>
+                          </label>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Batch & Cost */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1">
                 <Hash className="w-3.5 h-3.5 text-slate-400" />

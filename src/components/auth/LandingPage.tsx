@@ -15,6 +15,7 @@ import {
   Mail,
   User,
   Store,
+  MapPin,
   ArrowRight,
   Sun,
   Moon,
@@ -55,6 +56,7 @@ export const LandingPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [businessName, setBusinessName] = useState('');
+  const [businessAddress, setBusinessAddress] = useState('');
 
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
@@ -132,6 +134,10 @@ export const LandingPage: React.FC = () => {
       setFormError('Ingresa el nombre de tu negocio.');
       return;
     }
+    if (!businessAddress.trim()) {
+      setFormError('Ingresa la dirección de tu local.');
+      return;
+    }
     if (!email.trim() || !email.includes('@')) {
       setFormError('Ingresa un correo electrónico válido.');
       return;
@@ -148,13 +154,17 @@ export const LandingPage: React.FC = () => {
       'gerente',
       businessName.trim(),
       wantPro ? 'pro' : 'free',
-      wantPro ? selectedCycle : undefined
+      wantPro ? selectedCycle : undefined,
+      businessAddress.trim()
     );
 
     if (!res.success) {
       setFormError(res.error || 'No fue posible crear la cuenta.');
     } else {
-      updateConfig({ businessName: businessName.trim() });
+      updateConfig({
+        businessName: businessName.trim(),
+        businessAddress: businessAddress.trim()
+      });
       setFormSuccess(
         res.message ||
           'Cuenta creada. Revisa tu correo para confirmar el acceso.'
@@ -1193,6 +1203,23 @@ export const LandingPage: React.FC = () => {
                                   className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
                                 />
                               </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                              Dirección del local
+                            </label>
+                            <div className="relative">
+                              <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                              <input
+                                type="text"
+                                required
+                                value={businessAddress}
+                                onChange={(e) => setBusinessAddress(e.target.value)}
+                                placeholder="Cra. 43A # 1-50, El Poblado, Medellín"
+                                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
+                              />
                             </div>
                           </div>
 

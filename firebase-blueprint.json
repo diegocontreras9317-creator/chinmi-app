@@ -12,6 +12,7 @@
         "avatar": { "type": "string" },
         "plan": { "type": "string" },
         "businessName": { "type": "string" },
+        "businessAddress": { "type": "string" },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "email"]
@@ -67,7 +68,9 @@
         "entryDate": { "type": "string" },
         "expiryDate": { "type": "string" },
         "location": { "type": "string" },
+        "supplierId": { "type": "string" },
         "supplier": { "type": "string" },
+        "supplierPhone": { "type": "string" },
         "batchNumber": { "type": "string" },
         "costPerUnit": { "type": "number" },
         "imageUrl": { "type": "string" },
@@ -76,6 +79,23 @@
         "userId": { "type": "string" }
       },
       "required": ["id", "name", "category", "quantity", "unit"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Proveedor de despensa e insumos registrado manualmente",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "hasWhatsapp": { "type": "boolean" },
+        "suppliesProvided": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "name", "phone", "suppliesProvided"]
     },
     "SaleReceipt": {
       "title": "SaleReceipt",
@@ -136,6 +156,10 @@
     "/users/{userId}/inventario/{itemId}": {
       "schema": "#/entities/PerishableItem",
       "description": "Colección aislada de inventario/insumos del usuario"
+    },
+    "/users/{userId}/proveedores/{proveedorId}": {
+      "schema": "#/entities/Supplier",
+      "description": "Colección aislada de proveedores de insumos del usuario"
     },
     "/users/{userId}/pedidos/{pedidoId}": {
       "schema": "#/entities/SaleReceipt",

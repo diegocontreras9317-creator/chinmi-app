@@ -16,6 +16,7 @@ import {
   Banknote,
   Smartphone,
   Download,
+  FileSpreadsheet,
   Printer,
   Calendar,
   Search,
@@ -28,6 +29,7 @@ import {
   Clock
 } from 'lucide-react';
 import { ReceiptModal } from '../tables/ReceiptModal';
+import { BillingExcelExportModal } from './BillingExcelExportModal';
 
 interface SalesHistoryModalProps {
   isOpen: boolean;
@@ -81,7 +83,7 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   isOpen,
   onClose
 }) => {
-  const { config, sales, updateElectronicInvoiceStatus } = useApp();
+  const { config, sales, products, updateElectronicInvoiceStatus } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -89,6 +91,7 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   const [feStatusFilter, setFeStatusFilter] = useState<'all' | 'pendiente' | 'emitida'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [viewMonthDate, setViewMonthDate] = useState<Date>(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -253,41 +256,6 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
     }
   };
 
-  const handleExportCSV = () => {
-    const headers =
-      'ID Ticket,Fecha,Mesa,Cliente / Razon Social,Tipo Documento,Numero Documento,Correo Electronico,Factura Electronica,Estado Factura Electronica,Cobrado Por,Metodo Pago,Base Gravable,Impoconsumo,IVA,Total Impuestos,Descuento,Propina,Total\n';
-    const rows = filteredSales
-      .map((s) => {
-        const custName = (s.customerName || s.billingInfo?.customerName || 'Consumidor Final').replace(/"/g, '""');
-        const docType = s.customerDocumentType || s.billingInfo?.documentType || 'CONSUMIDOR_FINAL';
-        const docNum = (s.customerDocumentNumber || s.billingInfo?.documentNumber || '').replace(/"/g, '""');
-        const email = getSaleCustomerEmail(s).replace(/"/g, '""');
-        const needsFE = isElectronicInvoiceSale(s);
-        const feStatus = needsFE ? (s.electronicInvoiceStatus === 'emitida' ? 'Emitida' : 'Pendiente') : 'No aplica';
-        const baseGravable = Math.round(s.subtotal - s.discountAmount - s.taxAmount);
-        const impoconsumoVal =
-          typeof s.impoconsumoAmount === 'number'
-            ? Math.round(s.impoconsumoAmount)
-            : typeof s.ivaAmount === 'number'
-            ? 0
-            : Math.round(s.taxAmount);
-        const ivaVal = typeof s.ivaAmount === 'number' ? Math.round(s.ivaAmount) : 0;
-        return `"${s.id}","${s.timestamp}","${s.tableName}","${custName}","${docType}","${docNum}","${email}","${needsFE ? 'Si' : 'No'}","${feStatus}","${s.cashierName}","${s.paymentMethod}",${baseGravable},${impoconsumoVal},${ivaVal},${Math.round(s.taxAmount)},${Math.round(s.discountAmount)},${Math.round(s.tipAmount)},${Math.round(s.total)}`;
-      })
-      .join('\n');
-
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    const exportSuffix = selectedDate || new Date().toISOString().split('T')[0];
-    const prefix = invoiceFilter === 'electronic' ? 'Facturacion_Electronica' : 'Ventas';
-    link.setAttribute('download', `${prefix}_${config.appName}_${exportSuffix}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
       <div
@@ -313,13 +281,13 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
-              onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer whitespace-nowrap shrink-0"
+              onClick={() => setIsExportModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 transition cursor-pointer whitespace-nowrap shrink-0"
+              title="Exportar Facturación Electrónica o Venta Global en Excel (.xlsx) para Siigo, Alegra o Control Interno"
             >
-              <Download className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-              <span className="hidden sm:inline">
-                {invoiceFilter === 'electronic' ? 'Exportar CSV FE' : 'Exportar CSV'}
-              </span>
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="hidden sm:inline">Exportar Excel FE (.xlsx)</span>
+              <span className="sm:hidden">Excel FE</span>
             </button>
 
             <button
@@ -933,6 +901,17 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
         isOpen={!!selectedReceipt}
         onClose={() => setSelectedReceipt(null)}
         receipt={selectedReceipt}
+      />
+
+      {/* Sub-modal: Excel (.xlsx) Electronic Invoicing Export */}
+      <BillingExcelExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        sales={sales}
+        productsCatalog={products}
+        appName={config.appName}
+        initialSelectedDate={selectedDate}
+        initialInvoiceFilter={invoiceFilter}
       />
     </div>
   );

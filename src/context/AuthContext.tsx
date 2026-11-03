@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail,
   sendEmailVerification
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, Timestamp, deleteField } from 'firebase/firestore';
 import { auth, db, googleProvider, facebookProvider } from '../firebase';
 import {
   subscribeUserEmpleados,
@@ -77,7 +77,8 @@ interface AuthContextType {
   updateUserBusinessInfo: (businessName: string, businessAddress: string) => void;
   loginAsDemoRole: (role: UserRole) => void;
   logout: () => void;
-  upgradePlan: (newPlan: PlanType, billingFrequency?: BillingFrequency) => void;
+  hasActivePaidSubscription: boolean;
+  upgradePlan: (newPlan: PlanType, billingFrequency?: BillingFrequency, customDays?: number) => void;
   enableDeveloperMode: () => void;
   updateMemberRole: (userId: string, newRole: UserRole) => void;
   addTeamMember: (name: string, email: string, role: UserRole) => void;
@@ -86,6 +87,30 @@ interface AuthContextType {
 
 const MANAGER_PIN_STORAGE_KEY = 'appgenerica_manager_pin_v1';
 const MANAGER_PIN_ENABLED_KEY = 'appgenerica_manager_pin_enabled_v1';
+const MASTER_ADMIN_EMAIL = 'diego.contreras9317@gmail.com';
+
+function parseFirestoreExpiryIso(raw: unknown): string | null {
+  if (!raw) return null;
+  if (typeof (raw as { toDate?: () => Date })?.toDate === 'function') {
+    const d = (raw as { toDate: () => Date }).toDate();
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  if (typeof (raw as { seconds?: number })?.seconds === 'number') {
+    const d = new Date((raw as { seconds: number }).seconds * 1000);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  return null;
+}
+
+function getBillingCycleDays(frequency?: BillingFrequency): number {
+  if (frequency === 'annual') return 365;
+  if (frequency === 'quarterly') return 90;
+  return 30;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -124,61 +149,142 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+
   useEffect(() => {
     let unsubEmpleados: (() => void) | null = null;
+    let unsubUserDoc: (() => void) | null = null;
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (unsubEmpleados) {
+        unsubEmpleados();
+        unsubEmpleados = null;
+      }
+      if (unsubUserDoc) {
+        unsubUserDoc();
+        unsubUserDoc = null;
+      }
+
       if (fbUser) {
         const uid = fbUser.uid;
         const cleanEmail = fbUser.email?.toLowerCase() || '';
         const cleanName = fbUser.displayName || cleanEmail.split('@')[0] || 'Restaurante';
         const cleanAvatar = fbUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanEmail || uid)}`;
+        const isMasterOwner = cleanEmail === MASTER_ADMIN_EMAIL;
 
-        let resolvedUser: User;
+        const userRef = doc(db, 'users', uid);
+        let initialUserName = cleanName;
+
         try {
-          const userRef = doc(db, 'users', uid);
           const snap = await getDoc(userRef);
 
           if (snap.exists()) {
-            const data = snap.data() as User;
-            resolvedUser = {
+            const rawData = snap.data() as Record<string, unknown>;
+            const data = rawData as unknown as User;
+            initialUserName = data.name || cleanName;
+            const parsedExpiry = parseFirestoreExpiryIso(rawData.plan_expira ?? rawData.planExpiresAt);
+            const isExpired = !isMasterOwner && parsedExpiry !== null && new Date(parsedExpiry).getTime() <= Date.now();
+            const storedPlan: PlanType = data.plan || (isMasterOwner ? 'pro' : 'free');
+            const effectivePlan: PlanType = isExpired ? 'free' : storedPlan;
+
+            const resolvedUser: User = {
               id: uid,
               name: data.name || cleanName,
               email: data.email || cleanEmail,
               role: data.role || 'gerente',
               avatar: data.avatar || cleanAvatar,
-              plan: cleanEmail === 'diego.contreras9317@gmail.com' ? 'pro' : (data.plan || 'free'),
-              billingFrequency: data.billingFrequency,
+              plan: effectivePlan,
+              ...(effectivePlan === 'pro' && data.billingFrequency ? { billingFrequency: data.billingFrequency } : {}),
+              planExpiresAt: effectivePlan === 'pro' ? parsedExpiry : null,
               businessName: data.businessName || 'Mi GastroBar',
               ...(data.businessAddress ? { businessAddress: data.businessAddress } : {}),
               createdAt: data.createdAt || new Date().toISOString()
             };
+
+            setUser(resolvedUser);
+
+            if (isExpired && storedPlan === 'pro') {
+              setDoc(
+                userRef,
+                {
+                  plan: 'free',
+                  plan_expira: null,
+                  planExpiresAt: null,
+                  billingFrequency: deleteField()
+                },
+                { merge: true }
+              ).catch(() => {});
+            }
           } else {
-            resolvedUser = {
+            const resolvedUser: User = {
               id: uid,
               name: cleanName,
               email: cleanEmail,
               role: 'gerente',
               avatar: cleanAvatar,
-              plan: cleanEmail === 'diego.contreras9317@gmail.com' ? 'pro' : 'free',
+              plan: isMasterOwner ? 'pro' : 'free',
+              planExpiresAt: null,
               businessName: 'Mi GastroBar',
               createdAt: new Date().toISOString()
             };
+            setUser(resolvedUser);
             await setDoc(userRef, resolvedUser, { merge: true });
           }
-        } catch (err) {
-          resolvedUser = {
+        } catch {
+          setUser({
             id: uid,
             name: cleanName,
             email: cleanEmail,
             role: 'gerente',
             avatar: cleanAvatar,
-            plan: 'free',
+            plan: isMasterOwner ? 'pro' : 'free',
+            planExpiresAt: null,
             businessName: 'Mi GastroBar',
             createdAt: new Date().toISOString()
-          };
+          });
         }
-        setUser(resolvedUser);
+
+        // Suscripción en tiempo real al perfil de suscripción en users/${uid}
+        unsubUserDoc = onSnapshot(
+          userRef,
+          (docSnap) => {
+            if (!docSnap.exists()) return;
+            const rawData = docSnap.data() as Record<string, unknown>;
+            const data = rawData as unknown as User;
+            const parsedExpiry = parseFirestoreExpiryIso(rawData.plan_expira ?? rawData.planExpiresAt);
+            const isExpired = !isMasterOwner && parsedExpiry !== null && new Date(parsedExpiry).getTime() <= Date.now();
+            const storedPlan: PlanType = data.plan || (isMasterOwner ? 'pro' : 'free');
+            const effectivePlan: PlanType = isExpired ? 'free' : storedPlan;
+
+            setUser((prev) => ({
+              id: uid,
+              name: data.name || prev?.name || cleanName,
+              email: data.email || prev?.email || cleanEmail,
+              role: data.role || prev?.role || 'gerente',
+              avatar: data.avatar || prev?.avatar || cleanAvatar,
+              plan: effectivePlan,
+              ...(effectivePlan === 'pro' && data.billingFrequency ? { billingFrequency: data.billingFrequency } : {}),
+              planExpiresAt: effectivePlan === 'pro' ? parsedExpiry : null,
+              businessName: data.businessName || prev?.businessName || 'Mi GastroBar',
+              ...(data.businessAddress ? { businessAddress: data.businessAddress } : {}),
+              createdAt: data.createdAt || prev?.createdAt || new Date().toISOString()
+            }));
+
+            if (isExpired && storedPlan === 'pro') {
+              setDoc(
+                userRef,
+                {
+                  plan: 'free',
+                  plan_expira: null,
+                  planExpiresAt: null,
+                  billingFrequency: deleteField()
+                },
+                { merge: true }
+              ).catch(() => {});
+            }
+          },
+          () => {}
+        );
 
         // Suscripción en tiempo real a los empleados de users/${uid}/empleados
         unsubEmpleados = subscribeUserEmpleados(uid, async (empList) => {
@@ -188,7 +294,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (empList.length === 0) {
             const defaultAdmin: Empleado = {
               id: `emp-admin-${uid.slice(0, 6)}`,
-              nombre: resolvedUser.name || 'Administrador',
+              nombre: initialUserName || 'Administrador',
               rol: 'Admin',
               pin: '',
               avatarColor: 'purple',
@@ -206,7 +312,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (!curr) return null;
             const fresh = empList.find(e => e.id === curr.id);
             if (!fresh) {
-              // El empleado fue eliminado
               try { sessionStorage.removeItem('chinmi_empleado_activo_v1'); } catch {}
               return null;
             }
@@ -219,10 +324,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         setEmpleados([]);
         bloquearPantalla();
-        if (unsubEmpleados) {
-          unsubEmpleados();
-          unsubEmpleados = null;
-        }
       }
       setIsLoading(false);
     });
@@ -230,8 +331,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       unsubscribe();
       if (unsubEmpleados) unsubEmpleados();
+      if (unsubUserDoc) unsubUserDoc();
     };
   }, []);
+
+  // Vigilante automático de vencimiento de suscripción en tiempo real
+  useEffect(() => {
+    if (!user || user.plan !== 'pro' || !user.planExpiresAt) return;
+    if (user.email?.toLowerCase() === MASTER_ADMIN_EMAIL) return;
+
+    const expireMs = new Date(user.planExpiresAt).getTime();
+    if (isNaN(expireMs)) return;
+
+    const triggerDowngradeIfExpired = () => {
+      const currentNow = Date.now();
+      setNowTick(currentNow);
+      if (expireMs <= currentNow) {
+        setUser((prev) => {
+          if (!prev || prev.plan !== 'pro') return prev;
+          const downgraded: User = {
+            ...prev,
+            plan: 'free',
+            billingFrequency: undefined,
+            planExpiresAt: null
+          };
+          return downgraded;
+        });
+        setDoc(
+          doc(db, 'users', user.id),
+          {
+            plan: 'free',
+            plan_expira: null,
+            planExpiresAt: null,
+            billingFrequency: deleteField()
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+    };
+
+    if (expireMs <= Date.now()) {
+      triggerDowngradeIfExpired();
+      return;
+    }
+
+    const msUntilExpiry = expireMs - Date.now();
+    let exactTimeout: ReturnType<typeof setTimeout> | null = null;
+    if (msUntilExpiry <= 24 * 60 * 60 * 1000) {
+      exactTimeout = setTimeout(triggerDowngradeIfExpired, msUntilExpiry + 50);
+    }
+
+    const interval = setInterval(triggerDowngradeIfExpired, 15000);
+
+    return () => {
+      if (exactTimeout) clearTimeout(exactTimeout);
+      clearInterval(interval);
+    };
+  }, [user?.id, user?.email, user?.plan, user?.planExpiresAt]);
 
   const loginWithEmail = async (email: string, password?: string): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
@@ -488,23 +644,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const upgradePlan = (newPlan: PlanType, billingFrequency?: BillingFrequency) => {
-    if (user) {
-      const updated = {
+  const upgradePlan = (newPlan: PlanType, billingFrequency?: BillingFrequency, customDays?: number) => {
+    if (!user) return;
+
+    if (newPlan === 'pro') {
+      const resolvedFrequency = billingFrequency || user.billingFrequency || 'monthly';
+      const daysToAdd =
+        typeof customDays === 'number' && customDays > 0
+          ? customDays
+          : getBillingCycleDays(resolvedFrequency);
+      const expiryDate = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000);
+      const expiryIso = expiryDate.toISOString();
+
+      const updated: User = {
         ...user,
-        plan: newPlan,
-        billingFrequency: newPlan === 'pro' ? (billingFrequency || user.billingFrequency || 'monthly') : undefined
+        plan: 'pro',
+        ...(billingFrequency || user.billingFrequency ? { billingFrequency: resolvedFrequency } : {}),
+        planExpiresAt: expiryIso
       };
       setUser(updated);
-      setDoc(doc(db, 'users', user.id), updated, { merge: true }).catch(() => {});
+
+      const firestorePayload: Record<string, unknown> = {
+        plan: 'pro',
+        plan_expira: Timestamp.fromDate(expiryDate),
+        planExpiresAt: expiryIso
+      };
+      if (billingFrequency || user.billingFrequency) {
+        firestorePayload.billingFrequency = resolvedFrequency;
+      }
+
+      setDoc(doc(db, 'users', user.id), firestorePayload, { merge: true }).catch(() => {});
+    } else {
+      const { billingFrequency: _removedFreq, ...restUser } = user;
+      const updated: User = {
+        ...restUser,
+        plan: 'free',
+        planExpiresAt: null
+      };
+      setUser(updated);
+
+      setDoc(
+        doc(db, 'users', user.id),
+        {
+          plan: 'free',
+          plan_expira: null,
+          planExpiresAt: null,
+          billingFrequency: deleteField()
+        },
+        { merge: true }
+      ).catch(() => {});
     }
   };
 
   const enableDeveloperMode = () => {
     if (user) {
-      const updated = { ...user, plan: 'pro' as PlanType };
+      const updated: User = {
+        ...user,
+        plan: 'pro',
+        planExpiresAt: null
+      };
       setUser(updated);
-      setDoc(doc(db, 'users', user.id), updated, { merge: true }).catch(() => {});
+      setDoc(
+        doc(db, 'users', user.id),
+        {
+          plan: 'pro',
+          plan_expira: null,
+          planExpiresAt: null
+        },
+        { merge: true }
+      ).catch(() => {});
     }
   };
 
@@ -675,6 +883,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canViewSalesReports = isGerente;
   const canManageTableLayout = isGerente;
 
+  const hasActivePaidSubscription = (() => {
+    if (!user || user.plan !== 'pro') return false;
+    if (user.email?.toLowerCase() === MASTER_ADMIN_EMAIL) return true;
+    if (!user.planExpiresAt) return true;
+    const expiryMs = new Date(user.planExpiresAt).getTime();
+    if (isNaN(expiryMs)) return true;
+    return expiryMs > Math.max(nowTick, Date.now());
+  })();
+
   return (
     <AuthContext.Provider
       value={{
@@ -713,6 +930,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateUserBusinessInfo,
         loginAsDemoRole,
         logout,
+        hasActivePaidSubscription,
         upgradePlan,
         enableDeveloperMode,
         updateMemberRole,

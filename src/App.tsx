@@ -15,6 +15,7 @@ import { WaiterCallToast } from './components/common/WaiterCallToast';
 import { NewOrderToast } from './components/common/NewOrderToast';
 import { ProfileSelectionScreen } from './components/auth/ProfileSelectionScreen';
 import { EmployeeManagementModal } from './components/settings/EmployeeManagementModal';
+import { FloatingProWhatsappSupport } from './components/common/FloatingProWhatsappSupport';
 
 const MainLayout: React.FC = () => {
   const { isGerente, empleadoActivo } = useAuth();
@@ -152,6 +153,11 @@ const MainLayout: React.FC = () => {
 
         </div>
       )}
+
+      {/* Botón flotante de soporte WhatsApp exclusivo para suscripciones pagas activas */}
+      <div className={theme === 'dark' ? 'dark' : ''}>
+        <FloatingProWhatsappSupport />
+      </div>
     </ProtectedRoute>
   );
 };

@@ -11,6 +11,8 @@
         "role": { "type": "string" },
         "avatar": { "type": "string" },
         "plan": { "type": "string" },
+        "billingFrequency": { "type": "string" },
+        "planExpiresAt": { "type": "string" },
         "businessName": { "type": "string" },
         "businessAddress": { "type": "string" },
         "createdAt": { "type": "string" }

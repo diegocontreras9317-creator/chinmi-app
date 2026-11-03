@@ -86,7 +86,7 @@ export const CanjearCodigo: React.FC<CanjearCodigoProps> = ({ onSuccess, classNa
 
       // 9. Actualización inmediata del plan PRO en el estado de la aplicación
       if (upgradePlan) {
-        upgradePlan('pro');
+        upgradePlan('pro', undefined, dias);
       }
 
       // 10. Feedback exitoso y limpieza del input

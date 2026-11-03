@@ -65,6 +65,7 @@ export interface User {
   avatar: string;
   plan: PlanType;
   billingFrequency?: BillingFrequency;
+  planExpiresAt?: string | null;
   businessName: string;
   businessAddress?: string;
   createdAt: string;

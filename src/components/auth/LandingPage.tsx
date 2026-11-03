@@ -1,27 +1,17 @@
 import React, { useState, useRef } from 'react';
-import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import { PAID_PLANS, BillingFrequency } from '../../config/pricingPlans';
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 import { PublicNavbar, PublicSectionTarget } from '../layout/PublicNavbar';
 import { PlanComparisonTable } from '../pricing/PlanComparisonTable';
-import { GoogleIcon } from '../common/GoogleIcon';
-import { FacebookIcon } from '../common/FacebookIcon';
-import { ForgotPasswordModal } from './ForgotPasswordModal';
-import { GoogleAuthModal } from './GoogleAuthModal';
 import {
-  Lock,
-  Mail,
-  User,
-  Store,
-  MapPin,
+  LogIn,
+  UserPlus,
   ArrowRight,
   Sun,
   Moon,
   Check,
-  AlertCircle,
-  Loader2,
   QrCode,
   Receipt,
   LayoutGrid,
@@ -38,51 +28,30 @@ import heroHospitalityImg from '../../assets/images/hero_pos_hospitality_1793657
 import bentoQrImg from '../../assets/images/bento_qr_table_ordering_1793657120970.jpg';
 import bentoKitchenImg from '../../assets/images/bento_kitchen_inventory_1793657121593.jpg';
 
-export const LandingPage: React.FC = () => {
-  const {
-    loginWithEmail,
-    loginWithGoogle,
-    loginWithFacebook,
-    register,
-    isLoading
-  } = useAuth();
-  const { theme, toggleTheme, updateConfig } = useApp();
+export interface LandingPageProps {
+  onOpenAuthPage: (options?: {
+    mode?: 'login' | 'register';
+    wantPro?: boolean;
+    cycle?: BillingFrequency;
+  }) => void;
+}
 
-  const [authMode, setAuthMode] = useState<'register' | 'login'>('register');
-  const [wantPro, setWantPro] = useState<boolean>(true);
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenAuthPage }) => {
+  const { theme, toggleTheme } = useApp();
+
   const [selectedCycle, setSelectedCycle] = useState<BillingFrequency>('annual');
-
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [businessName, setBusinessName] = useState('');
-  const [businessAddress, setBusinessAddress] = useState('');
-
-  const [formError, setFormError] = useState<string | null>(null);
-  const [formSuccess, setFormSuccess] = useState<string | null>(null);
-
   const [heroImgError, setHeroImgError] = useState(false);
   const [qrImgError, setQrImgError] = useState(false);
   const [kitchenImgError, setKitchenImgError] = useState(false);
-
-  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
-  const [googleModalMode, setGoogleModalMode] = useState<'login' | 'register'>('register');
-  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   const plataformaRef = useRef<HTMLElement>(null);
   const comoFuncionaRef = useRef<HTMLElement>(null);
   const rolesRef = useRef<HTMLElement>(null);
   const planesRef = useRef<HTMLElement>(null);
-  const accesoRef = useRef<HTMLElement>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
-  const emailLoginRef = useRef<HTMLInputElement>(null);
 
   const selectedPaidPlan = PAID_PLANS[selectedCycle];
 
   const handleNavigate = (target: PublicSectionTarget) => {
-    setFormError(null);
-    setFormSuccess(null);
-
     if (target === 'plataforma') {
       plataformaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
@@ -100,106 +69,24 @@ export const LandingPage: React.FC = () => {
       return;
     }
     if (target === 'login') {
-      setAuthMode('login');
-      accesoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(() => emailLoginRef.current?.focus(), 450);
+      onOpenAuthPage({ mode: 'login' });
       return;
     }
     if (target === 'register') {
-      setAuthMode('register');
-      accesoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(() => nameInputRef.current?.focus(), 450);
+      onOpenAuthPage({ mode: 'register', wantPro: false, cycle: selectedCycle });
     }
   };
 
   const handleSelectPlanAndRegister = (proSelected: boolean) => {
-    setWantPro(proSelected);
-    setAuthMode('register');
-    setFormError(null);
-    setFormSuccess(null);
-    accesoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    setTimeout(() => nameInputRef.current?.focus(), 450);
-  };
-
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-    setFormSuccess(null);
-
-    if (!name.trim()) {
-      setFormError('Ingresa tu nombre.');
-      return;
-    }
-    if (!businessName.trim()) {
-      setFormError('Ingresa el nombre de tu negocio.');
-      return;
-    }
-    if (!businessAddress.trim()) {
-      setFormError('Ingresa la dirección de tu local.');
-      return;
-    }
-    if (!email.trim() || !email.includes('@')) {
-      setFormError('Ingresa un correo electrónico válido.');
-      return;
-    }
-    if (password.length < 6) {
-      setFormError('La contraseña debe tener al menos 6 caracteres.');
-      return;
-    }
-
-    const res = await register(
-      name.trim(),
-      email.trim(),
-      password,
-      'gerente',
-      businessName.trim(),
-      wantPro ? 'pro' : 'free',
-      wantPro ? selectedCycle : undefined,
-      businessAddress.trim()
-    );
-
-    if (!res.success) {
-      setFormError(res.error || 'No fue posible crear la cuenta.');
-    } else {
-      updateConfig({
-        businessName: businessName.trim(),
-        businessAddress: businessAddress.trim()
-      });
-      setFormSuccess(
-        res.message ||
-          'Cuenta creada. Revisa tu correo para confirmar el acceso.'
-      );
-    }
-  };
-
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-    setFormSuccess(null);
-
-    if (!email.trim() || !email.includes('@')) {
-      setFormError('Ingresa un correo electrónico válido.');
-      return;
-    }
-    if (!password) {
-      setFormError('Ingresa tu contraseña.');
-      return;
-    }
-
-    const res = await loginWithEmail(email.trim(), password);
-    if (!res.success) {
-      setFormError(res.error || 'Credenciales incorrectas.');
-    }
-  };
-
-  const handleOpenGoogle = (mode: 'login' | 'register') => {
-    setFormError(null);
-    setGoogleModalMode(mode);
-    setIsGoogleModalOpen(true);
+    onOpenAuthPage({
+      mode: 'register',
+      wantPro: proSelected,
+      cycle: selectedCycle
+    });
   };
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col selection:bg-rose-900 selection:text-white">
+    <div className={`min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col selection:bg-rose-900 selection:text-white ${theme === 'dark' ? 'dark' : ''}`}>
       <PublicNavbar onNavigate={handleNavigate} />
 
       <main className="flex-1">
@@ -243,36 +130,34 @@ export const LandingPage: React.FC = () => {
                   </ul>
                 </div>
 
-                <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-4 border-t border-slate-200/80 dark:border-slate-800/80">
+                <div className="pt-3 flex flex-col sm:flex-row sm:items-center gap-3.5 border-t border-slate-200/80 dark:border-slate-800/80">
                   <div className="flex flex-wrap items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => handleNavigate('register')}
-                      className="px-6 py-3 rounded-lg bg-rose-900 hover:bg-rose-800 text-white text-sm font-semibold transition-colors inline-flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
+                      onClick={() => handleNavigate('login')}
+                      className="px-6 py-3.5 rounded-lg bg-rose-900 hover:bg-rose-800 text-white text-sm font-bold shadow-sm transition-colors inline-flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
                     >
-                      <span>Registrar Negocio</span>
-                      <ArrowRight className="w-4 h-4" />
+                      <LogIn className="w-4 h-4 shrink-0" />
+                      <span>Iniciar Sesión</span>
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => handleNavigate('planes')}
-                      className="px-5 py-3 rounded-lg border border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600 text-slate-800 dark:text-slate-200 text-sm font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                      onClick={() => handleNavigate('register')}
+                      className="px-5 py-3.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-slate-400 dark:hover:border-slate-600 text-slate-900 dark:text-white text-sm font-semibold transition-colors inline-flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
                     >
-                      Ver Planes y Precios
+                      <UserPlus className="w-4 h-4 shrink-0" />
+                      <span>Crear Cuenta</span>
                     </button>
                   </div>
 
-                  <p className="text-xs text-slate-500 dark:text-slate-400 sm:ml-auto">
-                    ¿Ya tienes cuenta?{' '}
-                    <button
-                      type="button"
-                      onClick={() => handleNavigate('login')}
-                      className="font-semibold text-rose-900 dark:text-rose-400 hover:underline underline-offset-4 cursor-pointer whitespace-nowrap"
-                    >
-                      Iniciar sesión →
-                    </button>
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigate('planes')}
+                    className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-rose-900 dark:hover:text-rose-400 hover:underline underline-offset-4 cursor-pointer whitespace-nowrap sm:ml-auto self-start sm:self-center"
+                  >
+                    Ver planes y precios →
+                  </button>
                 </div>
               </div>
 
@@ -1017,390 +902,41 @@ export const LandingPage: React.FC = () => {
         </section>
 
         {/* =========================================================
-            6. REGISTRO Y ACCESO (#acceso — COLUMNAS DE ALTURA SIMÉTRICA)
+            6. LLAMADO DIRECTO A INICIAR SESIÓN O CREAR CUENTA
         ========================================================= */}
-        <section
-          id="acceso"
-          ref={accesoRef}
-          className="py-11 lg:py-14 bg-stone-50/70 dark:bg-slate-900/40 scroll-mt-16"
-        >
+        <section className="py-11 lg:py-14 bg-stone-50/70 dark:bg-slate-900/40">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
-              {/* Panel informativo ejecutivo de altura completa para evitar espacio vacío izquierdo */}
-              <div className="lg:col-span-5 rounded-xl p-6 sm:p-7 bg-slate-900 dark:bg-slate-900 border border-slate-800 text-white flex flex-col justify-between gap-6">
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-rose-400">
-                    Activación Inmediata
-                  </p>
-                  <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white leading-tight">
-                    Empieza a operar tu restaurante hoy mismo.
-                  </h2>
-                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                    Al registrar tu establecimiento se habilita tu entorno privado en la nube con perfil de Gerencia para configurar mesas, productos y usuarios de inmediato.
-                  </p>
-                </div>
-
-                <div className="space-y-4 py-4 border-y border-slate-800 text-xs sm:text-sm">
-                  <div className="flex items-start gap-3">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold text-white">Datos aislados y respaldados</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Tu catálogo, comandas y cierres contables se sincronizan de forma segura en tiempo real.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3">
-                    <Smartphone className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold text-white">Compatible con tus equipos actuales</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Úsalo en portátiles o PC de caja, tablets en barra y celulares de tus meseros.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3">
-                    <CreditCard className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold text-white">Adaptado a la operación en Colombia</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Valores en pesos colombianos (COP), Impoconsumo del 8% incluido y pago seguro de tu suscripción PRO mediante ePayco.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 text-xs text-slate-300">
-                  <span>
-                    {authMode === 'register'
-                      ? '¿Tu negocio ya está registrado?'
-                      : '¿Aún no tienes cuenta para tu local?'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormError(null);
-                      setFormSuccess(null);
-                      setAuthMode(authMode === 'register' ? 'login' : 'register');
-                    }}
-                    className="font-semibold text-rose-400 hover:text-rose-300 underline underline-offset-4 cursor-pointer whitespace-nowrap shrink-0"
-                  >
-                    {authMode === 'register' ? 'Iniciar sesión →' : 'Registrar negocio →'}
-                  </button>
-                </div>
+            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-7 sm:p-10 text-white flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div className="space-y-2 max-w-2xl">
+                <p className="text-xs font-semibold text-rose-400">
+                  Acceso Directo al Sistema
+                </p>
+                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white [text-wrap:balance]">
+                  ¿Ya tienes cuenta o quieres registrar tu restaurante?
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  Entra directamente a tu panel operativo para abrir turno o crea la cuenta de tu establecimiento en minutos.
+                </p>
               </div>
 
-              {/* Formulario de Registro / Inicio de Sesión */}
-              <div className="lg:col-span-7 flex">
-                <div className="w-full bg-white dark:bg-slate-900 rounded-xl p-6 sm:p-7 border border-slate-200 dark:border-slate-800 flex flex-col justify-between space-y-5">
-                  <div className="space-y-5">
-                    <div className="flex p-1 rounded-lg bg-stone-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-800">
-                      <button
-                        type="button"
-                        id="tab-btn-register"
-                        onClick={() => {
-                          setFormError(null);
-                          setFormSuccess(null);
-                          setAuthMode('register');
-                        }}
-                        className={`flex-1 py-2.5 px-4 rounded-md text-xs sm:text-sm font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                          authMode === 'register'
-                            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                      >
-                        Registrar Negocio
-                      </button>
+              <div className="flex flex-wrap items-center gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('login')}
+                  className="px-6 py-3.5 rounded-xl bg-rose-900 hover:bg-rose-800 text-white text-sm font-bold shadow-sm transition-colors inline-flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <LogIn className="w-4 h-4 shrink-0" />
+                  <span>Iniciar Sesión</span>
+                </button>
 
-                      <button
-                        type="button"
-                        id="tab-btn-login"
-                        onClick={() => {
-                          setFormError(null);
-                          setFormSuccess(null);
-                          setAuthMode('login');
-                        }}
-                        className={`flex-1 py-2.5 px-4 rounded-md text-xs sm:text-sm font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                          authMode === 'login'
-                            ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                      >
-                        Iniciar Sesión
-                      </button>
-                    </div>
-
-                    {formError && (
-                      <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 text-xs font-medium flex items-start gap-2">
-                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{formError}</span>
-                      </div>
-                    )}
-
-                    {formSuccess && (
-                      <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-medium flex items-start gap-2">
-                        <Check className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{formSuccess}</span>
-                      </div>
-                    )}
-
-                    {authMode === 'register' ? (
-                      <div className="space-y-4">
-                        <div className="p-3 rounded-lg bg-stone-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
-                          <span>
-                            Plan seleccionado:{' '}
-                            <strong className="text-slate-900 dark:text-white tabular-nums">
-                              {wantPro
-                                ? `Licencia PRO (${selectedPaidPlan.frequencyLabel} · ${formatCOP(
-                                    selectedPaidPlan.monthlyEquivalent
-                                  )}/mes)`
-                                : 'Plan Inicial ($0 COP)'}
-                            </strong>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setWantPro(!wantPro)}
-                            className="text-rose-900 dark:text-rose-400 font-semibold hover:underline cursor-pointer whitespace-nowrap"
-                          >
-                            Cambiar a {wantPro ? 'Plan Inicial' : 'Licencia PRO'}
-                          </button>
-                        </div>
-
-                        <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            <div>
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                Nombre del responsable
-                              </label>
-                              <div className="relative">
-                                <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                                <input
-                                  ref={nameInputRef}
-                                  type="text"
-                                  required
-                                  value={name}
-                                  onChange={(e) => setName(e.target.value)}
-                                  placeholder="Carlos Mendoza"
-                                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
-                                />
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                                Nombre del restaurante o bar
-                              </label>
-                              <div className="relative">
-                                <Store className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                                <input
-                                  type="text"
-                                  required
-                                  value={businessName}
-                                  onChange={(e) => setBusinessName(e.target.value)}
-                                  placeholder="Terraza Central"
-                                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                              Dirección del local
-                            </label>
-                            <div className="relative">
-                              <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                              <input
-                                type="text"
-                                required
-                                value={businessAddress}
-                                onChange={(e) => setBusinessAddress(e.target.value)}
-                                placeholder="Cra. 43A # 1-50, El Poblado, Medellín"
-                                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                              Correo electrónico corporativo o personal
-                            </label>
-                            <div className="relative">
-                              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                              <input
-                                type="email"
-                                required
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder="gerencia@turestaurante.com"
-                                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                              Contraseña de acceso (mínimo 6 caracteres)
-                            </label>
-                            <div className="relative">
-                              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                              <input
-                                type="password"
-                                required
-                                minLength={6}
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="••••••••"
-                                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
-                              />
-                            </div>
-                          </div>
-
-                          <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="w-full py-3 px-4 rounded-lg bg-rose-900 hover:bg-rose-800 disabled:bg-slate-400 text-white text-sm font-semibold transition-colors cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap"
-                          >
-                            {isLoading ? (
-                              <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                <span>Creando cuenta...</span>
-                              </>
-                            ) : (
-                              <>
-                                <span>Crear Cuenta de Restaurante</span>
-                                <ArrowRight className="w-4 h-4" />
-                              </>
-                            )}
-                          </button>
-                        </form>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="p-3 rounded-lg bg-stone-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
-                          Ingresa las credenciales de tu establecimiento para acceder al panel operativo y seleccionar tu perfil de turno.
-                        </div>
-
-                        <form onSubmit={handleLoginSubmit} className="space-y-4">
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                              Correo electrónico registrado
-                            </label>
-                            <div className="relative">
-                              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                              <input
-                                ref={emailLoginRef}
-                                type="email"
-                                required
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                placeholder="gerencia@turestaurante.com"
-                                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="flex items-center justify-between mb-1">
-                              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                Contraseña
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => setIsForgotPasswordOpen(true)}
-                                className="text-xs font-semibold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer"
-                              >
-                                ¿Olvidaste tu contraseña?
-                              </button>
-                            </div>
-                            <div className="relative">
-                              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                              <input
-                                type="password"
-                                required
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="••••••••"
-                                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/60 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900"
-                              />
-                            </div>
-                          </div>
-
-                          <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="w-full py-3 px-4 rounded-lg bg-rose-900 hover:bg-rose-800 disabled:bg-slate-400 text-white text-sm font-semibold transition-colors cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap"
-                          >
-                            {isLoading ? (
-                              <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                <span>Ingresando...</span>
-                              </>
-                            ) : (
-                              <>
-                                <span>Ingresar al Sistema</span>
-                                <ArrowRight className="w-4 h-4" />
-                              </>
-                            )}
-                          </button>
-                        </form>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Acceso rápido social al pie del contenedor */}
-                  <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
-                    <p className="text-xs text-center text-slate-500 dark:text-slate-400">
-                      {authMode === 'register'
-                        ? 'O vincula tu cuenta rápidamente con'
-                        : 'O continúa directamente con'}
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        disabled={isLoading}
-                        onClick={async () => {
-                          setFormError(null);
-                          if (authMode === 'register') {
-                            handleOpenGoogle('register');
-                            return;
-                          }
-                          const res = await loginWithGoogle();
-                          if (!res.success) {
-                            if (
-                              res.error?.includes('API Key') ||
-                              res.error?.includes('api-key-not-valid')
-                            ) {
-                              handleOpenGoogle('login');
-                            } else if (res.error) {
-                              setFormError(res.error);
-                            }
-                          }
-                        }}
-                        className="py-2.5 px-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-200 text-xs font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <GoogleIcon className="w-4 h-4" />
-                        <span>Google</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={isLoading}
-                        onClick={async () => {
-                          setFormError(null);
-                          const res = await loginWithFacebook();
-                          if (!res.success && res.error) setFormError(res.error);
-                        }}
-                        className="py-2.5 px-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-200 text-xs font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <FacebookIcon className="w-4 h-4" />
-                        <span>Facebook</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('register')}
+                  className="px-5 py-3.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-800 text-white text-sm font-semibold transition-colors inline-flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <UserPlus className="w-4 h-4 shrink-0" />
+                  <span>Crear Cuenta</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1449,9 +985,9 @@ export const LandingPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleNavigate('login')}
-              className="hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
+              className="font-semibold text-rose-900 dark:text-rose-400 hover:underline transition-colors cursor-pointer"
             >
-              Acceso
+              Iniciar Sesión
             </button>
             <span aria-hidden="true">·</span>
             <button
@@ -1477,18 +1013,6 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
       </footer>
-
-      <GoogleAuthModal
-        isOpen={isGoogleModalOpen}
-        onClose={() => setIsGoogleModalOpen(false)}
-        defaultMode={googleModalMode}
-      />
-
-      <ForgotPasswordModal
-        isOpen={isForgotPasswordOpen}
-        onClose={() => setIsForgotPasswordOpen(false)}
-        defaultEmail={email}
-      />
     </div>
   );
 };

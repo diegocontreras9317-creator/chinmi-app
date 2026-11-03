@@ -1,4 +1,5 @@
 import React from 'react';
+import { LogIn } from 'lucide-react';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 
 export type PublicSectionTarget =
@@ -15,8 +16,8 @@ interface PublicNavbarProps {
 
 /**
  * PublicNavbar
- * Barra de navegación superior corporativa para rutas públicas de Chinmi App.
- * Sigue estrictamente el contrato de 3 zonas: Marca estática · Enlaces limpios · Acción principal.
+ * Barra de navegación superior para la página pública de Chinmi App.
+ * Sigue estrictamente el contrato de 3 zonas: Marca · Enlaces limpios · Botón principal "Iniciar Sesión".
  */
 export const PublicNavbar: React.FC<PublicNavbarProps> = ({ onNavigate }) => {
   const handleScrollTop = () => {
@@ -28,7 +29,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({ onNavigate }) => {
   return (
     <header className="sticky top-0 z-30 w-full bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 sm:gap-8">
-        {/* Zona 1: Marca Oficial Estática de Chinmi App */}
+        {/* Zona 1: Marca Oficial de Chinmi App */}
         <button
           type="button"
           onClick={handleScrollTop}
@@ -44,7 +45,7 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({ onNavigate }) => {
           />
         </button>
 
-        {/* Zona 2: Enlaces de navegación tipográficos en una sola línea */}
+        {/* Zona 2: Enlaces de secciones informativas en una sola línea */}
         <nav
           aria-label="Navegación principal"
           className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-300"
@@ -77,30 +78,17 @@ export const PublicNavbar: React.FC<PublicNavbarProps> = ({ onNavigate }) => {
           >
             Planes
           </button>
-          <button
-            type="button"
-            onClick={() => onNavigate?.('login')}
-            className="hover:text-slate-900 dark:hover:text-white underline-offset-4 hover:underline transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Iniciar Sesión
-          </button>
         </nav>
 
-        {/* Zona 3: Acción primaria única (con acceso rápido en móvil) */}
-        <div className="flex items-center gap-4 shrink-0">
+        {/* Zona 3: Acción principal destacada — Iniciar Sesión (abre la página de acceso y registro) */}
+        <div className="flex items-center shrink-0">
           <button
             type="button"
             onClick={() => onNavigate?.('login')}
-            className="md:hidden text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-4 sm:px-5 py-2.5 text-xs sm:text-sm font-bold text-white bg-rose-900 hover:bg-rose-800 rounded-lg shadow-xs transition-colors inline-flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-900"
           >
-            Acceder
-          </button>
-          <button
-            type="button"
-            onClick={() => onNavigate?.('register')}
-            className="px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-rose-900 hover:bg-rose-800 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-900"
-          >
-            Adquirir Sistema
+            <LogIn className="w-4 h-4 shrink-0" />
+            <span>Iniciar Sesión</span>
           </button>
         </div>
       </div>

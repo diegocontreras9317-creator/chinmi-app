@@ -259,7 +259,7 @@ export type PerishableCategory =
   | 'Otros Insumos'
   | (string & {});
 
-export type MeasurementUnit = 'kg' | 'g' | 'litros' | 'ml' | 'unidades' | 'atados' | 'cajas' | 'paquetes';
+export type MeasurementUnit = 'kg' | 'g' | 'litros' | 'ml' | 'unidades' | 'atados' | 'cajas' | 'paquetes' | 'libra' | (string & {});
 
 export type ExpiryStatus = 'expired' | 'expires_today' | 'expiring_soon' | 'fresh';
 

@@ -23,6 +23,11 @@ import {
   Search
 } from 'lucide-react';
 import { compressImageFile } from '../../utils/imageCompressor';
+import {
+  RECIPE_UNIT_OPTIONS,
+  normalizeToRecipeUnit,
+  getUnitConversionFactor
+} from '../../utils/recipeUnits';
 
 interface NewProductModalProps {
   isOpen: boolean;
@@ -91,8 +96,9 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
   const [receta, setReceta] = useState<RecipeIngredient[]>(productToEdit?.receta || []);
   const [selectedInsumoId, setSelectedInsumoId] = useState<string>('');
   const [ingredientQty, setIngredientQty] = useState<string>('');
+  const [ingredientUnit, setIngredientUnit] = useState<string>('und');
 
-  // Cálculo de escandallo: coste total y porciones disponibles según el insumo limitante en Despensa
+  // Cálculo de escandallo: coste total y porciones disponibles según el insumo limitante en Despensa con conversión de unidades
   const recipeBreakdown = React.useMemo<{
     items: Array<
       RecipeIngredient & {
@@ -101,6 +107,8 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
         subtotal: number;
         available: number;
         portions: number;
+        conversionFactor: number;
+        requiredInPantryUnit: number;
       }
     >;
     totalCost: number;
@@ -113,13 +121,14 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
 
     const items = receta.map((ing) => {
       const pantryItem = perishables.find((p) => p.id === ing.insumoId);
+      const conversionFactor = getUnitConversionFactor(ing.unidad, pantryItem?.unit);
       const unitCost = pantryItem?.costPerUnit ?? ing.costoUnitario ?? 0;
-      const subtotal = (Number(ing.cantidad) || 0) * unitCost;
+      const requiredInPantryUnit = (Number(ing.cantidad) || 0) * conversionFactor;
+      const subtotal = requiredInPantryUnit * unitCost;
       totalCost += subtotal;
 
       const available = pantryItem ? Number(pantryItem.quantity) || 0 : 0;
-      const required = Number(ing.cantidad) || 0;
-      const portions = required > 0 ? Math.floor(available / required) : 0;
+      const portions = requiredInPantryUnit > 0 ? Math.floor(available / requiredInPantryUnit) : 0;
 
       if (portions < minPortions) {
         minPortions = portions;
@@ -137,7 +146,9 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
         unitCost,
         subtotal,
         available,
-        portions
+        portions,
+        conversionFactor,
+        requiredInPantryUnit
       };
     });
 
@@ -202,6 +213,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       setTaxRate(String(config.defaultTaxRate || DEFAULT_IMPOCONSUMO_RATE));
       setTipoInventario('directo');
       setReceta([]);
+      setIngredientUnit('und');
     }
   }, [productToEdit, isOpen, config.categories, config.defaultTaxRate]);
 
@@ -222,13 +234,15 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       return;
     }
 
+    const chosenUnit = ingredientUnit || normalizeToRecipeUnit(pantryItem.unit);
+
     const existingIdx = receta.findIndex(r => r.insumoId === pantryItem.id);
     if (existingIdx >= 0) {
       const updated = [...receta];
       updated[existingIdx] = {
         ...updated[existingIdx],
         cantidad: numQty,
-        unidad: pantryItem.unit,
+        unidad: chosenUnit,
         costoUnitario: pantryItem.costPerUnit || 0
       };
       setReceta(updated);
@@ -239,7 +253,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
           insumoId: pantryItem.id,
           nombre: pantryItem.name,
           cantidad: numQty,
-          unidad: pantryItem.unit,
+          unidad: chosenUnit,
           costoUnitario: pantryItem.costPerUnit || 0
         }
       ]);
@@ -247,6 +261,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
 
     setSelectedInsumoId('');
     setIngredientQty('');
+    setIngredientUnit('und');
   };
 
   const handleRemoveIngredient = (insumoId: string) => {
@@ -688,10 +703,17 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                  <div className="sm:col-span-6">
+                  <div className="sm:col-span-5">
                     <select
                       value={selectedInsumoId}
-                      onChange={(e) => setSelectedInsumoId(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedInsumoId(val);
+                        const item = perishables.find((p) => p.id === val);
+                        if (item) {
+                          setIngredientUnit(normalizeToRecipeUnit(item.unit));
+                        }
+                      }}
                       className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-orange-500"
                     >
                       <option value="">-- Selecciona un insumo de Despensa --</option>
@@ -703,20 +725,33 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                     </select>
                   </div>
 
-                  <div className="sm:col-span-3">
-                    <div className="relative">
-                      <input
-                        type="number"
-                        step="any"
-                        min="0.0001"
-                        placeholder="Cantidad"
-                        value={ingredientQty}
-                        onChange={(e) => setIngredientQty(e.target.value)}
-                        className="w-full px-3 py-2 pr-12 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-mono font-bold"
-                      />
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase">
-                        {perishables.find((p) => p.id === selectedInsumoId)?.unit || 'ud'}
-                      </span>
+                  <div className="sm:col-span-4">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0.0001"
+                          placeholder="Cantidad"
+                          value={ingredientQty}
+                          onChange={(e) => setIngredientQty(e.target.value)}
+                          className="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-mono font-bold focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                      <div>
+                        <select
+                          value={ingredientUnit}
+                          onChange={(e) => setIngredientUnit(e.target.value)}
+                          className="w-full px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold focus:ring-2 focus:ring-orange-500"
+                          title="Seleccionar unidad (und, libra, kilo, tajada, gramos, ml, litros)"
+                        >
+                          {RECIPE_UNIT_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
 
@@ -755,10 +790,15 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                           </td>
                           <td className="px-3 py-2 font-mono font-bold text-orange-600 dark:text-orange-400">
                             {ing.cantidad} {ing.unidad}
+                            {ing.conversionFactor !== 1 && ing.pantryItem && (
+                              <span className="text-[10px] text-slate-400 block font-normal">
+                                (= {Math.round(ing.requiredInPantryUnit * 1000) / 1000} {ing.pantryItem.unit})
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-300">
                             <span className={ing.available <= 0 ? 'text-rose-600 font-bold' : ''}>
-                              {ing.available} {ing.unidad}
+                              {ing.available} {ing.pantryItem?.unit || ing.unidad}
                             </span>
                             <span className="text-[10px] text-slate-400 block">
                               ({ing.portions} porciones)

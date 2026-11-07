@@ -33,6 +33,7 @@ import {
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
 import { playServiceBell, playNewOrderAlert } from '../utils/audioAlert';
+import { getUnitConversionFactor } from '../utils/recipeUnits';
 
 export interface NewOrderNotification {
   id: string;
@@ -1124,7 +1125,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
         prod.receta.forEach(ing => {
-          const req = (Number(ing.cantidad) || 0) * qty;
+          const pantryItem = perishablesRef.current.find(p => p.id === ing.insumoId);
+          const factor = getUnitConversionFactor(ing.unidad, pantryItem?.unit);
+          const req = (Number(ing.cantidad) || 0) * factor * qty;
           if (req > 0 && ing.insumoId) {
             insumoDeductions[ing.insumoId] = (insumoDeductions[ing.insumoId] || 0) + req;
           }
@@ -1153,8 +1156,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         prod.receta.forEach(ing => {
           const found = nextPerishables.find(p => p.id === ing.insumoId);
           const avail = found ? found.quantity : 0;
-          const req = Number(ing.cantidad) || 0;
-          const portions = req > 0 ? Math.floor(avail / req) : 0;
+          const factor = getUnitConversionFactor(ing.unidad, found?.unit);
+          const reqInPantryUnit = (Number(ing.cantidad) || 0) * factor;
+          const portions = reqInPantryUnit > 0 ? Math.floor(avail / reqInPantryUnit) : 0;
           if (portions < minPortions) minPortions = portions;
         });
         return {

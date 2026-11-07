@@ -94,6 +94,7 @@ export const PERISHABLE_CATEGORIES: PerishableCategory[] = [
 
 export const MEASUREMENT_UNITS = [
   { value: 'kg', label: 'Kilogramos (kg)' },
+  { value: 'libra', label: 'Libras (lb)' },
   { value: 'g', label: 'Gramos (g)' },
   { value: 'litros', label: 'Litros (L)' },
   { value: 'ml', label: 'Mililitros (ml)' },

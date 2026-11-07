@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, OrderItem, Empleado, Supplier, SupplierOrder } from '../types';
+import { getUnitConversionFactor } from '../utils/recipeUnits';
 
 export enum OperationType {
   CREATE = 'create',
@@ -1009,9 +1010,11 @@ export async function executeSaleCheckoutBatch(params: {
     if (!prod) return;
 
     if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
-      // Producto con receta: descontar insumos de despensa
+      // Producto con receta: descontar insumos de despensa aplicando factor de conversión de unidad
       prod.receta.forEach((ing) => {
-        const insumoRequired = (Number(ing.cantidad) || 0) * qty;
+        const pantryItem = perishablesList.find((p) => p.id === ing.insumoId);
+        const factor = getUnitConversionFactor(ing.unidad, pantryItem?.unit);
+        const insumoRequired = (Number(ing.cantidad) || 0) * factor * qty;
         if (insumoRequired > 0 && ing.insumoId) {
           insumoDeductions[ing.insumoId] = (insumoDeductions[ing.insumoId] || 0) + insumoRequired;
         }
@@ -1077,8 +1080,9 @@ export async function executeSaleCheckoutBatch(params: {
       prod.receta.forEach((ing) => {
         const found = updatedPerishables.find((p) => p.id === ing.insumoId);
         const avail = found ? found.quantity : 0;
-        const req = Number(ing.cantidad) || 0;
-        const portions = req > 0 ? Math.floor(avail / req) : 0;
+        const factor = getUnitConversionFactor(ing.unidad, found?.unit);
+        const reqInPantryUnit = (Number(ing.cantidad) || 0) * factor;
+        const portions = reqInPantryUnit > 0 ? Math.floor(avail / reqInPantryUnit) : 0;
         if (portions < minPortions) minPortions = portions;
       });
       const estimatedStock = minPortions === Infinity ? 0 : minPortions;

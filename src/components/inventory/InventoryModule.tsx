@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import { resolveProductTax } from '../../utils/taxes';
+import { getUnitConversionFactor } from '../../utils/recipeUnits';
 import {
   Search,
   Plus,
@@ -378,8 +379,9 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
               product.receta!.forEach((ing) => {
                 const found = perishables.find((p) => p.id === ing.insumoId);
                 const avail = found ? Number(found.quantity) || 0 : 0;
-                const req = Number(ing.cantidad) || 0;
-                const portions = req > 0 ? Math.floor(avail / req) : 0;
+                const factor = getUnitConversionFactor(ing.unidad, found?.unit);
+                const reqInPantryUnit = (Number(ing.cantidad) || 0) * factor;
+                const portions = reqInPantryUnit > 0 ? Math.floor(avail / reqInPantryUnit) : 0;
                 if (portions < minPortions) {
                   minPortions = portions;
                   limitingInsumoName = found?.name || ing.nombre;
@@ -852,8 +854,9 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                     prod.receta!.forEach((ing) => {
                       const found = perishables.find((p) => p.id === ing.insumoId);
                       const avail = found ? Number(found.quantity) || 0 : 0;
-                      const req = Number(ing.cantidad) || 0;
-                      const portions = req > 0 ? Math.floor(avail / req) : 0;
+                      const factor = getUnitConversionFactor(ing.unidad, found?.unit);
+                      const reqInPantryUnit = (Number(ing.cantidad) || 0) * factor;
+                      const portions = reqInPantryUnit > 0 ? Math.floor(avail / reqInPantryUnit) : 0;
                       if (portions < minPortions) minPortions = portions;
                     });
                     estimatedPortions = minPortions === Infinity ? 0 : minPortions;

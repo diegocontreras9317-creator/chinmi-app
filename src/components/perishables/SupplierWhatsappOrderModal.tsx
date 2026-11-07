@@ -44,7 +44,8 @@ const ORDER_UNITS = [
   'atados',
   'canastas',
   'g',
-  'ml'
+  'ml',
+  'libra'
 ];
 
 export function normalizeWhatsappPhone(rawPhone: string): string {

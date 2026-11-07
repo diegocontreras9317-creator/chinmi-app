@@ -41,7 +41,8 @@ const ORDER_UNITS = [
   'atados',
   'canastas',
   'g',
-  'ml'
+  'ml',
+  'libra'
 ];
 
 function getLocalDateString(date = new Date()): string {

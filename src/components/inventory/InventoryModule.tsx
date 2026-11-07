@@ -16,7 +16,8 @@ import {
   List,
   Sparkles,
   Check,
-  X
+  X,
+  ChefHat
 } from 'lucide-react';
 import { NewProductModal } from './NewProductModal';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
@@ -26,7 +27,7 @@ interface InventoryModuleProps {
 }
 
 export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscription }) => {
-  const { config, products, addProduct, deleteProduct, adjustProductStock, canAddProduct } = useApp();
+  const { config, products, addProduct, deleteProduct, adjustProductStock, canAddProduct, perishables } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas las categorías');
@@ -369,8 +370,27 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
           }
         >
           {filteredProducts.map((product) => {
-            const isLowStock = product.stock <= product.minStock && product.stock > 0;
-            const isOutOfStock = product.stock <= 0;
+            const isRecipe = product.tipoInventario === 'receta' && Array.isArray(product.receta) && product.receta.length > 0;
+            let estimatedPortions = product.stock;
+            let limitingInsumoName = '';
+            if (isRecipe) {
+              let minPortions = Infinity;
+              product.receta!.forEach((ing) => {
+                const found = perishables.find((p) => p.id === ing.insumoId);
+                const avail = found ? Number(found.quantity) || 0 : 0;
+                const req = Number(ing.cantidad) || 0;
+                const portions = req > 0 ? Math.floor(avail / req) : 0;
+                if (portions < minPortions) {
+                  minPortions = portions;
+                  limitingInsumoName = found?.name || ing.nombre;
+                }
+              });
+              estimatedPortions = minPortions === Infinity ? 0 : minPortions;
+            }
+
+            const currentStock = isRecipe ? estimatedPortions : product.stock;
+            const isLowStock = currentStock <= product.minStock && currentStock > 0;
+            const isOutOfStock = currentStock <= 0;
             const margin = Math.round(((product.price - product.cost) / (product.price || 1)) * 100);
             const resolvedTax = resolveProductTax(product, config.defaultTaxRate);
 
@@ -394,9 +414,15 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       <span className="absolute top-1.5 left-1.5 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-900/80 text-white backdrop-blur-xs">
                         {product.sku}
                       </span>
+                      {isRecipe && (
+                        <span className="absolute bottom-1.5 left-1.5 text-[8px] font-bold px-1 py-0.2 rounded bg-orange-600 text-white flex items-center gap-0.5">
+                          <ChefHat className="w-2.5 h-2.5" />
+                          Receta
+                        </span>
+                      )}
                       {isLowStock && (
                         <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500 text-white">
-                          Bajo ({product.stock})
+                          Bajo ({currentStock})
                         </span>
                       )}
                       {isOutOfStock && (
@@ -426,7 +452,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       <span className={`text-[10px] font-bold font-mono px-1 py-0.2 rounded ${
                         isOutOfStock ? 'text-rose-600 bg-rose-50 dark:bg-rose-950/40' : isLowStock ? 'text-amber-600 bg-amber-50 dark:bg-amber-950/40' : 'text-emerald-600'
                       }`}>
-                        {product.stock} ud.
+                        {currentStock} {isRecipe ? 'porc.' : 'ud.'}
                       </span>
                     </div>
                   </div>
@@ -434,20 +460,32 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                   {/* Footer Compacto */}
                   <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                     <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => adjustProductStock(product.id, -1)}
-                        className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200"
-                        title="-1 unidad"
-                      >
-                        -1
-                      </button>
-                      <button
-                        onClick={() => adjustProductStock(product.id, 1)}
-                        className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200"
-                        title="+1 unidad"
-                      >
-                        +1
-                      </button>
+                      {!isRecipe ? (
+                        <>
+                          <button
+                            onClick={() => adjustProductStock(product.id, -1)}
+                            className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200"
+                            title="-1 unidad"
+                          >
+                            -1
+                          </button>
+                          <button
+                            onClick={() => adjustProductStock(product.id, 1)}
+                            className="px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200"
+                            title="+1 unidad"
+                          >
+                            +1
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => handleEdit(product)}
+                          className="px-1.5 py-0.5 text-[9px] rounded bg-orange-50 dark:bg-orange-950 text-orange-700 dark:text-orange-300 font-bold hover:bg-orange-100"
+                          title="Ver receta vinculada a Despensa"
+                        >
+                          Receta
+                        </button>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1">
@@ -491,9 +529,15 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       <span className="absolute top-3 left-3 text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-slate-900/80 text-white backdrop-blur-xs">
                         SKU: {product.sku}
                       </span>
+                      {isRecipe && (
+                        <span className="absolute bottom-3 left-3 text-xs font-bold px-2.5 py-1 rounded-lg bg-orange-600 text-white shadow-xs flex items-center gap-1.5">
+                          <ChefHat className="w-3.5 h-3.5" />
+                          <span>Receta ({product.receta?.length || 0} insumos)</span>
+                        </span>
+                      )}
                       {isLowStock && (
                         <span className="absolute top-3 right-3 text-xs font-extrabold px-2.5 py-1 rounded-lg bg-amber-500 text-white shadow-xs">
-                          ⚠️ Aviso Stock ({product.stock} disponibles)
+                          ⚠️ Aviso Stock ({currentStock} {isRecipe ? 'porciones' : 'disponibles'})
                         </span>
                       )}
                       {isOutOfStock && (
@@ -543,32 +587,52 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                     {/* Stepper Grande */}
                     <div className="mt-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-850/60 border border-slate-100 dark:border-slate-800 space-y-2.5">
                       <div className="flex items-center justify-between text-xs font-bold">
-                        <span className="text-slate-600 dark:text-slate-300">Existencias en Barra/Cocina:</span>
+                        <span className="text-slate-600 dark:text-slate-300">
+                          {isRecipe ? 'Porciones Disponibles (Despensa):' : 'Existencias en Barra/Cocina:'}
+                        </span>
                         <span className={`font-mono text-sm font-black ${isOutOfStock ? 'text-rose-600' : isLowStock ? 'text-amber-600' : 'text-emerald-600'}`}>
-                          {product.stock} unidades
+                          {currentStock} {isRecipe ? 'porciones' : 'unidades'}
                         </span>
                       </div>
 
+                      {isRecipe && limitingInsumoName && (
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Limitado por: <strong className="text-orange-600 dark:text-orange-400">{limitingInsumoName}</strong> en Despensa
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-1.5 justify-end pt-1">
-                        <span className="text-xs text-slate-400 mr-auto font-medium">Ajuste rápido:</span>
-                        <button
-                          onClick={() => adjustProductStock(product.id, -1)}
-                          className="px-3 py-1 text-xs rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 transition cursor-pointer"
-                        >
-                          -1
-                        </button>
-                        <button
-                          onClick={() => adjustProductStock(product.id, 1)}
-                          className="px-3 py-1 text-xs rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 transition cursor-pointer"
-                        >
-                          +1
-                        </button>
-                        <button
-                          onClick={() => adjustProductStock(product.id, 10)}
-                          className="px-3 py-1 text-xs rounded-xl bg-orange-50 dark:bg-orange-950/60 border border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 font-extrabold hover:bg-orange-100 transition cursor-pointer"
-                        >
-                          +10 Reposición
-                        </button>
+                        {!isRecipe ? (
+                          <>
+                            <span className="text-xs text-slate-400 mr-auto font-medium">Ajuste rápido:</span>
+                            <button
+                              onClick={() => adjustProductStock(product.id, -1)}
+                              className="px-3 py-1 text-xs rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 transition cursor-pointer"
+                            >
+                              -1
+                            </button>
+                            <button
+                              onClick={() => adjustProductStock(product.id, 1)}
+                              className="px-3 py-1 text-xs rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 transition cursor-pointer"
+                            >
+                              +1
+                            </button>
+                            <button
+                              onClick={() => adjustProductStock(product.id, 10)}
+                              className="px-3 py-1 text-xs rounded-xl bg-orange-50 dark:bg-orange-950/60 border border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 font-extrabold hover:bg-orange-100 transition cursor-pointer"
+                            >
+                              +10 Reposición
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => handleEdit(product)}
+                            className="w-full py-1.5 px-3 text-xs rounded-xl bg-orange-50 dark:bg-orange-950/50 border border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-300 font-bold hover:bg-orange-100 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <ChefHat className="w-3.5 h-3.5" />
+                            <span>Configurar Receta / Insumos ({product.receta?.length || 0})</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -620,10 +684,15 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                     <span className="absolute top-2 left-2 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-900/80 text-white backdrop-blur-xs">
                       {product.sku}
                     </span>
-
+                    {isRecipe && (
+                      <span className="absolute bottom-2 left-2 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-orange-600 text-white flex items-center gap-1 shadow-xs">
+                        <ChefHat className="w-3 h-3" />
+                        Receta
+                      </span>
+                    )}
                     {isLowStock && (
                       <span className="absolute top-2 right-2 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-500 text-white shadow-xs">
-                        Aviso Stock ({product.stock})
+                        Aviso Stock ({currentStock})
                       </span>
                     )}
                     {isOutOfStock && (
@@ -673,35 +742,55 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                   {/* Stock Progress & Stepper */}
                   <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-2">
                     <div className="flex items-center justify-between text-xs font-semibold">
-                      <span className="text-slate-600 dark:text-slate-400">Stock en almacén:</span>
+                      <span className="text-slate-600 dark:text-slate-400">
+                        {isRecipe ? 'Porciones Despensa:' : 'Stock en almacén:'}
+                      </span>
                       <span className={`font-mono font-bold ${isOutOfStock ? 'text-rose-600' : isLowStock ? 'text-amber-600' : 'text-emerald-600'}`}>
-                        {product.stock} uds
+                        {currentStock} {isRecipe ? 'porc.' : 'uds'}
                       </span>
                     </div>
 
+                    {isRecipe && limitingInsumoName && (
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                        Limitado por: <span className="font-semibold text-orange-600 dark:text-orange-400">{limitingInsumoName}</span>
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-1 justify-end pt-1">
-                      <span className="text-[10px] text-slate-400 mr-auto">Ajuste rápido:</span>
-                      <button
-                        onClick={() => adjustProductStock(product.id, -1)}
-                        className="px-2 py-0.5 text-xs rounded-md bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
-                        title="-1 unidad"
-                      >
-                        -1
-                      </button>
-                      <button
-                        onClick={() => adjustProductStock(product.id, 1)}
-                        className="px-2 py-0.5 text-xs rounded-md bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
-                        title="+1 unidad"
-                      >
-                        +1
-                      </button>
-                      <button
-                        onClick={() => adjustProductStock(product.id, 10)}
-                        className="px-2 py-0.5 text-xs rounded-md bg-orange-50 dark:bg-orange-950/60 border border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 font-semibold hover:bg-orange-100"
-                        title="+10 reposición"
-                      >
-                        +10
-                      </button>
+                      {!isRecipe ? (
+                        <>
+                          <span className="text-[10px] text-slate-400 mr-auto">Ajuste rápido:</span>
+                          <button
+                            onClick={() => adjustProductStock(product.id, -1)}
+                            className="px-2 py-0.5 text-xs rounded-md bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
+                            title="-1 unidad"
+                          >
+                            -1
+                          </button>
+                          <button
+                            onClick={() => adjustProductStock(product.id, 1)}
+                            className="px-2 py-0.5 text-xs rounded-md bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
+                            title="+1 unidad"
+                          >
+                            +1
+                          </button>
+                          <button
+                            onClick={() => adjustProductStock(product.id, 10)}
+                            className="px-2 py-0.5 text-xs rounded-md bg-orange-50 dark:bg-orange-950/60 border border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 font-semibold hover:bg-orange-100"
+                            title="+10 reposición"
+                          >
+                            +10
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => handleEdit(product)}
+                          className="w-full py-1 text-[11px] rounded-lg bg-orange-50 dark:bg-orange-950/50 border border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-300 font-bold hover:bg-orange-100 transition flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <ChefHat className="w-3 h-3" />
+                          <span>Receta ({product.receta?.length || 0} insumos)</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -756,12 +845,35 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredProducts.map((prod) => {
                   const prodTax = resolveProductTax(prod, config.defaultTaxRate);
+                  const isRecipe = prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0;
+                  let estimatedPortions = prod.stock;
+                  if (isRecipe) {
+                    let minPortions = Infinity;
+                    prod.receta!.forEach((ing) => {
+                      const found = perishables.find((p) => p.id === ing.insumoId);
+                      const avail = found ? Number(found.quantity) || 0 : 0;
+                      const req = Number(ing.cantidad) || 0;
+                      const portions = req > 0 ? Math.floor(avail / req) : 0;
+                      if (portions < minPortions) minPortions = portions;
+                    });
+                    estimatedPortions = minPortions === Infinity ? 0 : minPortions;
+                  }
+                  const currentStock = isRecipe ? estimatedPortions : prod.stock;
+
                   return (
                   <tr key={prod.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
                     <td className="px-4 py-3 flex items-center gap-3">
                       <img src={prod.imageUrl} alt={prod.name} className="w-9 h-9 rounded-lg object-cover" />
                       <div>
-                        <p className="font-bold text-slate-900 dark:text-white">{prod.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-bold text-slate-900 dark:text-white">{prod.name}</p>
+                          {isRecipe && (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300 flex items-center gap-0.5">
+                              <ChefHat className="w-2.5 h-2.5" />
+                              Receta
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] text-slate-400 line-clamp-1">{prod.description}</p>
                       </div>
                     </td>
@@ -778,30 +890,39 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`inline-block font-mono font-bold px-2 py-0.5 rounded-full ${
-                        prod.stock <= 0
+                        currentStock <= 0
                           ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                          : prod.stock <= prod.minStock
+                          : currentStock <= prod.minStock
                           ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
                           : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                       }`}>
-                        {prod.stock} uds
+                        {currentStock} {isRecipe ? 'porc.' : 'uds'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                      {!isRecipe ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => adjustProductStock(prod.id, -1)}
+                            className="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                          >
+                            -1
+                          </button>
+                          <button
+                            onClick={() => adjustProductStock(prod.id, 1)}
+                            className="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                          >
+                            +1
+                          </button>
+                        </div>
+                      ) : (
                         <button
-                          onClick={() => adjustProductStock(prod.id, -1)}
-                          className="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                          onClick={() => handleEdit(prod)}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold text-orange-600 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 transition"
                         >
-                          -1
+                          Ver Receta
                         </button>
-                        <button
-                          onClick={() => adjustProductStock(prod.id, 1)}
-                          className="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
-                        >
-                          +1
-                        </button>
-                      </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">

@@ -186,6 +186,14 @@ export interface Table {
   userId?: string;
 }
 
+export interface RecipeIngredient {
+  insumoId: string;
+  nombre: string;
+  cantidad: number;
+  unidad: string;
+  costoUnitario?: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -199,6 +207,8 @@ export interface Product {
   description?: string;
   taxType?: ProductTaxType;
   taxRate?: number;
+  tipoInventario?: 'directo' | 'receta';
+  receta?: RecipeIngredient[];
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'bizum';
@@ -314,6 +324,8 @@ export interface PerishableItem {
   imageUrl?: string;
   notes?: string;
   alarmDaysBeforeExpiry: number; // e.g. 3 days before
+  cantidadActual?: number; // Equivalente a quantity para sincronización de despensa
+  alertaStockMinimo?: number; // Equivalente a minStock para alertas
 }
 
 export interface AppStateData {

@@ -27,7 +27,8 @@ import {
   saveSupplierOrderToFirestore,
   deleteSupplierOrderFromFirestore,
   saveSaleToFirestore,
-  releaseTableInFirestore
+  releaseTableInFirestore,
+  executeSaleCheckoutBatch
 } from '../services/firestoreUserStorage';
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
@@ -1111,13 +1112,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       billingInfo: resolvedBilling
     };
 
-    // 1. Decrement inventory stock automatically
+    // 1. Decrement inventory stock automatically (both direct products and recipe ingredients)
+    const directDeductions: Record<string, number> = {};
+    const insumoDeductions: Record<string, number> = {};
+
+    items.forEach((item: any) => {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) return;
+      const prod = products.find(p => p.id === item.productId || p.name === item.name);
+      if (!prod) return;
+
+      if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
+        prod.receta.forEach(ing => {
+          const req = (Number(ing.cantidad) || 0) * qty;
+          if (req > 0 && ing.insumoId) {
+            insumoDeductions[ing.insumoId] = (insumoDeductions[ing.insumoId] || 0) + req;
+          }
+        });
+      } else {
+        directDeductions[prod.id] = (directDeductions[prod.id] || 0) + qty;
+      }
+    });
+
+    const nextPerishables = perishablesRef.current.map(item => {
+      const deduct = insumoDeductions[item.id];
+      if (deduct !== undefined && deduct > 0) {
+        const remaining = Math.max(0, (Number(item.quantity) || 0) - deduct);
+        return {
+          ...item,
+          quantity: remaining,
+          cantidadActual: remaining
+        };
+      }
+      return item;
+    });
+
     const nextProducts = products.map(prod => {
-      const soldItem = items.find((item: any) => item.productId === prod.id);
-      if (soldItem) {
+      if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
+        let minPortions = Infinity;
+        prod.receta.forEach(ing => {
+          const found = nextPerishables.find(p => p.id === ing.insumoId);
+          const avail = found ? found.quantity : 0;
+          const req = Number(ing.cantidad) || 0;
+          const portions = req > 0 ? Math.floor(avail / req) : 0;
+          if (portions < minPortions) minPortions = portions;
+        });
         return {
           ...prod,
-          stock: Math.max(0, prod.stock - (Number(soldItem.quantity) || 0))
+          stock: minPortions === Infinity ? 0 : minPortions
+        };
+      }
+
+      const deduct = directDeductions[prod.id];
+      if (deduct !== undefined && deduct > 0) {
+        return {
+          ...prod,
+          stock: Math.max(0, (Number(prod.stock) || 0) - deduct)
         };
       }
       return prod;
@@ -1143,18 +1193,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     tablesRef.current = nextTables;
     setTables(nextTables);
+    productsRef.current = nextProducts;
     setProducts(nextProducts);
+    perishablesRef.current = nextPerishables;
+    setPerishables(nextPerishables);
     setSales(nextSales);
     setLatestReceipt(receipt);
-    persistChanges(nextTables, nextProducts, nextSales);
+    persistChanges(nextTables, nextProducts, nextSales, nextPerishables);
 
-    // 4. Actualización directa e inmediata en Firestore para liberar la mesa sin desfases
+    // 4. Actualización directa e inmediata en Firestore con writeBatch
     if (!options?.skipFirestore && activeUid && activeUid !== 'default') {
-      releaseTableInFirestore(tableId, order.id, activeUid).catch(err => {
-        console.error('ERROR CRÍTICO EN FIREBASE al liberar mesa en checkoutTable:', err);
-      });
-      saveSaleToFirestore(receipt, activeUid).catch(err => {
-        console.error('ERROR CRÍTICO EN FIREBASE al guardar venta en checkoutTable:', err);
+      executeSaleCheckoutBatch({
+        uid: activeUid,
+        tableId,
+        orderId: order.id,
+        receipt,
+        orderItems: enrichedItems,
+        productsCatalog: products,
+        perishablesList: perishablesRef.current
+      }).catch(err => {
+        console.error('ERROR CRÍTICO EN FIREBASE al ejecutar batch write en checkoutTable:', err);
       });
     }
 
@@ -1186,22 +1244,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw new Error("cobrarMesa abortado: No se encontró orden activa o su ID es undefined");
     }
 
+    const items = order.items || (order as any)?.productos || [];
+
     const res = checkoutTable(tableId, paymentMethod, cashTendered, {
       ...options,
       skipFirestore: true
     });
     if (res.receipt && activeUid && activeUid !== 'default') {
       try {
-        await releaseTableInFirestore(tableId, order.id, activeUid);
+        await executeSaleCheckoutBatch({
+          uid: activeUid,
+          tableId,
+          orderId: order.id,
+          receipt: res.receipt,
+          orderItems: items,
+          productsCatalog: productsRef.current,
+          perishablesList: perishablesRef.current
+        });
       } catch (error) {
-        console.error("ERROR CRÍTICO EN FIREBASE al liberar mesa:", error);
-        throw error;
-      }
-
-      try {
-        await saveSaleToFirestore(res.receipt, activeUid);
-      } catch (error) {
-        console.error("ERROR CRÍTICO EN FIREBASE al guardar venta:", error);
+        console.error("ERROR CRÍTICO EN FIREBASE al ejecutar batch write en cobrarMesa:", error);
         throw error;
       }
     }

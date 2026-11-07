@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Product, ProductTaxType } from '../../types';
+import { Product, ProductTaxType, RecipeIngredient, PerishableItem } from '../../types';
 import {
   DEFAULT_IMPOCONSUMO_RATE,
   DEFAULT_IVA_RATE,
@@ -17,7 +17,10 @@ import {
   Trash2,
   CheckCircle2,
   RefreshCw,
-  Percent
+  Percent,
+  ChefHat,
+  Package,
+  Search
 } from 'lucide-react';
 import { compressImageFile } from '../../utils/imageCompressor';
 
@@ -50,7 +53,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
   productToEdit,
   onOpenSubscription
 }) => {
-  const { config, updateConfig, addProduct, updateProduct, canAddProduct } = useApp();
+  const { config, updateConfig, addProduct, updateProduct, canAddProduct, perishables } = useApp();
 
   const isEditing = !!productToEdit;
   const reachedLimit = !isEditing && !canAddProduct();
@@ -80,6 +83,81 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
   const [description, setDescription] = useState(productToEdit?.description || '');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Control de Inventario: Directo vs Con Receta / Preparado
+  const [tipoInventario, setTipoInventario] = useState<'directo' | 'receta'>(
+    productToEdit?.tipoInventario ||
+      (productToEdit?.receta && productToEdit.receta.length > 0 ? 'receta' : 'directo')
+  );
+  const [receta, setReceta] = useState<RecipeIngredient[]>(productToEdit?.receta || []);
+  const [selectedInsumoId, setSelectedInsumoId] = useState<string>('');
+  const [ingredientQty, setIngredientQty] = useState<string>('');
+
+  // Cálculo de escandallo: coste total y porciones disponibles según el insumo limitante en Despensa
+  const recipeBreakdown = React.useMemo<{
+    items: Array<
+      RecipeIngredient & {
+        pantryItem?: PerishableItem;
+        unitCost: number;
+        subtotal: number;
+        available: number;
+        portions: number;
+      }
+    >;
+    totalCost: number;
+    estimatedPortions: number;
+    limitingInsumo: { name: string; available: number; unit: string; maxPortions: number } | null;
+  }>(() => {
+    let totalCost = 0;
+    let minPortions = Infinity;
+    let limitingInsumo: { name: string; available: number; unit: string; maxPortions: number } | null = null;
+
+    const items = receta.map((ing) => {
+      const pantryItem = perishables.find((p) => p.id === ing.insumoId);
+      const unitCost = pantryItem?.costPerUnit ?? ing.costoUnitario ?? 0;
+      const subtotal = (Number(ing.cantidad) || 0) * unitCost;
+      totalCost += subtotal;
+
+      const available = pantryItem ? Number(pantryItem.quantity) || 0 : 0;
+      const required = Number(ing.cantidad) || 0;
+      const portions = required > 0 ? Math.floor(available / required) : 0;
+
+      if (portions < minPortions) {
+        minPortions = portions;
+        limitingInsumo = {
+          name: pantryItem?.name || ing.nombre,
+          available,
+          unit: pantryItem?.unit || ing.unidad,
+          maxPortions: portions
+        };
+      }
+
+      return {
+        ...ing,
+        pantryItem,
+        unitCost,
+        subtotal,
+        available,
+        portions
+      };
+    });
+
+    const estimatedPortions = receta.length === 0 ? 0 : (minPortions === Infinity ? 0 : minPortions);
+
+    return {
+      items,
+      totalCost,
+      estimatedPortions,
+      limitingInsumo
+    };
+  }, [receta, perishables]);
+
+  // Recalcular automáticamente el coste del producto sumando (insumo.cantidad * insumo.costoUnitario)
+  React.useEffect(() => {
+    if (tipoInventario === 'receta' && receta.length > 0) {
+      setCost(recipeBreakdown.totalCost > 0 ? String(Math.round(recipeBreakdown.totalCost * 100) / 100) : '0');
+    }
+  }, [tipoInventario, recipeBreakdown.totalCost, receta.length]);
+
   React.useEffect(() => {
     if (productToEdit) {
       setName(productToEdit.name || '');
@@ -103,6 +181,11 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       const resolved = resolveProductTax(productToEdit, config.defaultTaxRate);
       setTaxType(resolved.taxType);
       setTaxRate(String(resolved.taxRate));
+      setTipoInventario(
+        productToEdit.tipoInventario ||
+          (productToEdit.receta && productToEdit.receta.length > 0 ? 'receta' : 'directo')
+      );
+      setReceta(productToEdit.receta || []);
     } else {
       setName('');
       setCategory(config.categories.filter(c => c !== 'Todas las categorías')[0] || 'Tapas & Entrantes');
@@ -117,8 +200,58 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       setDescription('');
       setTaxType('impoconsumo');
       setTaxRate(String(config.defaultTaxRate || DEFAULT_IMPOCONSUMO_RATE));
+      setTipoInventario('directo');
+      setReceta([]);
     }
   }, [productToEdit, isOpen, config.categories, config.defaultTaxRate]);
+
+  const handleAddIngredient = () => {
+    setErrorMsg(null);
+    if (!selectedInsumoId) {
+      setErrorMsg('Selecciona un insumo de la Despensa.');
+      return;
+    }
+    const pantryItem = perishables.find(p => p.id === selectedInsumoId);
+    if (!pantryItem) {
+      setErrorMsg('Insumo no encontrado en la Despensa.');
+      return;
+    }
+    const numQty = parseFloat(ingredientQty);
+    if (!numQty || numQty <= 0) {
+      setErrorMsg(`Ingresa una cantidad mayor a 0 para ${pantryItem.name}.`);
+      return;
+    }
+
+    const existingIdx = receta.findIndex(r => r.insumoId === pantryItem.id);
+    if (existingIdx >= 0) {
+      const updated = [...receta];
+      updated[existingIdx] = {
+        ...updated[existingIdx],
+        cantidad: numQty,
+        unidad: pantryItem.unit,
+        costoUnitario: pantryItem.costPerUnit || 0
+      };
+      setReceta(updated);
+    } else {
+      setReceta(prev => [
+        ...prev,
+        {
+          insumoId: pantryItem.id,
+          nombre: pantryItem.name,
+          cantidad: numQty,
+          unidad: pantryItem.unit,
+          costoUnitario: pantryItem.costPerUnit || 0
+        }
+      ]);
+    }
+
+    setSelectedInsumoId('');
+    setIngredientQty('');
+  };
+
+  const handleRemoveIngredient = (insumoId: string) => {
+    setReceta(prev => prev.filter(r => r.insumoId !== insumoId));
+  };
 
   if (!isOpen) return null;
 
@@ -170,9 +303,12 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       });
     }
 
+    const isRecipeProduct = tipoInventario === 'receta';
     const numericPrice = parseFloat(price) || 0;
-    const numericCost = parseFloat(cost) || 0;
-    const numericStock = parseInt(stock, 10) || 0;
+    const numericCost = isRecipeProduct && recipeBreakdown.totalCost > 0
+      ? Math.round(recipeBreakdown.totalCost * 100) / 100
+      : (parseFloat(cost) || 0);
+    const numericStock = isRecipeProduct ? recipeBreakdown.estimatedPortions : (parseInt(stock, 10) || 0);
     const numericMinStock = parseInt(minStock, 10) || 5;
     const parsedTaxRate = taxType === 'exento' ? 0 : Math.max(0, parseFloat(taxRate));
     const finalTaxRate =
@@ -207,7 +343,9 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
         imageUrl: imageUrl.trim(),
         description: description.trim(),
         taxType: finalTaxType,
-        taxRate: finalTaxRate
+        taxRate: finalTaxRate,
+        tipoInventario,
+        receta: isRecipeProduct ? receta : []
       });
       onClose();
     } else {
@@ -222,7 +360,9 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
         imageUrl: imageUrl.trim() || PRESET_GASTRO_PHOTOS[0].url,
         description: description.trim(),
         taxType: finalTaxType,
-        taxRate: finalTaxRate
+        taxRate: finalTaxRate,
+        tipoInventario,
+        receta: isRecipeProduct ? receta : []
       });
 
       if (!res.success) {
@@ -404,8 +544,265 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
             )}
           </div>
 
+          {/* Selector de Tipo de Inventario: Directo vs Con Receta / Preparado */}
+          <div className="space-y-1.5 pt-1">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              Tipo de Control de Inventario
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={reachedLimit}
+                onClick={() => setTipoInventario('directo')}
+                className={`p-3 rounded-2xl border text-left transition flex items-start gap-3 cursor-pointer ${
+                  tipoInventario === 'directo'
+                    ? 'bg-orange-50/90 dark:bg-orange-950/40 border-orange-500 ring-2 ring-orange-500/30'
+                    : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 hover:border-slate-300'
+                }`}
+              >
+                <div className={`p-2 rounded-xl mt-0.5 shrink-0 ${
+                  tipoInventario === 'directo'
+                    ? 'bg-orange-600 text-white shadow-xs'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                }`}>
+                  <Package className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">Producto Directo</span>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                      Bebidas, snacks
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                    Control de stock manual por unidades (cervezas, refrescos, productos empacados).
+                  </p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                disabled={reachedLimit}
+                onClick={() => setTipoInventario('receta')}
+                className={`p-3 rounded-2xl border text-left transition flex items-start gap-3 cursor-pointer ${
+                  tipoInventario === 'receta'
+                    ? 'bg-orange-50/90 dark:bg-orange-950/40 border-orange-500 ring-2 ring-orange-500/30'
+                    : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/80 hover:border-slate-300'
+                }`}
+              >
+                <div className={`p-2 rounded-xl mt-0.5 shrink-0 ${
+                  tipoInventario === 'receta'
+                    ? 'bg-orange-600 text-white shadow-xs'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                }`}>
+                  <ChefHat className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">Producto Con Receta / Preparado</span>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-orange-100 dark:bg-orange-900/60 text-orange-700 dark:text-orange-300 font-bold">
+                      Hamburguesas, cocina
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                    Descuenta ingredientes de la Despensa y calcula porciones disponibles estimadas.
+                  </p>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Sección de Receta / Escandallo (solo si es Producto Con Receta) */}
+          {tipoInventario === 'receta' && (
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-br from-amber-50/90 via-orange-50/50 to-amber-50/40 dark:from-amber-950/30 dark:via-orange-950/20 dark:to-slate-900 border border-amber-200/90 dark:border-amber-800/60 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-orange-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                    <ChefHat className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                      Escandallo / Receta Conectada a Despensa
+                    </h4>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                      Selecciona los insumos requeridos por plato para costear y descontar inventario en lote.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Indicador Visual: Porciones Disponibles Estimadas */}
+                <div className="flex items-center gap-2">
+                  {receta.length > 0 ? (
+                    <div
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 shadow-xs ${
+                        recipeBreakdown.estimatedPortions > 5
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                          : recipeBreakdown.estimatedPortions > 0
+                          ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300'
+                          : 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                      }`}
+                    >
+                      <span className="font-mono text-sm font-black">{recipeBreakdown.estimatedPortions}</span>
+                      <span>porciones disponibles estimadas</span>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium italic">
+                      Añade insumos abajo para calcular porciones
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Insumo Limitante en Despensa */}
+              {receta.length > 0 && recipeBreakdown.limitingInsumo && (
+                <div className="text-[11px] flex items-center gap-2 p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-900/50 shadow-2xs">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-slate-700 dark:text-slate-300">
+                    <strong>Insumo limitante:</strong>{' '}
+                    <span className="font-bold text-orange-600 dark:text-orange-400">
+                      {recipeBreakdown.limitingInsumo.name}
+                    </span>{' '}
+                    (quedan{' '}
+                    <strong className="font-mono text-slate-900 dark:text-white">
+                      {recipeBreakdown.limitingInsumo.available} {recipeBreakdown.limitingInsumo.unit}
+                    </strong>{' '}
+                    en Despensa, alcanza para{' '}
+                    <strong className="font-mono text-slate-900 dark:text-white">
+                      {recipeBreakdown.limitingInsumo.maxPortions}
+                    </strong>{' '}
+                    platos).
+                  </span>
+                </div>
+              )}
+
+              {/* Selector / buscador inteligente conectado a la colección de despensa */}
+              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Search className="w-3.5 h-3.5 text-orange-500" />
+                    <span>Añadir Insumo desde la Despensa</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    {perishables.length} insumos registrados
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  <div className="sm:col-span-6">
+                    <select
+                      value={selectedInsumoId}
+                      onChange={(e) => setSelectedInsumoId(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="">-- Selecciona un insumo de Despensa --</option>
+                      {perishables.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} ({item.quantity} {item.unit} disp. · Costo: ${item.costPerUnit || 0}/{item.unit})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.0001"
+                        placeholder="Cantidad"
+                        value={ingredientQty}
+                        onChange={(e) => setIngredientQty(e.target.value)}
+                        className="w-full px-3 py-2 pr-12 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-mono font-bold"
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase">
+                        {perishables.find((p) => p.id === selectedInsumoId)?.unit || 'ud'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <button
+                      type="button"
+                      onClick={handleAddIngredient}
+                      disabled={!selectedInsumoId || !ingredientQty}
+                      className="w-full h-full py-2 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Agregar Insumo</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lista de Insumos Agregados a la Receta */}
+              {receta.length > 0 ? (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
+                      <tr>
+                        <th className="px-3 py-2">Insumo</th>
+                        <th className="px-3 py-2">Cant. por plato</th>
+                        <th className="px-3 py-2">Stock en Despensa</th>
+                        <th className="px-3 py-2">Coste Insumo</th>
+                        <th className="px-3 py-2 text-right">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                      {recipeBreakdown.items.map((ing) => (
+                        <tr key={ing.insumoId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">
+                            {ing.nombre}
+                          </td>
+                          <td className="px-3 py-2 font-mono font-bold text-orange-600 dark:text-orange-400">
+                            {ing.cantidad} {ing.unidad}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-300">
+                            <span className={ing.available <= 0 ? 'text-rose-600 font-bold' : ''}>
+                              {ing.available} {ing.unidad}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block">
+                              ({ing.portions} porciones)
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-mono font-bold text-slate-800 dark:text-slate-200">
+                            $ {new Intl.NumberFormat('es-CO').format(Math.round(ing.subtotal))}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveIngredient(ing.insumoId)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition cursor-pointer"
+                              title="Quitar de la receta"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-bold text-[11px]">
+                      <tr>
+                        <td colSpan={3} className="px-3 py-2 text-slate-600 dark:text-slate-300 text-right">
+                          Coste total calculado de la receta:
+                        </td>
+                        <td className="px-3 py-2 font-mono text-orange-600 dark:text-orange-400 font-black">
+                          $ {new Intl.NumberFormat('es-CO').format(Math.round(recipeBreakdown.totalCost))}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-3 text-center text-xs text-slate-400 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                  Ningún insumo vinculado a esta receta todavía. Selecciona uno arriba para comenzar.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Pricing & Costs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className={`grid gap-3 ${tipoInventario === 'receta' ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 PVP Venta ({config.currency})
@@ -422,35 +819,47 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Coste ({config.currency})
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Coste ({config.currency})
+                </label>
+                {tipoInventario === 'receta' && receta.length > 0 && (
+                  <span className="text-[10px] text-orange-600 dark:text-orange-400 font-bold">
+                    (Auto Receta)
+                  </span>
+                )}
+              </div>
               <input
                 type="number"
                 step="any"
-                disabled={reachedLimit}
+                disabled={reachedLimit || (tipoInventario === 'receta' && receta.length > 0)}
                 value={cost}
                 onChange={(e) => setCost(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
+                className={`w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums focus:outline-hidden focus:ring-2 focus:ring-orange-500/50 ${
+                  tipoInventario === 'receta' && receta.length > 0 ? 'bg-orange-50/50 dark:bg-orange-950/20 font-bold' : ''
+                }`}
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Stock Actual
-              </label>
-              <input
-                type="number"
-                disabled={reachedLimit}
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums font-bold focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
-              />
-            </div>
+            {/* Si es Producto Directo: se muestra el input manual de Stock Actual */}
+            {tipoInventario === 'directo' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Stock Actual
+                </label>
+                <input
+                  type="number"
+                  disabled={reachedLimit}
+                  value={stock}
+                  onChange={(e) => setStock(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white text-xs sm:text-sm font-mono tabular-nums font-bold focus:outline-hidden focus:ring-2 focus:ring-orange-500/50"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Aviso Stock Mínimo
+                {tipoInventario === 'receta' ? 'Aviso Porciones Mínimas' : 'Aviso Stock Mínimo'}
               </label>
               <input
                 type="number"

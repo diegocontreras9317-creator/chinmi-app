@@ -24,7 +24,7 @@ import {
 import { calculateOrderTaxBreakdown, resolveOrderItemTax } from '../../utils/taxes';
 import { auth, db } from '../../firebase';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
-import { sanitizeForFirestore } from '../../services/firestoreUserStorage';
+import { sanitizeForFirestore, executeSaleCheckoutBatch } from '../../services/firestoreUserStorage';
 import {
   X,
   CreditCard,
@@ -56,7 +56,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   table,
   onSuccessCheckout
 }) => {
-  const { config, products, sales, checkoutTable } = useApp();
+  const { config, products, sales, checkoutTable, perishables } = useApp();
   const { user, empleadoActivo } = useAuth();
   const knownCustomers = useMemo(() => extractKnownCustomersFromSales(sales), [sales]);
 
@@ -296,45 +296,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     });
 
     try {
-      const ventaRef = doc(db, 'users', activeUid, 'ventas', receiptId);
-      await setDoc(ventaRef, receiptPayload, { merge: true });
-
-      const tableFreeData = sanitizeForFirestore({
-        id: table.id,
-        status: 'libre',
-        estado: 'libre',
-        order: null,
-        currentOrder: null,
-        pedidoActual: null,
-        waiterCall: null,
-        updatedAt: nowIso,
-        userId: activeUid
+      await executeSaleCheckoutBatch({
+        uid: activeUid,
+        tableId: table.id,
+        orderId: order.id,
+        receipt: receiptPayload as unknown as SaleReceipt,
+        orderItems: enrichedItems,
+        productsCatalog: products,
+        perishablesList: perishables
       });
-      const mesaRef = doc(db, 'users', activeUid, 'mesas', table.id);
-      await setDoc(mesaRef, tableFreeData, { merge: true });
-
-      const orderClosedData = sanitizeForFirestore({
-        id: order.id,
-        estado: 'pagada',
-        status: 'pagada',
-        closed: true,
-        closedAt: nowIso,
-        cobradoPor: activeCashierName,
-        cobradoPorRol: activeCashierRole,
-        customerName: resolvedBilling.customerName,
-        billingInfo: resolvedBilling,
-        items: [],
-        productos: []
-      });
-
-      const pedidoRef = doc(db, 'users', activeUid, 'pedidos', order.id);
-      try {
-        await updateDoc(pedidoRef, orderClosedData);
-      } catch {
-        await setDoc(pedidoRef, orderClosedData, { merge: true });
-      }
     } catch (error) {
-      console.error('Error al sincronizar el cobro en Firebase:', error);
+      console.error('Error al sincronizar el cobro en Firebase con writeBatch:', error);
       setCheckoutError(
         'Error al registrar el cobro en la nube: ' +
           (error instanceof Error ? error.message : String(error))

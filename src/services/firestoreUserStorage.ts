@@ -9,10 +9,11 @@ import {
   Unsubscribe,
   getDoc,
   query,
-  where
+  where,
+  writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, Empleado, Supplier, SupplierOrder } from '../types';
+import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, OrderItem, Empleado, Supplier, SupplierOrder } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -954,6 +955,215 @@ export async function saveSaleToFirestore(sale: SaleReceipt, targetUid?: string)
     console.error("ERROR CRÍTICO EN FIREBASE:", error);
     throw error;
   }
+}
+
+export interface SaleBatchResult {
+  updatedProducts: Product[];
+  updatedPerishables: PerishableItem[];
+  lowStockAlerts: Array<{
+    insumoId: string;
+    nombre: string;
+    remaining: number;
+    minStock: number;
+    isOut: boolean;
+  }>;
+}
+
+/**
+ * Procesa la venta y el descuento de inventario mediante Firestore writeBatch:
+ * - Para productos 'directo': descuenta stock de menu/{id} y productos/{id}.
+ * - Para productos 'receta': por cada ingrediente en receta, descuenta (insumo.cantidad * soldQty)
+ *   del campo cantidadActual y quantity en users/{uid}/inventario/{insumoId} y despensa/{insumoId}.
+ * - Si un insumo llega a 0 o por debajo de alertaStockMinimo, se marca hasLowStockAlert en Firestore.
+ * - Registra la venta en users/{uid}/ventas/{sale.id}.
+ * - Libera la mesa en users/{uid}/mesas/{tableId}.
+ * - Cierra la comanda en users/{uid}/pedidos/{orderId}.
+ */
+export async function executeSaleCheckoutBatch(params: {
+  uid: string;
+  tableId: string;
+  orderId?: string;
+  receipt: SaleReceipt;
+  orderItems: OrderItem[];
+  productsCatalog: Product[];
+  perishablesList: PerishableItem[];
+}): Promise<SaleBatchResult> {
+  const { uid, tableId, orderId, receipt, orderItems, productsCatalog, perishablesList } = params;
+  if (!uid) {
+    console.error('ERROR CRÍTICO: No se pudo resolver UID en executeSaleCheckoutBatch');
+    throw new Error('executeSaleCheckoutBatch abortado: UID no autenticado');
+  }
+
+  const batch = writeBatch(db);
+  const nowIso = new Date().toISOString();
+
+  // 1. Acumular cantidades vendidas
+  const directDeductions: Record<string, number> = {};
+  const insumoDeductions: Record<string, number> = {};
+
+  orderItems.forEach((item) => {
+    const qty = Number(item.quantity) || 0;
+    if (qty <= 0) return;
+
+    const prod = productsCatalog.find((p) => p.id === item.productId || p.name === item.name);
+    if (!prod) return;
+
+    if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
+      // Producto con receta: descontar insumos de despensa
+      prod.receta.forEach((ing) => {
+        const insumoRequired = (Number(ing.cantidad) || 0) * qty;
+        if (insumoRequired > 0 && ing.insumoId) {
+          insumoDeductions[ing.insumoId] = (insumoDeductions[ing.insumoId] || 0) + insumoRequired;
+        }
+      });
+    } else {
+      // Producto directo: descontar stock de catálogo
+      directDeductions[prod.id] = (directDeductions[prod.id] || 0) + qty;
+    }
+  });
+
+  // 2. Preparar deducciones de insumos en Despensa / Inventario
+  const lowStockAlerts: SaleBatchResult['lowStockAlerts'] = [];
+  const updatedPerishables = perishablesList.map((item) => {
+    const deduct = insumoDeductions[item.id];
+    if (deduct !== undefined && deduct > 0) {
+      const remaining = Math.max(0, (Number(item.quantity) || 0) - deduct);
+      const minStock = Number(item.minStock) || 0;
+      const isLow = remaining <= minStock;
+      const isOut = remaining <= 0;
+
+      if (isLow || isOut) {
+        lowStockAlerts.push({
+          insumoId: item.id,
+          nombre: item.name,
+          remaining,
+          minStock,
+          isOut
+        });
+      }
+
+      const invData = sanitizeForFirestore({
+        quantity: remaining,
+        cantidadActual: remaining,
+        alertaStockMinimo: minStock,
+        hasLowStockAlert: isLow,
+        isOutOfStock: isOut,
+        lastUpdated: nowIso
+      });
+
+      // Actualizar en users/{uid}/inventario
+      const invRef = doc(db, 'users', uid, 'inventario', item.id);
+      batch.set(invRef, invData, { merge: true });
+
+      // Actualizar en users/{uid}/despensa para compatibilidad total
+      const despensaRef = doc(db, 'users', uid, 'despensa', item.id);
+      batch.set(despensaRef, { id: item.id, ...invData }, { merge: true });
+
+      return {
+        ...item,
+        quantity: remaining,
+        cantidadActual: remaining,
+        alertaStockMinimo: minStock
+      };
+    }
+    return item;
+  });
+
+  // 3. Preparar deducciones de productos directos y recalcular porciones de recetas
+  const updatedProducts = productsCatalog.map((prod) => {
+    if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
+      // Recalcular porciones disponibles estimadas según stock restante de insumos
+      let minPortions = Infinity;
+      prod.receta.forEach((ing) => {
+        const found = updatedPerishables.find((p) => p.id === ing.insumoId);
+        const avail = found ? found.quantity : 0;
+        const req = Number(ing.cantidad) || 0;
+        const portions = req > 0 ? Math.floor(avail / req) : 0;
+        if (portions < minPortions) minPortions = portions;
+      });
+      const estimatedStock = minPortions === Infinity ? 0 : minPortions;
+
+      const menuRef = doc(db, 'users', uid, 'menu', prod.id);
+      const prodRef = doc(db, 'users', uid, 'productos', prod.id);
+      batch.set(menuRef, { stock: estimatedStock, lastUpdated: nowIso }, { merge: true });
+      batch.set(prodRef, { stock: estimatedStock, lastUpdated: nowIso }, { merge: true });
+
+      return {
+        ...prod,
+        stock: estimatedStock
+      };
+    }
+
+    const deduct = directDeductions[prod.id];
+    if (deduct !== undefined && deduct > 0) {
+      const remainingStock = Math.max(0, (Number(prod.stock) || 0) - deduct);
+      const menuRef = doc(db, 'users', uid, 'menu', prod.id);
+      const prodRef = doc(db, 'users', uid, 'productos', prod.id);
+      batch.set(menuRef, { stock: remainingStock, lastUpdated: nowIso }, { merge: true });
+      batch.set(prodRef, { stock: remainingStock, lastUpdated: nowIso }, { merge: true });
+
+      return {
+        ...prod,
+        stock: remainingStock
+      };
+    }
+    return prod;
+  });
+
+  // 4. Guardar Venta
+  const saleRef = doc(db, 'users', uid, 'ventas', receipt.id);
+  batch.set(saleRef, sanitizeForFirestore({ ...receipt, userId: uid }), { merge: true });
+
+  // 5. Liberar Mesa
+  const tableRef = doc(db, 'users', uid, 'mesas', tableId);
+  batch.set(
+    tableRef,
+    sanitizeForFirestore({
+      id: tableId,
+      status: 'libre',
+      estado: 'libre',
+      order: null,
+      currentOrder: null,
+      pedidoActual: null,
+      waiterCall: null,
+      updatedAt: nowIso,
+      userId: uid
+    }),
+    { merge: true }
+  );
+
+  // 6. Cerrar Comanda
+  if (orderId) {
+    const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
+    batch.set(
+      orderRef,
+      sanitizeForFirestore({
+        id: orderId,
+        estado: 'pagada',
+        status: 'pagada',
+        closed: true,
+        closedAt: nowIso,
+        items: [],
+        productos: []
+      }),
+      { merge: true }
+    );
+  }
+
+  // 7. Ejecutar transacción / Batch Write atómico
+  try {
+    await batch.commit();
+    console.log('Éxito al ejecutar executeSaleCheckoutBatch en Firebase para venta:', receipt.id);
+  } catch (error) {
+    console.error('ERROR CRÍTICO EN FIREBASE al ejecutar batch write de venta:', error);
+    throw error;
+  }
+
+  return {
+    updatedProducts,
+    updatedPerishables,
+    lowStockAlerts
+  };
 }
 
 /**

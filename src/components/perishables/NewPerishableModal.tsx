@@ -276,9 +276,9 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
     onSave({
       name: name.trim(),
       category: finalCategory,
-      quantity: Number(quantity),
+      quantity: Math.round(Number(quantity)) || 0,
       unit,
-      minStock: Number(minStock) || 0,
+      minStock: Math.round(Number(minStock)) || 0,
       entryDate,
       expiryDate,
       location: finalLocation,
@@ -417,11 +417,11 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
               </label>
               <input
                 type="number"
-                step="0.01"
+                step="1"
                 min="0"
                 required
                 value={quantity}
-                onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
+                onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold"
               />
             </div>
@@ -449,10 +449,10 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
               </label>
               <input
                 type="number"
-                step="0.01"
+                step="1"
                 min="0"
                 value={minStock}
-                onChange={(e) => setMinStock(parseFloat(e.target.value) || 0)}
+                onChange={(e) => setMinStock(parseInt(e.target.value, 10) || 0)}
                 className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
               />
             </div>

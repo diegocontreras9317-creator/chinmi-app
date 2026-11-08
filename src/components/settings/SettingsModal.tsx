@@ -30,7 +30,8 @@ import {
   BellRing,
   Upload,
   Image as ImageIcon,
-  Palette
+  Palette,
+  Utensils
 } from 'lucide-react';
 import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
 
@@ -90,6 +91,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [allowRequestBill, setAllowRequestBill] = useState(config.qrSettings?.allowRequestBill ?? true);
   const [menuOnlyMode, setMenuOnlyMode] = useState(config.qrSettings?.menuOnlyMode ?? false);
   const [qrTheme, setQrTheme] = useState<QrThemeId>(config.qrSettings?.qrTheme || 'default_normal');
+  const [menuViewMode, setMenuViewMode] = useState<'list' | 'small' | 'medium' | 'large'>(config.qrSettings?.menuViewMode || 'medium');
+  const [categories, setCategories] = useState<string[]>(config.categories || []);
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -106,6 +110,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setAllowRequestBill(config.qrSettings?.allowRequestBill ?? true);
       setMenuOnlyMode(config.qrSettings?.menuOnlyMode ?? false);
       setQrTheme(config.qrSettings?.qrTheme || 'default_normal');
+      setMenuViewMode(config.qrSettings?.menuViewMode || 'medium');
+      setCategories(config.categories || []);
     }
   }, [isOpen, config]);
 
@@ -138,12 +144,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       currency: currency.trim() || '€',
       defaultTaxRate: Number(defaultTaxRate) || 10,
       logoUrl: logoUrl.trim(),
+      categories: categories.filter(Boolean),
       qrSettings: {
         allowOrdering: menuOnlyMode ? false : allowOrdering,
         allowCallWaiter,
         allowRequestBill,
         menuOnlyMode,
-        qrTheme
+        qrTheme,
+        menuViewMode
       }
     });
 
@@ -830,6 +838,105 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* Formato de Visualización Inicial (Modo de Vista) */}
+            <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
+                  Formato de Visualización Inicial para el Cliente
+                </h4>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Elige cómo se verán los productos al abrir la carta QR (el cliente también podrá cambiarlo en su pantalla):
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { id: 'list', name: 'Lista', desc: 'Compacto en filas' },
+                  { id: 'small', name: 'Pequeño', desc: 'Cuadrícula pequeña' },
+                  { id: 'medium', name: 'Mediano', desc: 'Tarjetas estándar' },
+                  { id: 'large', name: 'Grande', desc: 'Prominente / Banner' }
+                ].map(mode => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setMenuViewMode(mode.id as any)}
+                    className={`p-3 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between ${
+                      menuViewMode === mode.id
+                        ? 'border-rose-900 ring-2 ring-rose-900/40 bg-rose-50/20 dark:bg-slate-800 shadow-xs'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 bg-white dark:bg-slate-900'
+                    }`}
+                  >
+                    <span className="font-bold text-xs text-slate-900 dark:text-white">{mode.name}</span>
+                    <span className="text-[10px] text-slate-500 mt-1">{mode.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Gestión y Eliminación de Categorías */}
+            <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Utensils className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
+                  Categorías de la Carta Digital (Añadir / Eliminar no utilizadas)
+                </h4>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Organiza las categorías que aparecen en la carta QR. Puedes eliminar las que no utilices y crear nuevas:
+              </p>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="Nueva categoría (ej. Coctelería Artesanal)..."
+                  className="flex-1 px-3 py-2 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const trimmed = newCategoryName.trim();
+                    if (!trimmed) return;
+                    if (categories.includes(trimmed)) {
+                      alert('Esta categoría ya existe.');
+                      return;
+                    }
+                    setCategories([...categories, trimmed]);
+                    setNewCategoryName('');
+                  }}
+                  className="px-4 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs shadow-xs cursor-pointer whitespace-nowrap"
+                >
+                  Añadir
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 pt-1 max-h-36 overflow-y-auto p-2 bg-slate-50 dark:bg-slate-850 rounded-lg border border-slate-200 dark:border-slate-800">
+                {categories.map((cat) => (
+                  <div
+                    key={cat}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-800 dark:text-slate-200 shadow-xs"
+                  >
+                    <span>{cat}</span>
+                    {cat !== 'Todas las categorías' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`¿Eliminar la categoría "${cat}"?`)) {
+                            setCategories(categories.filter(c => c !== cat));
+                          }
+                        }}
+                        title="Eliminar categoría"
+                        className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
 

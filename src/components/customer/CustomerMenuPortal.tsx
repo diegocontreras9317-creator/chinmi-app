@@ -145,6 +145,30 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const canCallWaiter = qrSettings.allowCallWaiter !== false;
   const canRequestBill = qrSettings.allowRequestBill !== false;
 
+  const [menuViewMode, setMenuViewMode] = useState<'list' | 'small' | 'medium' | 'large'>(() => {
+    return qrSettings.menuViewMode || 'medium';
+  });
+
+  useEffect(() => {
+    if (qrSettings.menuViewMode) {
+      setMenuViewMode(qrSettings.menuViewMode);
+    }
+  }, [qrSettings.menuViewMode]);
+
+  const categoriesList = useMemo(() => {
+    const base = config.categories || [
+      'Todas las categorías',
+      'Cervezas & Vinos',
+      'Bebidas & Refrescos',
+      'Tapas & Entrantes',
+      'Platos Principales',
+      'Cafés & Postres',
+      'Licores & Cócteles'
+    ];
+    const dynamicCats = activeProducts.map(p => p.category).filter(Boolean);
+    return ['Todas las categorías', ...Array.from(new Set([...base.filter(c => c !== 'Todas las categorías'), ...dynamicCats]))];
+  }, [config.categories, activeProducts]);
+
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas las categorías');
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -982,7 +1006,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
           {/* Smooth Scrollable Categories */}
           <CategoryScrollBar
-            categories={config.categories}
+            categories={categoriesList}
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
             activeClass={theme.categoryActiveBg}
@@ -990,15 +1014,34 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
           />
         </div>
 
-        {/* Products List */}
+        {/* Products List & View Mode Switcher */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between px-1">
+          <div className="flex items-center justify-between px-1 flex-wrap gap-2">
             <h3 className={`font-extrabold text-sm ${theme.textClass} flex items-center gap-1.5`}>
               <span>{selectedCategory}</span>
               <span className="text-xs opacity-60 font-normal">
                 ({filteredProducts.length} {filteredProducts.length === 1 ? 'producto' : 'productos'})
               </span>
             </h3>
+
+            {/* View Mode Selector */}
+            <div className="flex items-center gap-1 bg-slate-200/60 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px]">
+              {(['list', 'small', 'medium', 'large'] as const).map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setMenuViewMode(mode)}
+                  className={`px-2.5 py-1 rounded-md font-bold transition cursor-pointer capitalize ${
+                    menuViewMode === mode
+                      ? `${theme.accentBg} text-white shadow-xs`
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title={`Vista ${mode}`}
+                >
+                  {mode === 'list' ? 'Lista' : mode === 'small' ? 'Pequeño' : mode === 'medium' ? 'Mediano' : 'Grande'}
+                </button>
+              ))}
+            </div>
           </div>
 
           {filteredProducts.length === 0 ? (
@@ -1012,11 +1055,258 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div
+              className={
+                menuViewMode === 'list'
+                  ? 'space-y-2'
+                  : menuViewMode === 'small'
+                  ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5'
+                  : menuViewMode === 'large'
+                  ? 'grid grid-cols-1 gap-4'
+                  : 'grid grid-cols-1 sm:grid-cols-2 gap-3.5'
+              }
+            >
               {filteredProducts.map((product) => {
                 const isOutOfStock = product.stock <= 0;
                 const inCartItem = cart.find(c => c.product.id === product.id);
 
+                // 1. LIST VIEW MODE
+                if (menuViewMode === 'list') {
+                  return (
+                    <div
+                      key={product.id}
+                      className={`p-2.5 sm:p-3 rounded-md ${theme.cardBg} border transition flex items-center justify-between gap-3 ${
+                        isOutOfStock ? 'opacity-65 border-slate-200 dark:border-slate-800' : `${theme.cardBorder} shadow-xs ${theme.cardHoverBorder}`
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div
+                          onClick={() => openProductDetail(product)}
+                          className="w-14 h-14 rounded-md overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 relative cursor-pointer border border-slate-200/60 dark:border-slate-700/60"
+                        >
+                          <img
+                            src={product.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=200&q=80'}
+                            alt={product.name}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          {isOutOfStock && (
+                            <div className="absolute inset-0 bg-black/65 flex items-center justify-center p-0.5 text-center">
+                              <span className="text-[8px] font-black text-rose-300 uppercase">Agotado</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <h4
+                            onClick={() => openProductDetail(product)}
+                            className={`font-bold text-xs sm:text-sm ${theme.textClass} truncate cursor-pointer hover:opacity-80`}
+                          >
+                            {product.name}
+                          </h4>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`font-mono font-bold text-xs ${theme.priceText}`}>
+                              {formatCOP(product.price)}
+                            </span>
+                            <span className="text-[10px] opacity-60">({resolveProductTax(product, taxRate).shortLabel} incl.)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {canOrder && (
+                        <div className="shrink-0">
+                          {inCartItem ? (
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-md border border-slate-200 dark:border-slate-700">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const idx = cart.findIndex(c => c.product.id === product.id);
+                                  if (idx > -1) handleUpdateCartQuantity(idx, -1);
+                                }}
+                                className="w-5 h-5 rounded bg-white dark:bg-slate-700 flex items-center justify-center text-xs"
+                              >
+                                -
+                              </button>
+                              <span className="w-4 text-center font-bold text-xs">{inCartItem.quantity}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleAddToCart(product)}
+                                className={`w-5 h-5 rounded ${theme.accentBg} text-white flex items-center justify-center text-xs`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleAddToCart(product)}
+                              disabled={isOutOfStock}
+                              className={`px-3 py-1.5 rounded-md ${theme.accentBg} font-bold text-xs shadow-xs disabled:opacity-40 cursor-pointer`}
+                            >
+                              Añadir
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // 2. SMALL VIEW MODE
+                if (menuViewMode === 'small') {
+                  return (
+                    <div
+                      key={product.id}
+                      className={`p-2.5 rounded-md ${theme.cardBg} border transition flex flex-col justify-between ${
+                        isOutOfStock ? 'opacity-65 border-slate-200 dark:border-slate-800' : `${theme.cardBorder} shadow-xs ${theme.cardHoverBorder}`
+                      }`}
+                    >
+                      <div>
+                        <div
+                          onClick={() => openProductDetail(product)}
+                          className="w-full h-24 rounded-md overflow-hidden bg-slate-100 dark:bg-slate-800 relative cursor-pointer mb-2 border border-slate-200/60 dark:border-slate-700/60"
+                        >
+                          <img
+                            src={product.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=300&q=80'}
+                            alt={product.name}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          {isOutOfStock && (
+                            <div className="absolute inset-0 bg-black/65 flex items-center justify-center p-1 text-center">
+                              <span className="text-[9px] font-black text-rose-300 uppercase">Agotado</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <h4
+                          onClick={() => openProductDetail(product)}
+                          className={`font-bold text-xs ${theme.textClass} line-clamp-2 cursor-pointer hover:opacity-80 leading-snug mb-1`}
+                        >
+                          {product.name}
+                        </h4>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-1">
+                        <span className={`font-mono font-black text-xs ${theme.priceText}`}>
+                          {formatCOP(product.price)}
+                        </span>
+                        {canOrder && (
+                          <button
+                            type="button"
+                            onClick={() => handleAddToCart(product)}
+                            disabled={isOutOfStock}
+                            className={`p-1.5 rounded-md ${theme.accentBg} text-white font-bold text-xs shadow-xs disabled:opacity-40 cursor-pointer`}
+                            title="Añadir"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // 3. LARGE VIEW MODE
+                if (menuViewMode === 'large') {
+                  return (
+                    <div
+                      key={product.id}
+                      className={`rounded-xl overflow-hidden ${theme.cardBg} border transition ${
+                        isOutOfStock ? 'opacity-65 border-slate-200 dark:border-slate-800' : `${theme.cardBorder} shadow-md ${theme.cardHoverBorder}`
+                      }`}
+                    >
+                      <div
+                        onClick={() => openProductDetail(product)}
+                        className="w-full h-48 sm:h-56 relative cursor-pointer bg-slate-100 dark:bg-slate-800"
+                      >
+                        <img
+                          src={product.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=800&q=80'}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/20" />
+                        <div className="absolute top-3 left-3">
+                          <span className="px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-xs text-white text-[10px] font-black uppercase tracking-wider border border-white/20">
+                            {product.category}
+                          </span>
+                        </div>
+                        {isOutOfStock && (
+                          <div className="absolute inset-0 bg-black/75 flex items-center justify-center p-4 text-center">
+                            <span className="text-sm font-black text-rose-300 uppercase tracking-widest">Temporalmente Agotado</span>
+                          </div>
+                        )}
+                        <div className="absolute bottom-3 left-4 right-4 text-white">
+                          <h4 className="font-extrabold text-base sm:text-lg leading-tight mb-1 drop-shadow-md">
+                            {product.name}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-black text-base text-amber-300 drop-shadow-md">
+                              {formatCOP(product.price)}
+                            </span>
+                            <span className="text-[11px] text-white/80 font-semibold">
+                              ({resolveProductTax(product, taxRate).shortLabel} incl.)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-4 space-y-3">
+                        {product.description && (
+                          <p className="text-xs opacity-80 leading-relaxed">
+                            {product.description}
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+                          <span className="text-xs font-semibold opacity-70">
+                            {isOutOfStock ? <span className="text-rose-500 font-bold">Agotado hoy</span> : 'Disponible para pedir'}
+                          </span>
+
+                          {canOrder && (
+                            <div className="flex items-center gap-2">
+                              {inCartItem ? (
+                                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const idx = cart.findIndex(c => c.product.id === product.id);
+                                      if (idx > -1) handleUpdateCartQuantity(idx, -1);
+                                    }}
+                                    className="w-7 h-7 rounded-md bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-xs"
+                                  >
+                                    <Minus className="w-3.5 h-3.5" />
+                                  </button>
+                                  <span className="w-6 text-center font-bold text-xs">{inCartItem.quantity}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddToCart(product)}
+                                    className={`w-7 h-7 rounded-md ${theme.accentBg} text-white flex items-center justify-center shadow-xs`}
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddToCart(product)}
+                                  disabled={isOutOfStock}
+                                  className={`py-2 px-4 rounded-lg ${theme.accentBg} ${theme.accentHoverBg} font-extrabold text-xs text-white shadow-xs flex items-center gap-1.5 disabled:opacity-40 cursor-pointer`}
+                                >
+                                  <Plus className="w-4 h-4" />
+                                  <span>Añadir al Pedido</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // 4. MEDIUM VIEW MODE (Default)
                 return (
                   <div
                     key={product.id}

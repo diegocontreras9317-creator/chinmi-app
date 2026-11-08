@@ -11,6 +11,7 @@ export interface QrMenuSettings {
   allowRequestBill: boolean;  // Opción de pedir la cuenta
   menuOnlyMode: boolean;      // Modo sólo ver menú (desactiva pedidos desde QR)
   qrTheme?: QrThemeId;        // Tema visual para la carta QR del cliente
+  menuViewMode?: 'list' | 'small' | 'medium' | 'large'; // Modo de visualización de productos
 }
 
 export interface AppConfig {
@@ -67,6 +68,7 @@ export const defaultAppConfig: AppConfig = {
     allowCallWaiter: true,
     allowRequestBill: true,
     menuOnlyMode: false,
-    qrTheme: 'default_normal'
+    qrTheme: 'default_normal',
+    menuViewMode: 'medium'
   }
 };

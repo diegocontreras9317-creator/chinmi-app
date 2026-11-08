@@ -21,7 +21,9 @@ import {
   Users,
   Camera,
   Trash2,
-  Upload
+  Upload,
+  Lock,
+  X
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -105,8 +107,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
 
-            {/* 3. Contenedor con Scroll Horizontal (Fallback) y espaciados responsivos */}
-            <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4 overflow-x-auto whitespace-nowrap scrollbar-hide w-full justify-end flex-1 min-w-0 py-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            {/* 3. Contenedor de Botones y Acciones Superiores */}
+            <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4 overflow-visible whitespace-nowrap w-full justify-end flex-1 min-w-0 py-1">
               
               {/* 1. Actualizar (Cloud Sync) */}
               <button
@@ -188,92 +190,98 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 {/* Popup de Notificaciones */}
                 {showNotifications && (
-                  <div
-                    className="absolute right-0 mt-2 w-72 sm:w-96 bg-white dark:bg-slate-900 rounded-md shadow-2xl border border-slate-200 dark:border-slate-800 py-3 px-3 z-50 animate-in fade-in slide-in-from-top-2 text-xs"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 px-1">
-                      <div className="flex items-center gap-2">
-                        <BellRing className="w-4 h-4 text-rose-900 dark:text-rose-400" />
-                        <span className="font-bold text-sm text-slate-900 dark:text-white">
-                          Llamadas de Clientes
+                  <>
+                    <div
+                      className="fixed inset-0 z-40 bg-black/10"
+                      onClick={() => setShowNotifications(false)}
+                    />
+                    <div
+                      className="fixed top-14 sm:top-16 right-2 sm:right-28 w-72 sm:w-96 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 py-3.5 px-3.5 z-50 animate-in fade-in zoom-in-95 duration-150 text-xs"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 px-1">
+                        <div className="flex items-center gap-2">
+                          <BellRing className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                          <span className="font-bold text-sm text-slate-900 dark:text-white">
+                            Llamadas de Clientes
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 dark:bg-slate-800 text-rose-900 dark:text-rose-300 border border-stone-200 dark:border-slate-700">
+                          {callingTables.length} activas
                         </span>
                       </div>
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-stone-100 dark:bg-slate-800 text-rose-900 dark:text-rose-300 border border-stone-200 dark:border-slate-700">
-                        {callingTables.length} activas
-                      </span>
-                    </div>
 
-                    {callingTables.length === 0 ? (
-                      <div className="py-6 text-center text-slate-400 dark:text-slate-500">
-                        <UtensilsCrossed className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                        <p className="font-semibold text-xs text-slate-600 dark:text-slate-400">Sin llamadas pendientes</p>
-                        <p className="text-[11px] mt-0.5">Cuando un comensal llame al mesero o pida la cuenta desde el QR, aparecerá aquí.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                        {callingTables.map((tbl) => {
-                          const call = tbl.waiterCall!;
-                          const isBill = call.type === 'bill';
+                      {callingTables.length === 0 ? (
+                        <div className="py-6 text-center text-slate-400 dark:text-slate-500">
+                          <UtensilsCrossed className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                          <p className="font-semibold text-xs text-slate-600 dark:text-slate-400">Sin llamadas pendientes</p>
+                          <p className="text-[11px] mt-0.5">Cuando un comensal llame al mesero o pida la cuenta desde el QR, aparecerá aquí.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                          {callingTables.map((tbl) => {
+                            const call = tbl.waiterCall!;
+                            const isBill = call.type === 'bill';
 
-                          return (
-                            <div
-                              key={tbl.id}
-                              className={`p-2.5 rounded-md border flex flex-col gap-1.5 ${
-                                isBill
-                                  ? 'bg-stone-50 dark:bg-slate-800/80 border-stone-200 dark:border-slate-700'
-                                  : 'bg-amber-50/60 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-xs text-slate-900 dark:text-white">
-                                    Mesa {tbl.number} ({tbl.zone})
-                                  </span>
-                                  <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
-                                    isBill
-                                      ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-200'
-                                      : 'bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200'
-                                  }`}>
-                                    {isBill ? '💳 Pide Cuenta' : '🛎️ Llama Mesero'}
-                                  </span>
+                            return (
+                              <div
+                                key={tbl.id}
+                                className={`p-2.5 rounded-md border flex flex-col gap-1.5 ${
+                                  isBill
+                                    ? 'bg-stone-50 dark:bg-slate-800/80 border-stone-200 dark:border-slate-700'
+                                    : 'bg-amber-50/60 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-xs text-slate-900 dark:text-white">
+                                      Mesa {tbl.number} ({tbl.zone})
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
+                                      isBill
+                                        ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-200'
+                                        : 'bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200'
+                                    }`}>
+                                      {isBill ? '💳 Pide Cuenta' : '🛎️ Llama Mesero'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {call.message && (
+                                  <p className="text-[11px] text-slate-700 dark:text-slate-300 italic">
+                                    "{call.message}"
+                                  </p>
+                                )}
+
+                                <div className="flex items-center justify-end gap-1.5 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => dismissWaiterCall(tbl.id)}
+                                    className="px-2 py-1 rounded-md text-[10px] font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                                  >
+                                    Marcar Atendido
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedTableId(tbl.id);
+                                      setActiveTab('tables');
+                                      setShowNotifications(false);
+                                    }}
+                                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold text-white transition cursor-pointer ${
+                                      isBill ? 'bg-rose-900 hover:bg-rose-800' : 'bg-amber-600 hover:bg-amber-700'
+                                    }`}
+                                  >
+                                    Ir a Mesa
+                                  </button>
                                 </div>
                               </div>
-
-                              {call.message && (
-                                <p className="text-[11px] text-slate-700 dark:text-slate-300 italic">
-                                  "{call.message}"
-                                </p>
-                              )}
-
-                              <div className="flex items-center justify-end gap-1.5 pt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => dismissWaiterCall(tbl.id)}
-                                  className="px-2 py-1 rounded-md text-[10px] font-semibold bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-                                >
-                                  Marcar Atendido
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedTableId(tbl.id);
-                                    setActiveTab('tables');
-                                    setShowNotifications(false);
-                                  }}
-                                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold text-white transition cursor-pointer ${
-                                    isBill ? 'bg-rose-900 hover:bg-rose-800' : 'bg-amber-600 hover:bg-amber-700'
-                                  }`}
-                                >
-                                  Ir a Mesa
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
 
@@ -306,16 +314,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   type="button"
                   id="btn-user-avatar-action"
-                  onClick={() => setAvatarMenuOpen(!avatarMenuOpen)}
+                  onClick={() => setAvatarMenuOpen(prev => !prev)}
                   title={`Opciones de cuenta personal (${user?.name || 'Usuario'})`}
-                  className="flex items-center gap-1.5 sm:gap-2 p-1 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-stone-100 dark:hover:bg-stone-800/60 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all active:scale-95 shrink-0 shadow-xs group"
+                  className="flex items-center gap-1.5 sm:gap-2 p-1 sm:p-1.5 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-stone-100 dark:hover:bg-stone-800/60 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all active:scale-95 shrink-0 shadow-xs group"
                 >
                   <div className="relative shrink-0 group/avatar">
                     {user?.avatar && user.avatar.trim() !== '' && !user.avatar.includes('api.dicebear.com') ? (
                       <img
                         src={user.avatar}
                         alt={user?.name || 'Usuario'}
-                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-md object-cover border border-slate-300 dark:border-slate-700 group-hover:border-slate-400 transition-colors shrink-0"
+                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-md object-cover border border-slate-300 dark:border-slate-700 group-hover:border-rose-900 transition-colors shrink-0"
                       />
                     ) : (
                       <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-rose-950 text-white flex items-center justify-center font-bold text-xs sm:text-sm shadow-xs shrink-0 select-none">
@@ -335,76 +343,105 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </button>
 
-                {/* Popover desplegable para administrar foto de perfil personal */}
+                {/* Backdrop para cerrar al hacer clic afuera */}
                 {avatarMenuOpen && (
                   <div
-                    className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 z-50 animate-in fade-in slide-in-from-top-2 text-xs"
+                    className="fixed inset-0 z-40 bg-black/20 backdrop-blur-xs"
+                    onClick={() => setAvatarMenuOpen(false)}
+                  />
+                )}
+
+                {/* Popover desplegable flotante garantizado visible */}
+                {avatarMenuOpen && (
+                  <div
+                    className="fixed top-14 sm:top-16 right-2 sm:right-6 w-72 sm:w-80 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 z-50 animate-in fade-in zoom-in-95 duration-150 text-xs"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="flex items-center gap-3 pb-3 mb-2 border-b border-slate-100 dark:border-slate-800">
-                      {user?.avatar && user.avatar.trim() !== '' && !user.avatar.includes('api.dicebear.com') ? (
-                        <img
-                          src={user.avatar}
-                          alt={user?.name || 'Usuario'}
-                          className="w-11 h-11 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs"
-                        />
-                      ) : (
-                        <div className="w-11 h-11 rounded-lg bg-rose-950 text-white flex items-center justify-center font-extrabold text-base shadow-xs select-none">
-                          {(user?.name || 'U').charAt(0).toUpperCase()}
+                    <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-3">
+                        {user?.avatar && user.avatar.trim() !== '' && !user.avatar.includes('api.dicebear.com') ? (
+                          <img
+                            src={user.avatar}
+                            alt={user?.name || 'Usuario'}
+                            className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-rose-950 text-white flex items-center justify-center font-extrabold text-lg shadow-xs select-none shrink-0">
+                            {(user?.name || 'U').charAt(0).toUpperCase()}
+                          </div>
+                        )}
+
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-slate-900 dark:text-white truncate text-sm">
+                            {user?.name || 'Usuario'}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            {user?.email}
+                          </p>
+                          <span className="inline-block mt-1 px-2 py-0.5 rounded-md bg-stone-100 dark:bg-slate-800 text-rose-950 dark:text-rose-300 font-bold text-[10px] border border-stone-200 dark:border-slate-700">
+                            {empleadoActivo ? `${empleadoActivo.nombre} · ${empleadoActivo.rol}` : (currentRoleConfig?.label || user?.role)}
+                          </span>
                         </div>
-                      )}
-
-                      <div className="min-w-0 flex-1">
-                        <h4 className="font-bold text-slate-900 dark:text-white truncate">
-                          {user?.name || 'Usuario'}
-                        </h4>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                          {user?.email}
-                        </p>
-                        <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                          ● Guardado en tu cuenta de nube
-                        </p>
                       </div>
-                    </div>
 
-                    <div className="space-y-1.5">
                       <button
                         type="button"
-                        onClick={() => avatarInputRef.current?.click()}
-                        disabled={isUploadingAvatar}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold transition cursor-pointer"
+                        onClick={() => setAvatarMenuOpen(false)}
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                        title="Cerrar ventana"
                       >
-                        <Camera className="w-4 h-4 text-rose-900 dark:text-rose-400" />
-                        <span>{isUploadingAvatar ? 'Guardando foto...' : 'Subir / Cambiar foto'}</span>
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {/* Botón Principal: Bloquear pantalla / Cambiar de empleado (acción original del botón) */}
+                      <button
+                        type="button"
+                        id="btn-menu-bloquear-pantalla"
+                        onClick={() => {
+                          setAvatarMenuOpen(false);
+                          bloquearPantalla();
+                        }}
+                        className="w-full flex items-center justify-between p-2.5 rounded-lg bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs transition cursor-pointer shadow-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Lock className="w-4 h-4 text-rose-300" />
+                          <span>Cambiar de perfil / Bloquear</span>
+                        </div>
+                        <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold">🔒 POS</span>
                       </button>
 
+                      {/* Botón: Subir o cambiar foto de perfil */}
+                      <button
+                        type="button"
+                        id="btn-menu-upload-photo"
+                        onClick={() => avatarInputRef.current?.click()}
+                        disabled={isUploadingAvatar}
+                        className="w-full flex items-center justify-between p-2.5 rounded-lg bg-stone-100 dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 font-semibold transition cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Camera className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                          <span>{isUploadingAvatar ? 'Guardando foto...' : 'Subir o cambiar foto'}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">JPG/PNG</span>
+                      </button>
+
+                      {/* Botón: Quitar foto si existe */}
                       {user?.avatar && user.avatar.trim() !== '' && !user.avatar.includes('api.dicebear.com') && (
                         <button
                           type="button"
+                          id="btn-menu-remove-photo"
                           onClick={async () => {
                             await removeUserAvatar();
                             setAvatarMenuOpen(false);
                           }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-medium transition cursor-pointer"
+                          className="w-full flex items-center gap-2 p-2 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-[11px] font-semibold transition cursor-pointer"
                         >
-                          <Trash2 className="w-4 h-4" />
-                          <span>Quitar foto (Usar inicial)</span>
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Quitar foto (usar inicial)</span>
                         </button>
                       )}
-
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAvatarMenuOpen(false);
-                            bloquearPantalla();
-                          }}
-                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-900 dark:text-stone-100 font-bold transition cursor-pointer"
-                        >
-                          <span>Cambiar de perfil / Bloquear</span>
-                          <span className="text-[10px]">🔒</span>
-                        </button>
-                      </div>
                     </div>
                   </div>
                 )}

@@ -434,12 +434,12 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
               <button
                 type="button"
                 onClick={() => setTableForQr(tables[0])}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-[11px] sm:text-xs font-bold transition cursor-pointer"
-                title="Ver códigos QR y cartas digitales de mesas"
+                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-[11px] sm:text-xs font-bold transition cursor-pointer shadow-xs"
+                title="Ver códigos QR, cartas digitales y cambiar temas visuales"
               >
                 <QrCode className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-700 dark:text-gray-300" />
-                <span className="hidden sm:inline">Códigos QR</span>
-                <span className="sm:hidden">QR</span>
+                <span className="hidden sm:inline">Códigos QR & Temas</span>
+                <span className="sm:hidden">QR & Temas</span>
               </button>
             )}
 

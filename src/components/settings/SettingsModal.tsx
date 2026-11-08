@@ -286,14 +286,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('qr')}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
               activeTab === 'qr'
                 ? 'border-rose-900 text-rose-950 dark:text-rose-300'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <QrCode className="w-3.5 h-3.5" />
-            <span>Opciones Códigos QR</span>
+            <span>Carta QR & Temas Visuales</span>
+            <span className="px-1.5 py-0.2 rounded-md bg-stone-100 dark:bg-stone-800 text-rose-900 dark:text-rose-300 text-[10px] font-extrabold border border-stone-200 dark:border-stone-700">
+              Temas
+            </span>
           </button>
           <button
             type="button"

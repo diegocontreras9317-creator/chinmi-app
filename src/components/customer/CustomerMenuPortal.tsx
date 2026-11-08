@@ -798,6 +798,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
   const bgImage = firestoreQrSettings?.bgImageUrl || qrSettings.bgImageUrl;
   const customTextColor = firestoreQrSettings?.textColor || qrSettings.textColor || '';
+  const customAccentColor = firestoreQrSettings?.accentColor || qrSettings.accentColor || '#e11d48';
 
   return (
     <div 
@@ -812,6 +813,11 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         ...(customTextColor ? { color: customTextColor } : {})
       }}
     >
+      <style>{`
+        .qr-accent-bg { background-color: ${customAccentColor} !important; }
+        .qr-accent-text { color: ${customAccentColor} !important; }
+        .qr-accent-border { border-color: ${customAccentColor} !important; }
+      `}</style>
       
       {/* Brand & Table Header */}
       <header className={`sticky top-0 z-30 ${theme.headerBg} backdrop-blur border-b ${theme.headerBorder} shadow-xs`}>
@@ -1210,7 +1216,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                           </div>
                           <h4
                             onClick={() => openProductDetail(product)}
-                            className={`font-bold text-sm ${theme.textClass} leading-snug cursor-pointer hover:opacity-80 transition-colors line-clamp-2 mt-0.5`}
+                            className={`font-bold text-sm text-slate-900 dark:text-white leading-snug cursor-pointer hover:opacity-80 transition-colors line-clamp-2 mt-0.5`}
                           >
                             {product.name}
                           </h4>
@@ -1222,7 +1228,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                         </div>
 
                         <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
-                          <span className={`font-mono font-black text-sm sm:text-base ${theme.priceText}`}>
+                          <span className={`font-mono font-black text-sm sm:text-base qr-accent-text`}>
                             {formatCOP(product.price)}
                           </span>
                           <span className="text-[10px] opacity-70 font-semibold">
@@ -1263,7 +1269,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
-                                className={`w-6 h-6 rounded-md ${theme.accentBg} flex items-center justify-center shadow-xs`}
+                                className={`w-6 h-6 rounded-md qr-accent-bg flex items-center justify-center shadow-xs`}
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
@@ -1286,7 +1292,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
                                 disabled={isOutOfStock}
-                                className={`flex items-center gap-1 px-3 py-1.5 rounded-md ${theme.accentBg} disabled:bg-slate-200 dark:disabled:bg-slate-800 font-bold text-xs shadow-xs transition cursor-pointer`}
+                                className={`flex items-center gap-1 px-3 py-1.5 rounded-md qr-accent-bg disabled:bg-slate-200 dark:disabled:bg-slate-800 font-bold text-xs shadow-xs transition cursor-pointer`}
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 <span>Añadir</span>

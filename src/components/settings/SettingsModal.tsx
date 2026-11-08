@@ -96,6 +96,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [bgImageUrl, setBgImageUrl] = useState(config.qrSettings?.bgImageUrl || '');
   const [textColor, setTextColor] = useState(config.qrSettings?.textColor || '#0f172a');
+  const [accentColor, setAccentColor] = useState(config.qrSettings?.accentColor || '#e11d48');
 
   useEffect(() => {
     if (isOpen) {
@@ -115,6 +116,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setCategories(config.categories || []);
       setBgImageUrl(config.qrSettings?.bgImageUrl || '');
       setTextColor(config.qrSettings?.textColor || '#0f172a');
+      setAccentColor(config.qrSettings?.accentColor || '#e11d48');
     }
   }, [isOpen, config]);
 
@@ -155,7 +157,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         menuOnlyMode,
         menuViewMode,
         bgImageUrl: bgImageUrl.trim(),
-        textColor: textColor.trim()
+        textColor: textColor.trim(),
+        accentColor: accentColor.trim()
       }
     });
 
@@ -776,22 +779,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Imagen de Fondo Personalizada y Color de Texto (Wallpaper Móvil) */}
+            {/* Imagen de Fondo Personalizada, Color de Texto y Color de Acento (Wallpaper Móvil) */}
             <div className="space-y-4 pt-2">
               <div className="flex items-center gap-2">
                 <Palette className="w-4 h-4 text-rose-900 dark:text-rose-400" />
                 <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
-                  Fondo Personalizado y Color de Letra (Carta QR Móvil)
+                  Personalización Visual (Carta QR Móvil)
                 </h4>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                Sube una imagen de fondo o introduce una URL para la carta digital que verán tus clientes en sus celulares. 
+                Personaliza la apariencia de tu carta digital.
                 <span className="block font-bold text-rose-950 dark:text-rose-300 mt-1">
-                  📐 Tamaño recomendado: 1080 x 1920 px (Vertical / Wallpaper móvil)
+                  📐 Tamaño fondo recomendado: 1080 x 1920 px
                 </span>
               </p>
 
               <div className="space-y-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800">
+                {/* Fondo */}
                 <div className="flex items-center gap-3">
                   <div className="w-16 h-24 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800 shrink-0 flex items-center justify-center relative">
                     {bgImageUrl ? (
@@ -805,7 +809,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="flex items-center gap-2">
                       <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-100 dark:bg-stone-900 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-800 hover:bg-stone-200 dark:hover:bg-stone-800 font-bold text-xs cursor-pointer transition">
                         <Upload className="w-3.5 h-3.5 text-stone-700 dark:text-stone-300" />
-                        <span>Subir imagen de fondo</span>
+                        <span>Subir fondo</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -845,29 +849,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
-                {/* Color de Letra */}
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                {/* Color de Letra y Acento */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Color de la Letra / Texto
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Color de Texto
                     </label>
-                    <p className="text-[10px] text-slate-500">
-                      Elige el color del texto para garantizar la legibilidad sobre tu fondo.
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={textColor}
+                        onChange={(e) => setTextColor(e.target.value)}
+                        className="w-8 h-8 rounded border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent"
+                      />
+                      <input
+                        type="text"
+                        value={textColor}
+                        onChange={(e) => setTextColor(e.target.value)}
+                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs text-center bg-white dark:bg-slate-900"
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <input
-                      type="color"
-                      value={textColor}
-                      onChange={(e) => setTextColor(e.target.value)}
-                      className="w-8 h-8 rounded border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent"
-                    />
-                    <input
-                      type="text"
-                      value={textColor}
-                      onChange={(e) => setTextColor(e.target.value)}
-                      className="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs text-center bg-white dark:bg-slate-900"
-                    />
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Color de Acento (Botones/Precios)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={accentColor || '#e11d48'}
+                        onChange={(e) => setAccentColor(e.target.value)}
+                        className="w-8 h-8 rounded border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent"
+                      />
+                      <input
+                        type="text"
+                        value={accentColor || '#e11d48'}
+                        onChange={(e) => setAccentColor(e.target.value)}
+                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs text-center bg-white dark:bg-slate-900"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

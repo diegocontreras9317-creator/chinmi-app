@@ -14,6 +14,7 @@ export interface QrMenuSettings {
   menuViewMode?: 'list' | 'medium'; // Modo de visualización de productos
   bgImageUrl?: string;        // Imagen de fondo personalizada subida por el admin
   textColor?: string;         // Color de texto personalizado
+  accentColor?: string;       // Color de acento para botones y precios
 }
 
 export interface AppConfig {

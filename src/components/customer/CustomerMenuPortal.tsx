@@ -156,7 +156,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   }, [qrSettings.menuViewMode]);
 
   const categoriesList = useMemo(() => {
-    const base = config.categories || [
+    const base = config.categories && config.categories.length > 0 ? config.categories : [
       'Todas las categorías',
       'Cervezas & Vinos',
       'Bebidas & Refrescos',
@@ -165,9 +165,11 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       'Cafés & Postres',
       'Licores & Cócteles'
     ];
-    const dynamicCats = activeProducts.map(p => p.category).filter(Boolean);
-    return ['Todas las categorías', ...Array.from(new Set([...base.filter(c => c !== 'Todas las categorías'), ...dynamicCats]))];
-  }, [config.categories, activeProducts]);
+    if (!base.includes('Todas las categorías')) {
+      return ['Todas las categorías', ...base];
+    }
+    return base;
+  }, [config.categories]);
 
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas las categorías');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1026,19 +1028,19 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
             {/* View Mode Selector */}
             <div className="flex items-center gap-1 bg-slate-200/60 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px]">
-              {(['list', 'small', 'medium', 'large'] as const).map(mode => (
+              {(['list', 'medium'] as const).map(mode => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setMenuViewMode(mode)}
-                  className={`px-2.5 py-1 rounded-md font-bold transition cursor-pointer capitalize ${
+                  className={`px-3 py-1 rounded-md font-bold transition cursor-pointer capitalize ${
                     menuViewMode === mode
                       ? `${theme.accentBg} text-white shadow-xs`
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                   }`}
                   title={`Vista ${mode}`}
                 >
-                  {mode === 'list' ? 'Lista' : mode === 'small' ? 'Pequeño' : mode === 'medium' ? 'Mediano' : 'Grande'}
+                  {mode === 'list' ? 'Lista' : 'Mediano'}
                 </button>
               ))}
             </div>
@@ -1059,10 +1061,6 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               className={
                 menuViewMode === 'list'
                   ? 'space-y-2'
-                  : menuViewMode === 'small'
-                  ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5'
-                  : menuViewMode === 'large'
-                  ? 'grid grid-cols-1 gap-4'
                   : 'grid grid-cols-1 sm:grid-cols-2 gap-3.5'
               }
             >

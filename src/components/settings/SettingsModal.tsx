@@ -852,12 +852,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Elige cómo se verán los productos al abrir la carta QR (el cliente también podrá cambiarlo en su pantalla):
               </p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {[
-                  { id: 'list', name: 'Lista', desc: 'Compacto en filas' },
-                  { id: 'small', name: 'Pequeño', desc: 'Cuadrícula pequeña' },
-                  { id: 'medium', name: 'Mediano', desc: 'Tarjetas estándar' },
-                  { id: 'large', name: 'Grande', desc: 'Prominente / Banner' }
+                  { id: 'list', name: 'Lista', desc: 'Compacto en filas ordenadas' },
+                  { id: 'medium', name: 'Mediano', desc: 'Tarjetas estándar con fotos' }
                 ].map(mode => (
                   <button
                     key={mode.id}

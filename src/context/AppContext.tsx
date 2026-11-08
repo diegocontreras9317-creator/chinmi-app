@@ -28,7 +28,9 @@ import {
   deleteSupplierOrderFromFirestore,
   saveSaleToFirestore,
   releaseTableInFirestore,
-  executeSaleCheckoutBatch
+  executeSaleCheckoutBatch,
+  saveUserQrConfig,
+  getActiveUserId
 } from '../services/firestoreUserStorage';
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
@@ -583,6 +585,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (partial.businessName !== undefined || partial.businessAddress !== undefined) {
         updateUserBusinessInfo(updated.businessName, updated.businessAddress);
+      }
+      if (partial.qrSettings !== undefined) {
+        const activeUid = getActiveUserId(user?.id);
+        if (activeUid) {
+          saveUserQrConfig(activeUid, updated.qrSettings);
+        }
       }
       return updated;
     });

@@ -20,6 +20,7 @@ import { doc, setDoc } from 'firebase/firestore';
 import {
   subscribeUserMenu,
   subscribeUserTables,
+  subscribeUserQrConfig,
   saveTableToFirestore,
   sanitizeForFirestore
 } from '../../services/firestoreUserStorage';
@@ -81,13 +82,15 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     syncNow
   } = useApp();
 
-  // Parse URL parameters for QR scan (restId / uid & mesa / mesaId)
+  // Parse URL parameters for QR scan (restId / uid & mesa / mesaId & theme)
   const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const urlUid = searchParams.get('restId') || searchParams.get('uid') || searchParams.get('restaurante') || '';
   const urlMesa = searchParams.get('mesa') || searchParams.get('mesaId') || tableId;
+  const urlTheme = searchParams.get('theme') as QrThemeId | null;
 
   const [qrMenuProducts, setQrMenuProducts] = useState<Product[]>([]);
   const [qrTable, setQrTable] = useState<Table | null>(null);
+  const [firestoreQrSettings, setFirestoreQrSettings] = useState<any>(null);
   const [isQrLoading, setIsQrLoading] = useState<boolean>(!!urlUid);
 
   useEffect(() => {
@@ -101,9 +104,15 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         const found = tbls.find(t => t.id === urlMesa) || null;
         setQrTable(found);
       });
+      const unsubQrSettings = subscribeUserQrConfig(urlUid, (settings) => {
+        if (settings) {
+          setFirestoreQrSettings(settings);
+        }
+      });
       return () => {
         unsubMenu();
         unsubTables();
+        unsubQrSettings();
       };
     } else {
       setIsQrLoading(false);
@@ -115,7 +124,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
   const table = activeTable;
 
-  const qrSettings = config.qrSettings || {
+  const qrSettings = firestoreQrSettings || config.qrSettings || {
     allowOrdering: true,
     allowCallWaiter: true,
     allowRequestBill: true,
@@ -123,7 +132,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     qrTheme: 'default_normal'
   };
 
-  const activeThemeId: QrThemeId = qrSettings.qrTheme || 'default_normal';
+  const activeThemeId: QrThemeId =
+    firestoreQrSettings?.qrTheme ||
+    (urlTheme && QR_THEMES[urlTheme] ? urlTheme : null) ||
+    qrSettings.qrTheme ||
+    'default_normal';
+
   const theme = QR_THEMES[activeThemeId] || QR_THEMES.default_normal;
 
   const isMenuOnly = qrSettings.menuOnlyMode || !qrSettings.allowOrdering;
@@ -815,6 +829,17 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <span className="hidden sm:inline">Pedir Cuenta</span>
               </button>
             )}
+
+            {onExit && (
+              <button
+                type="button"
+                onClick={handleExitPortal}
+                title="Volver al panel principal"
+                className="p-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer opacity-70 hover:opacity-100 ml-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -937,18 +962,18 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         <div className={`${theme.cardBg} p-4 rounded-md border ${theme.cardBorder} shadow-xs space-y-3`}>
           {/* Search Box */}
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 opacity-50 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar platos, bebidas, cócteles o ingredientes..."
-              className="w-full pl-9 pr-4 py-2.5 text-xs rounded-md bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
+              className={`w-full pl-9 pr-4 py-2.5 text-xs rounded-md ${theme.cardBg} border ${theme.cardBorder} ${theme.textClass} placeholder:opacity-50 focus:outline-hidden focus:ring-2 focus:ring-rose-900/50`}
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                className="absolute right-3 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100 p-1"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -960,15 +985,17 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             categories={config.categories}
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
+            activeClass={theme.categoryActiveBg}
+            inactiveClass={`${theme.cardBg} ${theme.cardBorder} border ${theme.textClass} opacity-80 hover:opacity-100`}
           />
         </div>
 
         {/* Products List */}
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
-            <h3 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+            <h3 className={`font-extrabold text-sm ${theme.textClass} flex items-center gap-1.5`}>
               <span>{selectedCategory}</span>
-              <span className="text-xs text-slate-400 font-normal">
+              <span className="text-xs opacity-60 font-normal">
                 ({filteredProducts.length} {filteredProducts.length === 1 ? 'producto' : 'productos'})
               </span>
             </h3>
@@ -1238,7 +1265,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       </main>
 
       {/* Floating Bottom Sticky Bar */}
-      <div className="fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-t border-slate-200 dark:border-slate-800 p-3 shadow-lg">
+      <div className={`fixed bottom-0 inset-x-0 z-40 ${theme.headerBg} backdrop-blur border-t ${theme.headerBorder} p-3 shadow-lg`}>
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-2.5">
           
           {/* If ordering is enabled and there are items in cart */}
@@ -1857,7 +1884,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               <button
                 type="button"
                 onClick={handleSendOrder}
-                className="w-full py-3 px-4 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-extrabold text-sm shadow-xs flex items-center justify-center gap-2 transition cursor-pointer"
+                className={`w-full py-3 px-4 rounded-md ${theme.accentBg} ${theme.accentHoverBg} font-extrabold text-sm shadow-xs flex items-center justify-center gap-2 transition cursor-pointer`}
               >
                 <Send className="w-4 h-4" />
                 <span>Enviar Pedido Directo a Cocina</span>
@@ -1906,7 +1933,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   handleAddToCart(activeItemForNote, itemNoteText);
                   setActiveItemForNote(null);
                 }}
-                className="px-4 py-1.5 rounded-md bg-rose-950 text-white font-bold text-xs shadow-xs hover:bg-rose-900 cursor-pointer"
+                className={`px-4 py-1.5 rounded-md ${theme.accentBg} ${theme.accentHoverBg} font-bold text-xs shadow-xs cursor-pointer`}
               >
                 Añadir al Pedido
               </button>
@@ -2048,7 +2075,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     }
                     setSelectedProductForDetail(null);
                   }}
-                  className="flex-1 py-2.5 px-4 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-extrabold text-xs shadow-xs flex items-center justify-center gap-2 transition cursor-pointer"
+                  className={`flex-1 py-2.5 px-4 rounded-md ${theme.accentBg} ${theme.accentHoverBg} font-extrabold text-xs shadow-xs flex items-center justify-center gap-2 transition cursor-pointer`}
                 >
                   <Plus className="w-4 h-4" />
                   <span>

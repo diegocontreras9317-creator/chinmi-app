@@ -6,6 +6,8 @@ interface CategoryScrollBarProps {
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
   accentColor?: 'orange' | 'dark' | 'pink' | 'vinotinto';
+  activeClass?: string;
+  inactiveClass?: string;
   className?: string;
 }
 
@@ -14,6 +16,8 @@ export const CategoryScrollBar: React.FC<CategoryScrollBarProps> = ({
   selectedCategory,
   onSelectCategory,
   accentColor = 'orange',
+  activeClass,
+  inactiveClass,
   className = ''
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -83,12 +87,15 @@ export const CategoryScrollBar: React.FC<CategoryScrollBarProps> = ({
     checkScroll();
   };
 
-  const activeStyles = {
+  const activeStyles = activeClass || {
     orange: 'bg-orange-600 text-white shadow-xs',
     dark: 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs',
     pink: 'bg-rose-900 hover:bg-rose-800 text-white shadow-xs',
     vinotinto: 'bg-rose-900 hover:bg-rose-800 text-white shadow-xs'
   }[accentColor];
+
+  const defaultInactive = 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700';
+  const inactiveStyles = inactiveClass || defaultInactive;
 
   return (
     <div className={`relative flex items-center gap-1.5 w-full min-w-0 ${className}`}>
@@ -125,7 +132,7 @@ export const CategoryScrollBar: React.FC<CategoryScrollBarProps> = ({
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer shrink-0 ${
               selectedCategory === cat
                 ? activeStyles
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                : inactiveStyles
             }`}
           >
             {cat}

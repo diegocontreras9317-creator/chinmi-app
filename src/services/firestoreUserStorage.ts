@@ -1243,3 +1243,58 @@ export async function deleteEmpleadoFromFirestore(uid: string, empleadoId: strin
     throw err;
   }
 }
+
+/**
+ * Guarda la configuración de la carta QR (incluyendo tema visual y permisos) en Firestore.
+ * Esto permite que cualquier comensal que escanee el código QR desde su celular
+ * reciba instantáneamente el tema y opciones configuradas por el administrador.
+ */
+export async function saveUserQrConfig(uid: string, qrSettings: any): Promise<void> {
+  if (!uid) return;
+  try {
+    const cleanSettings = sanitizeForFirestore({
+      ...qrSettings,
+      updatedAt: new Date().toISOString()
+    });
+    // Guardamos en subcolección config/qrSettings
+    const configDocRef = doc(db, 'users', uid, 'config', 'qrSettings');
+    await setDoc(configDocRef, cleanSettings, { merge: true });
+
+    // También guardamos en users/${uid} para redundancia y consultas directas
+    const userDocRef = doc(db, 'users', uid);
+    await setDoc(userDocRef, {
+      qrSettings: cleanSettings,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `users/${uid}/config/qrSettings`);
+  }
+}
+
+/**
+ * Escucha en tiempo real la configuración de la carta QR del restaurante (para el portal cliente).
+ */
+export function subscribeUserQrConfig(uid: string, onUpdate: (settings: any) => void): Unsubscribe {
+  if (!uid) {
+    onUpdate(null);
+    return () => {};
+  }
+  const configDocRef = doc(db, 'users', uid, 'config', 'qrSettings');
+  return onSnapshot(configDocRef, (snap) => {
+    if (snap.exists()) {
+      onUpdate(snap.data());
+    } else {
+      // Fallback a users/${uid}
+      const userDocRef = doc(db, 'users', uid);
+      getDoc(userDocRef).then(uSnap => {
+        if (uSnap.exists() && uSnap.data().qrSettings) {
+          onUpdate(uSnap.data().qrSettings);
+        } else {
+          onUpdate(null);
+        }
+      }).catch(() => onUpdate(null));
+    }
+  }, (err) => {
+    handleFirestoreError(err, OperationType.GET, `users/${uid}/config/qrSettings`);
+  });
+}

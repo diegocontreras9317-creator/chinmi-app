@@ -22,6 +22,7 @@ import {
   Palette
 } from 'lucide-react';
 import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
+import { saveUserQrConfig } from '../../services/firestoreUserStorage';
 
 interface TableQrModalProps {
   isOpen: boolean;
@@ -62,11 +63,13 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
     ? config.businessName
     : 'Chinmi GastroBar & Terraza';
 
+  const activeThemeId: QrThemeId = qrSettings.qrTheme || 'default_normal';
+
   const getTableUrl = (t: Table) => {
     if (typeof window === 'undefined') return '';
     const origin = window.location.origin;
     const uid = auth.currentUser?.uid || '';
-    return `${origin}/menu?restId=${encodeURIComponent(uid)}&mesa=${encodeURIComponent(t.id)}`;
+    return `${origin}/menu?restId=${encodeURIComponent(uid)}&mesa=${encodeURIComponent(t.id)}&theme=${encodeURIComponent(activeThemeId)}`;
   };
 
   const tableUrl = activeTable ? getTableUrl(activeTable) : '';
@@ -86,7 +89,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
     })
       .then(urlData => setQrDataUrl(urlData))
       .catch(err => console.error('Error generating QR:', err));
-  }, [activeTable, config.qrSettings]);
+  }, [activeTable, config.qrSettings, activeThemeId]);
 
   if (!isOpen || !activeTable) return null;
 
@@ -120,15 +123,26 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
     updateConfig({
       qrSettings: nextSettings
     });
+
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      saveUserQrConfig(uid, nextSettings);
+    }
   };
 
   const handleSelectTheme = (themeId: QrThemeId) => {
+    const nextSettings = {
+      ...qrSettings,
+      qrTheme: themeId
+    };
     updateConfig({
-      qrSettings: {
-        ...qrSettings,
-        qrTheme: themeId
-      }
+      qrSettings: nextSettings
     });
+
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      saveUserQrConfig(uid, nextSettings);
+    }
   };
 
   // Preset Configurations

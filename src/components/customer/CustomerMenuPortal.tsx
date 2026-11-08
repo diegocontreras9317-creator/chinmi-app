@@ -26,6 +26,7 @@ import {
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
+import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
 import {
   Search,
   Plus,
@@ -118,8 +119,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     allowOrdering: true,
     allowCallWaiter: true,
     allowRequestBill: true,
-    menuOnlyMode: false
+    menuOnlyMode: false,
+    qrTheme: 'modern_slate'
   };
+
+  const activeThemeId: QrThemeId = qrSettings.qrTheme || 'modern_slate';
+  const theme = QR_THEMES[activeThemeId] || QR_THEMES.modern_slate;
 
   const isMenuOnly = qrSettings.menuOnlyMode || !qrSettings.allowOrdering;
   const canOrder = qrSettings.allowOrdering && !qrSettings.menuOnlyMode;
@@ -752,25 +757,25 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const isBillCurrentlyRequested = table.status === 'cuenta' || table.waiterCall?.type === 'bill';
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col pb-36">
+    <div className={`min-h-screen ${theme.bgClass} flex flex-col pb-36`}>
       
       {/* Brand & Table Header */}
-      <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-800 shadow-xs">
+      <header className={`sticky top-0 z-30 ${theme.headerBg} backdrop-blur border-b ${theme.headerBorder} shadow-xs`}>
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <ChinmiLogo size="md" variant="icon" logoUrl={config.logoUrl} />
             <div>
-              <h1 className="font-extrabold text-sm sm:text-base leading-tight text-slate-900 dark:text-white flex items-center gap-1.5">
+              <h1 className={`font-extrabold text-sm sm:text-base leading-tight ${theme.textClass} flex items-center gap-1.5`}>
                 <span>{config.businessName}</span>
               </h1>
-              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                <span className="font-bold text-rose-950 dark:text-rose-400">
+              <div className="flex items-center gap-1.5 text-xs opacity-90">
+                <span className={`font-bold ${theme.accentText}`}>
                   📍 Mesa {table.number}
                 </span>
                 <span>·</span>
                 <span>{table.zone}</span>
                 <span>·</span>
-                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700">
+                <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${theme.badgeBg}`}>
                   Impuestos incl.
                 </span>
               </div>
@@ -929,7 +934,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         )}
 
         {/* Search & Category Filter Navigation */}
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-md border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+        <div className={`${theme.cardBg} p-4 rounded-md border ${theme.cardBorder} shadow-xs space-y-3`}>
           {/* Search Box */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -988,10 +993,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 return (
                   <div
                     key={product.id}
-                    className={`p-3 sm:p-3.5 rounded-md bg-white dark:bg-slate-900 border transition flex flex-col justify-between overflow-hidden relative group ${
+                    className={`p-3 sm:p-3.5 rounded-md ${theme.cardBg} border transition flex flex-col justify-between overflow-hidden relative group ${
                       isOutOfStock
                         ? 'opacity-65 border-slate-200 dark:border-slate-800'
-                        : 'border-slate-200 dark:border-slate-800 shadow-xs hover:border-slate-400 dark:hover:border-slate-600'
+                        : `${theme.cardBorder} shadow-xs ${theme.cardHoverBorder}`
                     }`}
                   >
                     <div className="flex gap-3 items-start">
@@ -1030,22 +1035,22 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                           </div>
                           <h4
                             onClick={() => openProductDetail(product)}
-                            className="font-bold text-sm text-slate-900 dark:text-white leading-snug cursor-pointer hover:text-rose-900 dark:hover:text-rose-400 transition-colors line-clamp-2 mt-0.5"
+                            className={`font-bold text-sm ${theme.textClass} leading-snug cursor-pointer hover:opacity-80 transition-colors line-clamp-2 mt-0.5`}
                           >
                             {product.name}
                           </h4>
                           {product.description && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                            <p className="text-xs opacity-75 mt-1 line-clamp-2 leading-relaxed">
                               {product.description}
                             </p>
                           )}
                         </div>
 
                         <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
-                          <span className="font-mono font-black text-sm sm:text-base text-stone-900 dark:text-stone-100">
+                          <span className={`font-mono font-black text-sm sm:text-base ${theme.priceText}`}>
                             {formatCOP(product.price)}
                           </span>
-                          <span className="text-[10px] text-slate-400 font-semibold">
+                          <span className="text-[10px] opacity-70 font-semibold">
                             ({resolveProductTax(product, taxRate).shortLabel} incl.)
                           </span>
                         </div>
@@ -1054,7 +1059,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
                     {/* Action Bar for Product */}
                     <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-                      <span className="text-[10px] font-medium text-slate-400">
+                      <span className="text-[10px] font-medium opacity-70">
                         {isOutOfStock ? (
                           <span className="text-rose-500 font-bold">Agotado hoy</span>
                         ) : (
@@ -1066,7 +1071,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       {canOrder ? (
                         <div className="flex items-center gap-1.5">
                           {inCartItem ? (
-                            <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800 p-1 rounded-md border border-stone-200 dark:border-stone-700">
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-md border border-slate-200 dark:border-slate-700">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1077,13 +1082,13 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
-                              <span className="w-5 text-center font-bold text-xs text-stone-900 dark:text-stone-100">
+                              <span className="w-5 text-center font-bold text-xs">
                                 {inCartItem.quantity}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
-                                className="w-6 h-6 rounded-md bg-rose-950 text-white flex items-center justify-center shadow-xs hover:bg-rose-900"
+                                className={`w-6 h-6 rounded-md ${theme.accentBg} flex items-center justify-center shadow-xs`}
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
@@ -1106,7 +1111,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
                                 disabled={isOutOfStock}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-rose-950 hover:bg-rose-900 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+                                className={`flex items-center gap-1 px-3 py-1.5 rounded-md ${theme.accentBg} disabled:bg-slate-200 dark:disabled:bg-slate-800 font-bold text-xs shadow-xs transition cursor-pointer`}
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 <span>Añadir</span>
@@ -1241,7 +1246,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className="flex-1 py-3 px-4 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-extrabold text-sm shadow-xs flex items-center justify-between transition cursor-pointer"
+              className={`flex-1 py-3 px-4 rounded-md ${theme.floatingBarBg} ${theme.floatingBarText} font-extrabold text-sm shadow-xs flex items-center justify-between transition cursor-pointer`}
             >
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-md bg-white/20 flex items-center justify-center font-bold text-xs">

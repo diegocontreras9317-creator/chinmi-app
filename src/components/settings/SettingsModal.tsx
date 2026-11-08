@@ -29,8 +29,10 @@ import {
   Sliders,
   BellRing,
   Upload,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Palette
 } from 'lucide-react';
+import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -87,6 +89,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [allowCallWaiter, setAllowCallWaiter] = useState(config.qrSettings?.allowCallWaiter ?? true);
   const [allowRequestBill, setAllowRequestBill] = useState(config.qrSettings?.allowRequestBill ?? true);
   const [menuOnlyMode, setMenuOnlyMode] = useState(config.qrSettings?.menuOnlyMode ?? false);
+  const [qrTheme, setQrTheme] = useState<QrThemeId>(config.qrSettings?.qrTheme || 'modern_slate');
+
+  useEffect(() => {
+    if (isOpen) {
+      setAppName(config.appName);
+      setBusinessName(config.businessName);
+      setBusinessAddress(config.businessAddress);
+      setBusinessTaxId(config.businessTaxId);
+      setBusinessPhone(config.businessPhone);
+      setCurrency(config.currency);
+      setDefaultTaxRate(String(config.defaultTaxRate));
+      setLogoUrl(config.logoUrl || '/src/assets/images/restaurant_logo_1790194934242.jpg');
+      setAllowOrdering(config.qrSettings?.allowOrdering ?? true);
+      setAllowCallWaiter(config.qrSettings?.allowCallWaiter ?? true);
+      setAllowRequestBill(config.qrSettings?.allowRequestBill ?? true);
+      setMenuOnlyMode(config.qrSettings?.menuOnlyMode ?? false);
+      setQrTheme(config.qrSettings?.qrTheme || 'modern_slate');
+    }
+  }, [isOpen, config]);
 
   // New Team Member State
   const [newMemberName, setNewMemberName] = useState('');
@@ -121,7 +142,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         allowOrdering: menuOnlyMode ? false : allowOrdering,
         allowCallWaiter,
         allowRequestBill,
-        menuOnlyMode
+        menuOnlyMode,
+        qrTheme
       }
     });
 
@@ -736,6 +758,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                   <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-rose-950"></div>
                 </label>
+              </div>
+            </div>
+
+            {/* Tema Visual de la Carta QR */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2">
+                <Palette className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
+                  Tema Visual de la Carta Digital QR
+                </h4>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Elige el estilo visual y colores que verán tus clientes al escanear el menú desde sus teléfonos móviles:
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {Object.values(QR_THEMES).map((theme) => {
+                  const isSelected = qrTheme === theme.id;
+                  return (
+                    <button
+                      key={theme.id}
+                      type="button"
+                      onClick={() => setQrTheme(theme.id)}
+                      className={`p-3.5 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between relative overflow-hidden ${
+                        isSelected
+                          ? 'border-rose-900 ring-2 ring-rose-900/40 bg-slate-50 dark:bg-slate-800/80 shadow-xs'
+                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="font-black text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                            {theme.name}
+                          </span>
+                          {isSelected && (
+                            <span className="p-1 rounded-full bg-rose-950 text-white">
+                              <Check className="w-3 h-3 stroke-[3]" />
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug mb-3">
+                          {theme.tagline}
+                        </p>
+                      </div>
+
+                      {/* Swatch Preview Bar */}
+                      <div className="flex items-center gap-1.5 p-2 rounded-md bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                        <div
+                          className="w-4 h-4 rounded-full border border-black/20"
+                          style={{ backgroundColor: theme.previewColors.bg }}
+                          title="Fondo Canvas"
+                        />
+                        <div
+                          className="w-4 h-4 rounded-md border border-black/20"
+                          style={{ backgroundColor: theme.previewColors.card }}
+                          title="Tarjetas de Producto"
+                        />
+                        <div
+                          className="w-4 h-4 rounded-md border border-black/20"
+                          style={{ backgroundColor: theme.previewColors.accent }}
+                          title="Color de Acento / Botones"
+                        />
+                        <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 ml-auto font-semibold">
+                          Vista previa
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

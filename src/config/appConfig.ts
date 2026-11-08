@@ -3,11 +3,14 @@
  * Permite personalizar fácilmente el nombre, moneda, impuestos y límites de negocio.
  */
 
+import { QrThemeId } from './qrThemes';
+
 export interface QrMenuSettings {
   allowOrdering: boolean;     // Permitir hacer pedidos desde el móvil
   allowCallWaiter: boolean;   // Opción de llamar al mesero a la mesa
   allowRequestBill: boolean;  // Opción de pedir la cuenta
   menuOnlyMode: boolean;      // Modo sólo ver menú (desactiva pedidos desde QR)
+  qrTheme?: QrThemeId;        // Tema visual para la carta QR del cliente
 }
 
 export interface AppConfig {
@@ -63,6 +66,7 @@ export const defaultAppConfig: AppConfig = {
     allowOrdering: true,
     allowCallWaiter: true,
     allowRequestBill: true,
-    menuOnlyMode: false
+    menuOnlyMode: false,
+    qrTheme: 'modern_slate'
   }
 };

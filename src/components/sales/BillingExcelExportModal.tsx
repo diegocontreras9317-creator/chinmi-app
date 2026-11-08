@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CustomerBillingInfo,
   CustomerDocumentType,
@@ -37,7 +37,8 @@ import {
   downloadBillingExcelFile,
   ExportBillingProvider,
   ExportGroupingMode,
-  saleTimestampToDateKey
+  saleTimestampToDateKey,
+  validateBillingExport
 } from '../../utils/excelBillingExport';
 import {
   X,
@@ -48,6 +49,7 @@ import {
   Layers,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Search,
   Receipt,
   UserCheck,
@@ -57,7 +59,10 @@ import {
   Check,
   MapPin,
   Phone,
-  Building2
+  Building2,
+  Upload,
+  Info,
+  ShieldCheck
 } from 'lucide-react';
 
 interface BillingExcelExportModalProps {
@@ -98,9 +103,9 @@ const GROUPING_OPTIONS: Array<{
   },
   {
     id: 'daily_global',
-    title: 'Ventas del Día Completo (Clientes + POS)',
+    title: 'Ventas del Día / Período Completo (Clientes + POS)',
     subtitle:
-      'Conserva los datos completos de cada cliente identificado del día y consolida aparte los tickets de Consumidor Final.'
+      'Conserva los datos completos de cada cliente identificado del período y consolida aparte los tickets de Consumidor Final.'
   }
 ];
 
@@ -111,32 +116,39 @@ const PROVIDER_OPTIONS: Array<{
   columnsSummary: string;
 }> = [
   {
-    id: 'siigo',
-    title: 'Paquete Siigo Nube (.xlsx · Cliente + Pedido + Plantillas)',
-    badge: 'Recomendado Siigo',
+    id: 'chinmi',
+    title: 'Excel General Chinmi App (.xlsx)',
+    badge: '3 Hojas Oficiales',
     columnsSummary:
-      'Hoja 1: Ficha completa Cliente + Pedido · Hoja 2: Sabana Cliente/Producto · Hoja 3: Terceros Siigo · Hoja 4: Comprobantes FV-1'
+      'Hoja 1: Resumen con desglose de impuestos (0%, 8%, 19%) y métodos de pago · Hoja 2: Facturas (1 fila x factura con NITs como texto @) · Hoja 3: Detalle Productos'
+  },
+  {
+    id: 'siigo',
+    title: 'Plantilla Siigo Nube (.xlsx)',
+    badge: 'Comprobantes FV-1',
+    columnsSummary:
+      'Hoja 1: Comprobantes de ventas FV-1 con identificación en texto (@) sin perder ceros · Hoja 2: Terceros Siigo. Soporta adjuntar plantilla oficial'
   },
   {
     id: 'alegra',
-    title: 'Paquete Alegra (.xlsx · Cliente + Pedido + Contactos)',
+    title: 'Plantilla Alegra (.xlsx)',
     badge: 'Alegra Cloud',
     columnsSummary:
-      'Hoja 1: Ficha completa Cliente + Pedido · Hoja 2: Sabana · Hoja 3: Contactos Alegra con Correo FE · Hoja 4: Facturas Alegra'
+      'Hoja 1: Facturas Alegra · Hoja 2: Contactos Alegra con correo FE. Registro masivo de facturas con posterior timbrado y emisión en Alegra'
   },
   {
-    id: 'world_office',
-    title: 'Paquete World Office / Loggro / Siigo Pyme (.xlsx)',
-    badge: 'Contable ERP',
+    id: 'loggro',
+    title: 'Plantilla Loggro (.xlsx)',
+    badge: 'ERP Restaurantes',
     columnsSummary:
-      'Hoja 1: Ficha completa Cliente + Pedido · Hoja 2: Sabana · Hoja 3: Terceros DIAN · Hoja 4: Encabezado/Detalle con IVA e INC'
+      'Estructura oficial de 2 hojas vinculadas: 1_Encabezado y 2_Detalles vinculadas por Consecutivo Factura + 3_Terceros_Loggro'
   },
   {
-    id: 'chinmi',
-    title: 'Sabana Maestra Contadora · Otros Proveedores DIAN (.xlsx)',
-    badge: 'Universal DIAN',
+    id: 'dian_support',
+    title: 'Reporte de Soporte para DIAN / Contador (.xlsx)',
+    badge: 'Conciliación Fiscal',
     columnsSummary:
-      'Hoja 1: Ficha completa Cliente + Pedido · Hoja 2: Tabla unificada Cliente + Compra · Hoja 3: Directorio Terceros DIAN'
+      'Hoja 1: Resumen Tributario (con advertencia legal) · Hoja 2: Libro Ventas y Terceros (Exógena) · Hoja 3: Detalle Gravamen Productos por tarifa'
   }
 ];
 
@@ -178,14 +190,23 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
   const knownCustomers = useMemo(() => extractKnownCustomersFromSales(sales), [sales]);
 
   const [mode, setMode] = useState<ExportGroupingMode>('by_customer');
-  const [provider, setProvider] = useState<ExportBillingProvider>('siigo');
+  const [provider, setProvider] = useState<ExportBillingProvider>('chinmi');
+  const [dateSelectionType, setDateSelectionType] = useState<'single' | 'range' | 'all'>('single');
   const [exportDate, setExportDate] = useState<string>(todayKey);
+  const [exportEndDate, setExportEndDate] = useState<string>(todayKey);
   const [filterCustomerByDate, setFilterCustomerByDate] = useState<boolean>(false);
   const [onlyPendingFeInBatch, setOnlyPendingFeInBatch] = useState<boolean>(false);
   const [markBatchIssuedOnDownload, setMarkBatchIssuedOnDownload] = useState<boolean>(false);
   const [excludeIndividualFeFromGlobal, setExcludeIndividualFeFromGlobal] = useState<boolean>(false);
   const [downloadedFile, setDownloadedFile] = useState<string | null>(null);
   const [fichaCopied, setFichaCopied] = useState<boolean>(false);
+
+  // Soporte de plantilla personalizada Siigo
+  const [customTemplateFile, setCustomTemplateFile] = useState<{
+    name: string;
+    buffer: ArrayBuffer;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Estado exclusivo para "Cliente y Pedido Específico (NIT / Cédula)"
   const [specificSearchQuery, setSpecificSearchQuery] = useState<string>('');
@@ -208,6 +229,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
   const [markIssuedOnDownload, setMarkIssuedOnDownload] = useState<boolean>(true);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [showAllIssues, setShowAllIssues] = useState<boolean>(false);
 
   const hydrateCustomerFormFromProfile = (prof: KnownCustomerProfile) => {
     const cleanType = prof.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : prof.documentType;
@@ -336,6 +358,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     setSavedNotice(null);
     setValidationError(null);
     setFichaCopied(false);
+    setCustomTemplateFile(null);
 
     const hasPendingFe = sales.some(
       (s) => hasIdentifiedCustomer(s) && s.electronicInvoiceStatus !== 'emitida'
@@ -357,11 +380,16 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
     if (initialSelectedDate) {
       setExportDate(initialSelectedDate);
+      setExportEndDate(initialSelectedDate);
+      setDateSelectionType('single');
       setFilterCustomerByDate(true);
       setSpecificFilterByDate(false);
     } else {
       const hasSalesToday = sales.some((s) => saleTimestampToDateKey(s.timestamp) === todayKey);
-      setExportDate(hasSalesToday ? todayKey : latestSaleDateKey);
+      const defDate = hasSalesToday ? todayKey : latestSaleDateKey;
+      setExportDate(defDate);
+      setExportEndDate(defDate);
+      setDateSelectionType('single');
       setFilterCustomerByDate(false);
       setSpecificFilterByDate(false);
     }
@@ -418,23 +446,6 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     return searchKnownCustomers(knownCustomers, specificSearchQuery, 5);
   }, [knownCustomers, specificSearchQuery]);
 
-  const inlineDocProfileSuggestion = useMemo((): KnownCustomerProfile | null => {
-    const cleanNum = custDocNumber.trim();
-    if (cleanNum.length < 5) return null;
-    const found = knownCustomers.find((p) => {
-      const pKey = normalizeDocumentSearchKey(p.documentNumber);
-      const cKey = normalizeDocumentSearchKey(cleanNum);
-      return pKey.baseWithoutDv === cKey.baseWithoutDv || pKey.compact === cKey.compact;
-    });
-    if (!found) return null;
-    const sameName = custName.trim().toLowerCase() === found.customerName.trim().toLowerCase();
-    const sameEmail = !found.email || custEmail.trim().toLowerCase() === found.email.toLowerCase();
-    const sameAddress =
-      !found.address || custAddress.trim().toLowerCase() === found.address.toLowerCase();
-    if (sameName && sameEmail && sameAddress) return null;
-    return found;
-  }, [custDocNumber, custName, custEmail, custAddress, knownCustomers]);
-
   const matchingOrdersForSpecificMode = useMemo(() => {
     const sorted = [...sales].sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
     return sorted.filter((sale) => {
@@ -449,13 +460,12 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       const storedDoc = sale.customerDocumentNumber || sale.billingInfo?.documentNumber || '';
       const storedDocType =
         sale.customerDocumentType || sale.billingInfo?.documentType || 'CONSUMIDOR_FINAL';
-      const isUnassigned = !storedDoc.trim() || storedDocType === 'CONSUMIDOR_FINAL';
-
-      if (includeUnassignedOrdersInSearch && isUnassigned) {
-        return true;
-      }
 
       if (matchesDocumentNumberQuery(storedDoc, q)) return true;
+      if (!includeUnassignedOrdersInSearch && storedDocType === 'CONSUMIDOR_FINAL') {
+        const normQ = normalizeDocumentSearchKey(q);
+        if (normQ.baseWithoutDv.length >= 6) return false;
+      }
 
       const name = (
         sale.customerName ||
@@ -485,14 +495,23 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
   );
 
   const effectiveTargetDate = useMemo(() => {
-    if (mode === 'daily_global') {
-      return exportDate || todayKey;
-    }
     if (mode === 'specific_order') {
       return selectedSale ? saleTimestampToDateKey(selectedSale.timestamp) : '';
     }
+    if (mode === 'daily_global') {
+      if (dateSelectionType === 'all') return '';
+      return exportDate || todayKey;
+    }
+    // mode === 'by_customer'
     return filterCustomerByDate ? exportDate : '';
-  }, [mode, exportDate, filterCustomerByDate, todayKey, selectedSale]);
+  }, [mode, dateSelectionType, exportDate, filterCustomerByDate, todayKey, selectedSale]);
+
+  const effectiveEndDate = useMemo(() => {
+    if (mode === 'daily_global' && dateSelectionType === 'range') {
+      return exportEndDate || exportDate;
+    }
+    return effectiveTargetDate;
+  }, [mode, dateSelectionType, exportEndDate, exportDate, effectiveTargetDate]);
 
   const dayIndividualFeCount = useMemo(() => {
     if (mode !== 'daily_global') return 0;
@@ -520,30 +539,30 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       documentNumber: fullDoc,
       dv: effectiveDv,
       personType: custPersonType,
-      email: custEmail.trim().toLowerCase(),
+      email: custEmail.trim(),
       phone: custPhone.trim(),
       city: custCity.trim(),
-      department: resolvedCityDane?.department,
-      cityCode: resolvedCityDane?.cityCode,
-      departmentCode: resolvedCityDane?.departmentCode,
       address: custAddress.trim(),
+      cityCode: resolvedCityDane?.cityCode || '',
+      department: resolvedCityDane?.department || '',
+      departmentCode: resolvedCityDane?.departmentCode || '',
       taxRegime: custTaxRegime,
-      fiscalResponsibility: custFiscalResp,
+      fiscalResponsibility: custFiscalResp || 'R-99-PN',
       requiresElectronicInvoice: true
     });
   };
 
-  const customerOverride = useMemo<Partial<CustomerBillingInfo> | null>(() => {
+  const customerOverride = useMemo(() => {
     if (mode !== 'specific_order') return null;
     return buildCurrentSpecificBillingInfo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     mode,
-    custName,
     custDocType,
     custDocNumber,
     custDv,
     custPersonType,
+    custName,
     custEmail,
     custPhone,
     custCity,
@@ -560,6 +579,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
         mode,
         provider,
         targetDate: effectiveTargetDate,
+        endDate: effectiveEndDate,
         appName,
         excludeIndividualFeFromGlobal,
         onlyPendingElectronicInvoices: mode === 'by_customer' ? onlyPendingFeInBatch : false,
@@ -572,6 +592,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       mode,
       provider,
       effectiveTargetDate,
+      effectiveEndDate,
       appName,
       excludeIndividualFeFromGlobal,
       onlyPendingFeInBatch,
@@ -580,13 +601,39 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     ]
   );
 
-  const readinessChecks = useMemo(() => {
-    const hasDoc = Boolean(custDocNumber.trim());
-    const hasName = Boolean(custName.trim());
-    const hasEmail = isValidEmailFormat(custEmail);
-    const hasLocation = Boolean(custCity.trim() || custAddress.trim());
-    return { hasDoc, hasName, hasEmail, hasLocation };
-  }, [custDocNumber, custName, custEmail, custCity, custAddress]);
+  const validationReport = useMemo(
+    () =>
+      validateBillingExport(
+        {
+          sales,
+          productsCatalog,
+          mode,
+          provider,
+          targetDate: effectiveTargetDate,
+          endDate: effectiveEndDate,
+          appName,
+          excludeIndividualFeFromGlobal,
+          onlyPendingElectronicInvoices: mode === 'by_customer' ? onlyPendingFeInBatch : false,
+          selectedSaleId,
+          customerOverride
+        },
+        preview
+      ),
+    [
+      sales,
+      productsCatalog,
+      mode,
+      provider,
+      effectiveTargetDate,
+      effectiveEndDate,
+      appName,
+      excludeIndividualFeFromGlobal,
+      onlyPendingFeInBatch,
+      selectedSaleId,
+      customerOverride,
+      preview
+    ]
+  );
 
   if (!isOpen) return null;
 
@@ -688,7 +735,19 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
     }
   };
 
-  const handleDownload = (rawImportOnly = false) => {
+  const handleTemplateUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const buffer = evt.target?.result as ArrayBuffer;
+      setCustomTemplateFile({ name: file.name, buffer });
+      setDownloadedFile(null);
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleDownload = () => {
     let effectiveSales = sales;
     let effectiveOverride = customerOverride;
 
@@ -726,12 +785,13 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
       mode,
       provider,
       targetDate: effectiveTargetDate,
+      endDate: effectiveEndDate,
       appName,
       excludeIndividualFeFromGlobal,
       onlyPendingElectronicInvoices: mode === 'by_customer' ? onlyPendingFeInBatch : false,
       selectedSaleId,
       customerOverride: effectiveOverride,
-      rawImportOnly
+      customTemplateBuffer: customTemplateFile?.buffer || null
     });
 
     if (result.success) {
@@ -773,10 +833,10 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
             </div>
             <div className="min-w-0">
               <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white truncate">
-                Centro Contable y Facturación Electrónica (.xlsx)
+                Exportación Profesional de Facturas (.xlsx)
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                Datos completos del cliente (DIAN / Terceros) + Detalle de compra listo para subir a Siigo, Alegra, World Office y otros
+                Formatos oficiales para Siigo, Alegra, Loggro, DIAN y Excel general de Chinmi
               </p>
             </div>
           </div>
@@ -792,14 +852,14 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* Step 1: Tipo de Exportación */}
+          {/* Step 1: Alcance y Tipo de Exportación */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                1. ¿Qué deseas preparar para subir al proveedor de facturación?
+                1. ¿Qué comprobantes deseas exportar?
               </label>
               <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:inline">
-                Incluye Terceros + Productos + Impuestos desglosados
+                Facturas con datos completos de clientes e impuestos (0%, 8%, 19%)
               </span>
             </div>
 
@@ -868,56 +928,72 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
               })}
             </div>
 
-            {/* Contextual Controls for daily_global and by_customer */}
+            {/* Contextual Date Controls */}
             {mode !== 'specific_order' && (
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Calendar className="w-3.5 h-3.5 text-orange-500 shrink-0" />
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    {mode === 'daily_global' ? 'Día de caja a consolidar:' : 'Periodo de ventas FE:'}
+                    Filtro de Fechas:
                   </span>
 
-                  {mode === 'by_customer' && (
-                    <div className="flex items-center p-0.5 rounded-lg bg-slate-200/70 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterCustomerByDate(false);
-                          setDownloadedFile(null);
-                        }}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
-                          !filterCustomerByDate
-                            ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                      >
-                        Todas las fechas
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFilterCustomerByDate(true);
-                          if (!exportDate) setExportDate(todayKey);
-                          setDownloadedFile(null);
-                        }}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
-                          filterCustomerByDate
-                            ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                      >
-                        Día específico
-                      </button>
-                    </div>
-                  )}
+                  {/* Selector de tipo de fecha */}
+                  <div className="flex items-center p-0.5 rounded-lg bg-slate-200/70 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDateSelectionType('single');
+                        setFilterCustomerByDate(true);
+                        setDownloadedFile(null);
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                        dateSelectionType === 'single'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Día único
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDateSelectionType('range');
+                        setFilterCustomerByDate(true);
+                        setDownloadedFile(null);
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                        dateSelectionType === 'range'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Rango de fechas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDateSelectionType('all');
+                        setFilterCustomerByDate(false);
+                        setDownloadedFile(null);
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                        dateSelectionType === 'all'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Todo el historial
+                    </button>
+                  </div>
 
-                  {(mode === 'daily_global' || filterCustomerByDate) && (
+                  {dateSelectionType === 'single' && (
                     <div className="flex items-center gap-1.5">
                       <input
                         type="date"
                         value={exportDate}
                         onChange={(e) => {
                           setExportDate(e.target.value);
+                          setExportEndDate(e.target.value);
                           setDownloadedFile(null);
                         }}
                         className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono tabular-nums text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
@@ -927,6 +1003,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                           type="button"
                           onClick={() => {
                             setExportDate(todayKey);
+                            setExportEndDate(todayKey);
                             setDownloadedFile(null);
                           }}
                           className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-semibold text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/30 transition cursor-pointer whitespace-nowrap"
@@ -934,6 +1011,32 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                           Hoy
                         </button>
                       )}
+                    </div>
+                  )}
+
+                  {dateSelectionType === 'range' && (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        value={exportDate}
+                        onChange={(e) => {
+                          setExportDate(e.target.value);
+                          setDownloadedFile(null);
+                        }}
+                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono tabular-nums text-slate-900 dark:text-white"
+                        title="Fecha inicio"
+                      />
+                      <span className="text-slate-400 text-xs">hasta</span>
+                      <input
+                        type="date"
+                        value={exportEndDate}
+                        onChange={(e) => {
+                          setExportEndDate(e.target.value);
+                          setDownloadedFile(null);
+                        }}
+                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono tabular-nums text-slate-900 dark:text-white"
+                        title="Fecha fin"
+                      />
                     </div>
                   )}
                 </div>
@@ -979,17 +1082,16 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                       className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                     />
                     <span>
-                      Excluir {dayIndividualFeCount} ticket(s) con FE individual para no facturar doble
+                      Excluir {dayIndividualFeCount} ticket(s) con FE individual
                     </span>
                   </label>
                 )}
               </div>
             )}
 
-            {/* Panel dedicado cuando mode === 'specific_order': Buscar por NIT / Cédula + Ficha Completa del Cliente y Compra */}
+            {/* Panel para Modo Pedido Específico */}
             {mode === 'specific_order' && (
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 space-y-4">
-                {/* Barra de búsqueda por NIT / Cédula y filtro de fecha */}
                 <div className="space-y-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -1066,8 +1168,8 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                         <span className="text-slate-500 dark:text-slate-400 font-medium">
                           {specificSearchQuery.trim()
-                            ? 'Directorio de clientes encontrados (clic para cargar todos sus datos DIAN):'
-                            : 'Directorio reciente de clientes con NIT / Cédula:'}
+                            ? 'Clientes encontrados (clic para cargar datos fiscales):'
+                            : 'Clientes recientes con NIT / Cédula:'}
                         </span>
                         {specificSearchQuery.trim() && (
                           <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer select-none">
@@ -1122,11 +1224,11 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                   )}
                 </div>
 
-                {/* Lista de pedidos específicos */}
+                {/* Lista de pedidos */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-bold text-slate-700 dark:text-slate-200">
-                      Selecciona la compra / pedido tomado ({matchingOrdersForSpecificMode.length}{' '}
+                      Selecciona la compra / pedido ({matchingOrdersForSpecificMode.length}{' '}
                       {matchingOrdersForSpecificMode.length === 1 ? 'ticket' : 'tickets'})
                     </span>
                     {selectedSale && (
@@ -1138,9 +1240,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
 
                   {matchingOrdersForSpecificMode.length === 0 ? (
                     <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center justify-between gap-2">
-                      <span>
-                        No se encontraron pedidos con el NIT/Cédula buscado. Activa ver tickets de Consumidor Final para asignarle la compra a este cliente.
-                      </span>
+                      <span>No se encontraron pedidos con el criterio buscado.</span>
                       <button
                         type="button"
                         onClick={() => setIncludeUnassignedOrdersInSearch(true)}
@@ -1206,11 +1306,9 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                                     })}
                                   </span>
                                 </div>
-
                                 <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">
                                   {summarizeSaleItems(sale)}
                                 </p>
-
                                 <p className="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400 truncate">
                                   {docLabel ? `${docLabel} · ${saleCustName}` : saleCustName}
                                   {isIssued ? ' · FE Emitida' : ''}
@@ -1234,10 +1332,9 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                   )}
                 </div>
 
-                {/* Detalle Completo de la Compra + Datos Fiscales DIAN del Cliente */}
+                {/* Formulario de cliente para el pedido */}
                 {selectedSale && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-1">
-                    {/* Columna Compra: Productos, SKUs, Impuestos y Medio de Pago */}
                     <div className="lg:col-span-5 p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-col justify-between gap-3">
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
@@ -1316,13 +1413,13 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                         )}
                         {selectedSale.tipAmount > 0 && (
                           <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                            <span>Propina (no gravada):</span>
+                            <span>Propina:</span>
                             <span>+{formatCOP(selectedSale.tipAmount)}</span>
                           </div>
                         )}
                         <div className="flex items-center justify-between pt-0.5">
                           <span className="font-sans text-slate-600 dark:text-slate-300 font-semibold">
-                            Total Cobrado:
+                            Total:
                           </span>
                           <span className="font-extrabold text-slate-900 dark:text-white">
                             {formatCOP(selectedSale.total)}
@@ -1331,30 +1428,29 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                       </div>
                     </div>
 
-                    {/* Columna Cliente: Ficha Fiscal DIAN Completa para Siigo / Proveedores */}
                     <div className="lg:col-span-7 p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-2.5">
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
                         <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                           <Building2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          <span>Datos Fiscales del Cliente (Para Siigo / DIAN)</span>
+                          <span>Datos Fiscales del Cliente</span>
                         </span>
 
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={handleCopyAccountantFicha}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-200 transition cursor-pointer whitespace-nowrap"
-                            title="Copiar ficha completa del cliente y su compra para WhatsApp o contabilidad"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                            title="Copiar datos al portapapeles"
                           >
                             {fichaCopied ? (
                               <>
-                                <Check className="w-3 h-3 text-emerald-500" />
-                                <span className="text-emerald-600 dark:text-emerald-400">Ficha copiada</span>
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>¡Copiado!</span>
                               </>
                             ) : (
                               <>
-                                <Copy className="w-3 h-3 text-orange-500" />
-                                <span>Copiar Ficha Contadora</span>
+                                <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Copiar Ficha</span>
                               </>
                             )}
                           </button>
@@ -1363,259 +1459,150 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                             <button
                               type="button"
                               onClick={handleSaveCustomerToOrderOnly}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 transition cursor-pointer whitespace-nowrap"
-                              title="Guardar todos estos datos del cliente en el pedido"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold cursor-pointer"
                             >
-                              <Save className="w-3 h-3" />
-                              <span>Guardar datos</span>
+                              <Save className="w-3.5 h-3.5" />
+                              <span>Guardar en Ticket</span>
                             </button>
                           )}
                         </div>
                       </div>
 
-                      {/* Checklist visual rápido de completitud para la Contadora */}
-                      <div className="flex flex-wrap items-center gap-2 text-[10px]">
-                        <span
-                          className={`inline-flex items-center gap-1 font-semibold ${
-                            readinessChecks.hasDoc
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-amber-600 dark:text-amber-400'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-3 h-3 shrink-0" />
-                          <span>NIT/Cédula</span>
-                        </span>
-                        <span className="text-slate-300 dark:text-slate-700">·</span>
-                        <span
-                          className={`inline-flex items-center gap-1 font-semibold ${
-                            readinessChecks.hasName
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-amber-600 dark:text-amber-400'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-3 h-3 shrink-0" />
-                          <span>Razón Social</span>
-                        </span>
-                        <span className="text-slate-300 dark:text-slate-700">·</span>
-                        <span
-                          className={`inline-flex items-center gap-1 font-semibold ${
-                            readinessChecks.hasEmail
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-amber-600 dark:text-amber-400'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-3 h-3 shrink-0" />
-                          <span>Correo envío cliente</span>
-                        </span>
-                        <span className="text-slate-300 dark:text-slate-700">·</span>
-                        <span
-                          className={`inline-flex items-center gap-1 font-semibold ${
-                            readinessChecks.hasLocation
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-slate-400 dark:text-slate-500'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-3 h-3 shrink-0" />
-                          <span>Dirección / Ciudad DANE</span>
-                        </span>
-                      </div>
-
-                      {/* Fila 1: Tipo Doc + Número + DV + Tipo Persona */}
+                      {/* Campos del formulario de cliente */}
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
                         <div className="sm:col-span-4">
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            Tipo Doc. (Cód. DIAN {getDianDocumentTypeCode(custDocType)}) *
+                            Tipo de Documento
                           </label>
                           <select
-                            value={custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType}
+                            value={custDocType}
                             onChange={(e) => {
                               const nextType = e.target.value as CustomerDocumentType;
                               setCustDocType(nextType);
                               if (nextType === 'NIT') {
                                 setCustPersonType('juridica');
                                 setCustTaxRegime('responsable_iva');
-                                setCustDv(calculateColombiaNitDV(custDocNumber));
+                                setCustFiscalResp('O-13');
+                                if (custDocNumber) setCustDv(calculateColombiaNitDV(custDocNumber));
                               } else {
                                 setCustPersonType('natural');
                                 setCustDv('');
                               }
-                              setValidationError(null);
-                              setDownloadedFile(null);
                             }}
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden"
                           >
-                            {DOCUMENT_TYPE_OPTIONS.filter((o) => o.value !== 'CONSUMIDOR_FINAL').map(
-                              (opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.shortLabel} ({opt.dianCode})
-                                </option>
-                              )
-                            )}
+                            {DOCUMENT_TYPE_OPTIONS.filter((d) => d.value !== 'CONSUMIDOR_FINAL').map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.shortLabel} - {opt.label}
+                              </option>
+                            ))}
                           </select>
                         </div>
 
-                        <div className={custDocType === 'NIT' ? 'sm:col-span-4' : 'sm:col-span-5'}>
+                        <div className={custDocType === 'NIT' ? 'sm:col-span-6' : 'sm:col-span-8'}>
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            {custDocType === 'NIT' ? 'NIT (Sin DV) *' : 'Número Identificación *'}
+                            Número de Documento <span className="text-rose-500">*</span>
                           </label>
                           <input
                             type="text"
                             value={custDocNumber}
                             onChange={(e) => {
-                              const rawVal = e.target.value;
-                              if (rawVal.includes('-')) {
-                                const [base, dvPart = ''] = rawVal.split('-');
-                                setCustDocNumber(base.trim());
-                                setCustDocType('NIT');
-                                setCustPersonType('juridica');
-                                setCustTaxRegime('responsable_iva');
-                                setCustDv(dvPart.trim() || calculateColombiaNitDV(base));
-                              } else {
-                                setCustDocNumber(rawVal);
-                                if (custDocType === 'NIT') {
-                                  setCustDv(calculateColombiaNitDV(rawVal));
-                                }
+                              const val = e.target.value;
+                              setCustDocNumber(val);
+                              if (custDocType === 'NIT') {
+                                setCustDv(calculateColombiaNitDV(val));
                               }
-                              setValidationError(null);
-                              setSavedNotice(null);
-                              setDownloadedFile(null);
                             }}
-                            placeholder={custDocType === 'NIT' ? '900123456' : '1020304050'}
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono tabular-nums text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                            placeholder="Ej. 900123456"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
                           />
                         </div>
 
                         {custDocType === 'NIT' && (
-                          <div className="sm:col-span-1">
+                          <div className="sm:col-span-2">
                             <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
                               DV
                             </label>
                             <input
                               type="text"
-                              maxLength={1}
                               value={custDv}
-                              onChange={(e) => setCustDv(e.target.value.replace(/\D/g, ''))}
-                              placeholder="0"
-                              title="Dígito de Verificación DIAN (calculado automáticamente por Módulo 11)"
-                              className="w-full px-1.5 py-1.5 text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400 focus:outline-hidden"
+                              onChange={(e) => setCustDv(e.target.value.replace(/\D/g, '').slice(0, 1))}
+                              maxLength={1}
+                              className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-center font-bold text-slate-900 dark:text-white"
                             />
                           </div>
                         )}
-
-                        <div className="sm:col-span-3">
-                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            Tipo Persona
-                          </label>
-                          <select
-                            value={custPersonType}
-                            onChange={(e) =>
-                              setCustPersonType(e.target.value as CustomerPersonType)
-                            }
-                            className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden"
-                          >
-                            <option value="natural">Natural</option>
-                            <option value="juridica">Jurídica</option>
-                          </select>
-                        </div>
                       </div>
 
-                      {inlineDocProfileSuggestion && (
-                        <button
-                          type="button"
-                          onClick={() => handleSelectProfile(inlineDocProfileSuggestion)}
-                          className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/40 text-left text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 cursor-pointer"
-                        >
-                          <span className="truncate">
-                            Cliente encontrado en historial:{' '}
-                            <strong>{inlineDocProfileSuggestion.customerName}</strong>
-                            {inlineDocProfileSuggestion.email
-                              ? ` · ${inlineDocProfileSuggestion.email}`
-                              : ''}
-                          </span>
-                          <span className="font-bold shrink-0 underline">Cargar ficha completa</span>
-                        </button>
-                      )}
-
-                      {/* Fila 2: Nombre / Razón Social + Correo Envío Cliente */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div>
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <div className="sm:col-span-7">
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                            {custPersonType === 'juridica'
-                              ? 'Razón Social de la Empresa *'
-                              : 'Nombres y Apellidos completos *'}
+                            Nombre Completo o Razón Social <span className="text-rose-500">*</span>
                           </label>
                           <input
                             type="text"
                             value={custName}
-                            onChange={(e) => {
-                              setCustName(e.target.value);
-                              setSavedNotice(null);
-                              setDownloadedFile(null);
-                            }}
-                            placeholder={
-                              custPersonType === 'juridica'
-                                ? 'Ej. Inversiones Gastronómicas S.A.S.'
-                                : 'Ej. Carolina Gómez Restrepo'
-                            }
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                            onChange={(e) => setCustName(e.target.value)}
+                            placeholder="Nombre del cliente o razón social"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
                           />
                         </div>
 
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                            <Mail className="w-3 h-3 text-orange-500 shrink-0" />
-                            <span>Correo del cliente (Para envío de la FE) *</span>
+                        <div className="sm:col-span-5">
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Tipo de Persona
+                          </label>
+                          <select
+                            value={custPersonType}
+                            onChange={(e) => setCustPersonType(e.target.value as CustomerPersonType)}
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden"
+                          >
+                            <option value="natural">Persona Natural</option>
+                            <option value="juridica">Persona Jurídica (Empresa)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <div className="sm:col-span-7">
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Correo Electrónico (FE) <span className="text-rose-500">*</span>
                           </label>
                           <input
                             type="email"
                             value={custEmail}
-                            onChange={(e) => {
-                              setCustEmail(e.target.value);
-                              setValidationError(null);
-                              setSavedNotice(null);
-                              setDownloadedFile(null);
-                            }}
-                            placeholder="facturacion@cliente.com"
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-orange-500/40"
+                            onChange={(e) => setCustEmail(e.target.value)}
+                            placeholder="facturacion@empresa.com"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
                           />
                         </div>
-                      </div>
 
-                      {/* Fila 3: Teléfono + Ciudad DANE + Dirección Fiscal */}
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                        <div className="sm:col-span-4">
-                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
-                            <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span>Teléfono / Celular</span>
+                        <div className="sm:col-span-5">
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Teléfono / WhatsApp
                           </label>
                           <input
                             type="tel"
                             value={custPhone}
                             onChange={(e) => setCustPhone(e.target.value)}
-                            placeholder="3001234567"
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono tabular-nums text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                            placeholder="300 123 4567"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
                           />
                         </div>
+                      </div>
 
-                        <div className="sm:col-span-4">
-                          <div className="flex items-center justify-between gap-1 mb-1">
-                            <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                              <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                              <span>Ciudad</span>
-                            </label>
-                            {resolvedCityDane && (
-                              <span className="text-[9px] font-mono tabular-nums text-emerald-700 dark:text-emerald-400 font-semibold">
-                                DANE {resolvedCityDane.cityCode}
-                              </span>
-                            )}
-                          </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <div className="sm:col-span-6">
+                          <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                            Ciudad / Municipio (DANE)
+                          </label>
                           <input
                             type="text"
                             list="modal-colombia-cities"
                             value={custCity}
                             onChange={(e) => setCustCity(e.target.value)}
                             placeholder="Bogotá D.C., Medellín..."
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden"
                           />
                           <datalist id="modal-colombia-cities">
                             {COLOMBIAN_CITIES_DANE.map((c) => (
@@ -1626,7 +1613,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                           </datalist>
                         </div>
 
-                        <div className="sm:col-span-4">
+                        <div className="sm:col-span-6">
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
                             Dirección Fiscal
                           </label>
@@ -1635,12 +1622,11 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                             value={custAddress}
                             onChange={(e) => setCustAddress(e.target.value)}
                             placeholder="Cra 15 # 85-30"
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden"
                           />
                         </div>
                       </div>
 
-                      {/* Fila 4: Régimen Tributario + Responsabilidad Fiscal DIAN */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <label className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
@@ -1648,12 +1634,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                           </label>
                           <select
                             value={custTaxRegime}
-                            onChange={(e) => {
-                              const nextReg = e.target.value as CustomerTaxRegime;
-                              setCustTaxRegime(nextReg);
-                              const regMeta = TAX_REGIME_OPTIONS.find((r) => r.value === nextReg);
-                              if (regMeta) setCustFiscalResp(regMeta.defaultFiscalCode);
-                            }}
+                            onChange={(e) => setCustTaxRegime(e.target.value as CustomerTaxRegime)}
                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-hidden"
                           >
                             {TAX_REGIME_OPTIONS.map((reg) => (
@@ -1690,7 +1671,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                           className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                         />
                         <span>
-                          Guardar todos estos datos del cliente en la compra y marcar como FE Emitida al descargar
+                          Guardar datos del cliente en el ticket y marcar como FE Emitida al descargar
                         </span>
                       </label>
                     </div>
@@ -1700,18 +1681,18 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
             )}
           </div>
 
-          {/* Step 2: Proveedor de Facturación */}
+          {/* Step 2: Formato de Exportación Contable */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                2. Elige el Proveedor de Facturación Electrónica de tu Contadora
+                2. Selecciona el Formato de Exportación Contable
               </label>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Incluye hoja de Clientes/Terceros + hoja de Facturas
+                Estructura nativa optimizada por software
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
               {PROVIDER_OPTIONS.map((prov) => {
                 const isSelected = provider === prov.id;
                 return (
@@ -1722,38 +1703,231 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                       setProvider(prov.id);
                       setDownloadedFile(null);
                     }}
-                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex items-start justify-between gap-3 ${
+                    className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between gap-2 ${
                       isSelected
-                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-500 dark:border-emerald-500'
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-500 dark:border-emerald-500 ring-1 ring-emerald-500'
                         : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/80 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}
                   >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-1">
                         <span className="text-xs font-bold text-slate-900 dark:text-white">
                           {prov.title}
                         </span>
-                        <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
-                          · {prov.badge}
+                        <span
+                          className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                            isSelected
+                              ? 'border-emerald-600 bg-emerald-600 text-white'
+                              : 'border-slate-300 dark:border-slate-600'
+                          }`}
+                        >
+                          {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+                      <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">
+                        {prov.badge}
+                      </span>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug pt-1">
                         {prov.columnsSummary}
                       </p>
                     </div>
-                    <span
-                      className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                        isSelected
-                          ? 'border-emerald-600 bg-emerald-600 text-white'
-                          : 'border-slate-300 dark:border-slate-600'
-                      }`}
-                    >
-                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </span>
                   </button>
                 );
               })}
             </div>
+
+            {/* Avisos específicos según el proveedor seleccionado */}
+            {provider === 'alegra' && (
+              <div className="p-3.5 rounded-xl border border-sky-200 dark:border-sky-800/70 bg-sky-50/80 dark:bg-sky-950/40 flex items-start gap-2.5 text-xs text-sky-900 dark:text-sky-200">
+                <Info className="w-4 h-4 shrink-0 text-sky-600 dark:text-sky-400 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold">Aviso sobre emisión electrónica en Alegra:</p>
+                  <p className="text-[11px] text-sky-800 dark:text-sky-300 leading-relaxed">
+                    Al importar este archivo en Alegra, las facturas y contactos quedarán registrados directamente en tu cuenta. La emisión electrónica y timbrado ante la DIAN se efectúa dentro de Alegra con un solo clic tras verificar los comprobantes importados.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {provider === 'dian_support' && (
+              <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/80 dark:bg-amber-950/40 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold">Aviso Fiscal / Contador:</p>
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                    Este documento es un reporte de soporte contable y conciliación tributaria generado por Chinmi App para el contador o revisor fiscal. No sustituye la expedición directa de Factura Electrónica validada con XML y código CUFE ante la DIAN, la cual requiere software tecnológico habilitado por la DIAN.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {provider === 'siigo' && (
+              <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/70 dark:bg-emerald-950/40 space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+                      Identificaciones formateadas como Texto (@) para nunca perder ceros iniciales.
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      accept=".xlsx,.xls"
+                      onChange={handleTemplateUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 transition cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>
+                        {customTemplateFile ? 'Cambiar Plantilla Siigo' : 'Cargar Plantilla Siigo (.xlsx)'}
+                      </span>
+                    </button>
+                    {customTemplateFile && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomTemplateFile(null)}
+                        className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                        title="Quitar plantilla y usar la nativa de Chinmi"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {customTemplateFile && (
+                  <p className="text-[11px] text-emerald-800 dark:text-emerald-300 font-mono">
+                    Plantilla personalizada activa: <strong>{customTemplateFile.name}</strong>. Se insertarán los comprobantes directamente en sus columnas.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Step 3: Auditoría Previa a la Descarga */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Auditoría y Validación Contable Pre-Descarga
+                </span>
+              </div>
+              <span
+                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                  validationReport.statusSummary === 'perfect'
+                    ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                    : validationReport.statusSummary === 'warnings'
+                    ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                    : 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300'
+                }`}
+              >
+                {validationReport.statusSummary === 'perfect'
+                  ? 'Consistencia 100% Verificada'
+                  : validationReport.statusSummary === 'warnings'
+                  ? `${validationReport.issues.length} Observaciones`
+                  : 'Requiere Revisión'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
+                  Facturas Auditadas
+                </span>
+                <p className="text-sm font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
+                  {validationReport.totalInvoicesChecked}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
+                  Cuadre Matemático
+                </span>
+                <p className="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
+                  {validationReport.mathMismatchesCount === 0 ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Exacto
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {validationReport.mathMismatchesCount} diferencias
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
+                  NITs / Cédulas FE
+                </span>
+                <p className="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
+                  {validationReport.missingCustomerIdsCount === 0 ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Completos
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {validationReport.missingCustomerIdsCount} genéricos
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
+                  Correos para FE
+                </span>
+                <p className="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
+                  {validationReport.missingCustomerEmailsCount === 0 ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Válidos
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {validationReport.missingCustomerEmailsCount} pendientes
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Lista de advertencias si existen */}
+            {validationReport.issues.length > 0 && (
+              <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/60 dark:bg-amber-950/20 space-y-1.5 text-xs text-amber-800 dark:text-amber-300">
+                <div className="flex items-center justify-between font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Observaciones para revisión contable:</span>
+                  </span>
+                  {validationReport.issues.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllIssues(!showAllIssues)}
+                      className="text-[11px] font-bold text-amber-700 dark:text-amber-400 underline cursor-pointer"
+                    >
+                      {showAllIssues ? 'Ver menos' : `Ver todas (${validationReport.issues.length})`}
+                    </button>
+                  )}
+                </div>
+
+                <ul className="space-y-1 text-[11px] list-disc list-inside">
+                  {(showAllIssues
+                    ? validationReport.issues
+                    : validationReport.issues.slice(0, 2)
+                  ).map((iss, i) => (
+                    <li key={i}>{iss.message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           {/* Live Fiscal Breakdown & Preview */}
@@ -1761,7 +1935,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Vista Previa del Paquete Contable
+                  Vista Previa del Archivo Generado
                 </span>
                 <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
                   Hojas: {preview.includedSheets.join(' · ')}
@@ -1772,54 +1946,41 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
               </span>
             </div>
 
-            {/* 4-Column Tabular Metrics */}
+            {/* Métricas Contables */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
                 <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
-                  {mode === 'daily_global'
-                    ? 'Bloque / Tickets'
-                    : mode === 'specific_order'
-                    ? 'Tercero Receptor'
-                    : 'Facturas a Subir'}
-                </span>
-                <p className="text-xs sm:text-sm font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5 truncate">
-                  {mode === 'daily_global'
-                    ? `${preview.totalInvoicesCount} lote · ${preview.totalTicketsCount} tkt`
-                    : mode === 'specific_order'
-                    ? custDocNumber.trim()
-                      ? `${custDocType === 'CONSUMIDOR_FINAL' ? 'CC' : custDocType} ${custDocNumber.trim()}${
-                          custDocType === 'NIT' && custDv ? `-${custDv}` : ''
-                        }`
-                      : 'Sin NIT/Cédula aún'
-                    : `${preview.totalInvoicesCount} cliente(s) · ${preview.totalTicketsCount} tkt`}
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
-                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
-                  Base Gravable Sin Impuesto
+                  Base Gravable 0% (Exenta)
                 </span>
                 <p className="text-sm font-extrabold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
-                  {formatCOP(Math.round(preview.totalTaxableBase))}
+                  {formatCOP(Math.round(preview.totalBase0))}
                 </p>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
                 <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
-                  INC 8% · IVA 19%
+                  INC 8% (Base {formatCOP(Math.round(preview.totalBase8))})
                 </span>
                 <p className="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
-                  {formatCOP(Math.round(preview.totalIncAmount))} ·{' '}
+                  {formatCOP(Math.round(preview.totalIncAmount))}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
+                  IVA 19% (Base {formatCOP(Math.round(preview.totalBase19))})
+                </span>
+                <p className="text-xs font-bold font-mono tabular-nums text-slate-900 dark:text-white mt-0.5">
                   {formatCOP(Math.round(preview.totalIvaAmount))}
                 </p>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
                 <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block">
-                  Total Factura DIAN
+                  Total Facturado General
                 </span>
                 <p className="text-sm font-extrabold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 mt-0.5">
-                  {formatCOP(Math.round(preview.totalGrossProducts))}
+                  {formatCOP(Math.round(preview.totalChargedAmount))}
                 </p>
               </div>
             </div>
@@ -1838,32 +1999,15 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
               </div>
             )}
 
-            {/* Preview Table or Empty State */}
+            {/* Preview Table */}
             {preview.packages.length === 0 ? (
               <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/70 dark:bg-amber-950/30 flex items-center justify-between gap-2.5 text-xs text-amber-800 dark:text-amber-300 flex-wrap">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>
-                    {mode === 'daily_global'
-                      ? `No se encontraron ventas registradas para la fecha ${effectiveTargetDate}.`
-                      : mode === 'specific_order'
-                      ? 'Selecciona un pedido en el listado superior para previsualizar su Factura Electrónica.'
-                      : onlyPendingFeInBatch
-                      ? 'No hay Facturas Electrónicas pendientes por subir en este filtro. Desmarca "Solo pendientes por subir" si deseas volver a descargar las ya emitidas.'
-                      : effectiveTargetDate
-                      ? `No hay clientes con solicitud de Factura Electrónica el día ${effectiveTargetDate}.`
-                      : 'Aún no hay ventas marcadas con solicitud de Factura Electrónica.'}
+                    No se encontraron facturas registradas para los filtros seleccionados.
                   </span>
                 </div>
-                {mode === 'by_customer' && onlyPendingFeInBatch && (
-                  <button
-                    type="button"
-                    onClick={() => setOnlyPendingFeInBatch(false)}
-                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-[11px] font-bold text-amber-800 dark:text-amber-300 cursor-pointer whitespace-nowrap"
-                  >
-                    Incluir ya emitidas
-                  </button>
-                )}
               </div>
             ) : (
               <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden overflow-x-auto">
@@ -1897,10 +2041,10 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
                     ))}
                   </tbody>
                 </table>
-                {preview.totalLinesCount > preview.previewRows.length && (
+                {preview.totalInvoicesCount > preview.previewRows.length && (
                   <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400">
-                    Mostrando primeras {preview.previewRows.length} de {preview.totalLinesCount}{' '}
-                    líneas totales incluidas en el paquete .xlsx
+                    Mostrando primeras {preview.previewRows.length} de {preview.totalInvoicesCount}{' '}
+                    facturas totales incluidas en el archivo .xlsx
                   </div>
                 )}
               </div>
@@ -1910,7 +2054,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
               <div className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/70 bg-emerald-50/80 dark:bg-emerald-950/40 flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-300">
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                 <span>
-                  Paquete listo para la contadora: <strong className="font-mono">{downloadedFile}</strong>
+                  Archivo generado con éxito: <strong className="font-mono">{downloadedFile}</strong>
                 </span>
               </div>
             )}
@@ -1920,7 +2064,7 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
         {/* Footer Actions */}
         <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden md:inline">
-            Hoja 1 abre con Ficha completa del Cliente + Lista del Pedido + Impuestos y pestañas para importar
+            Formato: <strong>{PROVIDER_OPTIONS.find((p) => p.id === provider)?.title}</strong> · {preview.totalInvoicesCount} facturas
           </span>
 
           <div className="flex flex-wrap items-center gap-2 ml-auto">
@@ -1932,30 +2076,23 @@ export const BillingExcelExportModal: React.FC<BillingExcelExportModalProps> = (
               Cerrar
             </button>
 
-            {provider !== 'chinmi' && (
-              <button
-                type="button"
-                onClick={() => handleDownload(true)}
-                disabled={preview.packages.length === 0}
-                title="Descarga únicamente las tablas planas sin encabezado visual para robots de importación automática"
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 disabled:opacity-50 text-emerald-800 dark:text-emerald-300 text-xs font-semibold transition cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                <span>Solo Plantilla Plana</span>
-              </button>
-            )}
-
             <button
               type="button"
-              onClick={() => handleDownload(false)}
+              onClick={handleDownload}
               disabled={preview.packages.length === 0}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-bold transition cursor-pointer disabled:cursor-not-allowed whitespace-nowrap shadow-xs"
             >
               <Download className="w-3.5 h-3.5 shrink-0" />
               <span>
-                {mode === 'specific_order'
-                  ? 'Descargar Cliente + Pedido (.xlsx)'
-                  : 'Descargar Clientes + Pedidos (.xlsx)'}
+                {provider === 'chinmi'
+                  ? 'Descargar Excel Chinmi (3 Hojas .xlsx)'
+                  : provider === 'siigo'
+                  ? 'Descargar Plantilla Siigo Cloud (.xlsx)'
+                  : provider === 'alegra'
+                  ? 'Descargar Plantilla Alegra (.xlsx)'
+                  : provider === 'loggro'
+                  ? 'Descargar Plantilla Loggro (.xlsx)'
+                  : 'Descargar Reporte Soporte DIAN (.xlsx)'}
               </span>
             </button>
           </div>

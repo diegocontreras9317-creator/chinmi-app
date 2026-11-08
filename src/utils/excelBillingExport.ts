@@ -15,6 +15,7 @@ import {
   getSaleCustomerEmail,
   hasIdentifiedCustomer,
   isElectronicInvoiceSale,
+  isValidEmailFormat,
   resolveColombianCity,
   resolveSaleBillingInfo,
   splitNaturalPersonName,
@@ -23,16 +24,28 @@ import {
 import { resolveOrderItemTax } from './taxes';
 
 export type ExportGroupingMode = 'daily_global' | 'by_customer' | 'specific_order';
-export type ExportBillingProvider = 'siigo' | 'alegra' | 'world_office' | 'chinmi';
+export type ExportBillingProvider =
+  | 'chinmi'
+  | 'siigo'
+  | 'alegra'
+  | 'loggro'
+  | 'dian_support'
+  | 'world_office';
 
 export interface BillingExportParams {
   sales: SaleReceipt[];
   productsCatalog?: Product[];
   mode: ExportGroupingMode;
   provider: ExportBillingProvider;
-  /** YYYY-MM-DD local date; required for 'daily_global', optional for 'by_customer' (empty = all dates) */
+  /** YYYY-MM-DD local date; start date or single date */
   targetDate: string;
+  /** Optional end date for date ranges YYYY-MM-DD */
+  endDate?: string;
   appName: string;
+  /** Optional establishment NIT */
+  businessNit?: string;
+  /** Optional establishment Legal Name */
+  businessName?: string;
   /** Optional: omit tickets that already requested individual FE when building the daily global invoice */
   excludeIndividualFeFromGlobal?: boolean;
   /** Optional for mode === 'by_customer': export only pending FE sales so the accountant doesn't re-upload issued ones */
@@ -41,6 +54,8 @@ export interface BillingExportParams {
   selectedSaleId?: string;
   /** Optional customer NIT/Cédula/Razón Social/Email/Dirección/Ciudad override for mode === 'specific_order' */
   customerOverride?: Partial<CustomerBillingInfo> | null;
+  /** Optional custom .xlsx template buffer uploaded by the user */
+  customTemplateBuffer?: ArrayBuffer | null;
   /** If true, places the raw row-1 provider import template as Sheet 1 (for automated robot uploaders) */
   rawImportOnly?: boolean;
 }
@@ -67,6 +82,7 @@ export interface NormalizedInvoiceLine {
 export interface ConsolidatedInvoicePackage {
   packageKey: string;
   invoiceDateKey: string; // YYYY-MM-DD
+  consecutiveNumber: string; // FV-XXXX
   customerName: string;
   firstName: string;
   lastName: string;
@@ -91,9 +107,13 @@ export interface ConsolidatedInvoicePackage {
   ticketsCount: number;
   ticketIds: string[];
   shortTicketRefs: string;
+  documentStatus: 'Emitida' | 'Pendiente';
   lines: NormalizedInvoiceLine[];
   totalBase: number;
+  totalBase0: number;
+  totalBase8: number;
   totalInc: number;
+  totalBase19: number;
   totalIva: number;
   totalDiscount: number;
   totalTip: number;
@@ -108,14 +128,40 @@ export interface BillingExportPreview {
   totalTicketsCount: number;
   totalLinesCount: number;
   totalTaxableBase: number;
+  totalBase0: number;
+  totalBase8: number;
   totalIncAmount: number;
+  totalBase19: number;
   totalIvaAmount: number;
+  totalDiscountAmount: number;
   totalTipsAmount: number;
   totalGrossProducts: number;
+  totalChargedAmount: number;
   previewHeaders: string[];
   previewRows: Array<Array<string | number>>;
   includedSheets: string[];
   suggestedFilename: string;
+}
+
+export interface BillingValidationIssue {
+  type: 'error' | 'warning' | 'info';
+  message: string;
+  field?: string;
+  invoiceRef?: string;
+}
+
+export interface BillingValidationReport {
+  isValid: boolean;
+  canExport: boolean;
+  totalInvoicesChecked: number;
+  totalLinesChecked: number;
+  mathMismatchesCount: number;
+  missingCustomerIdsCount: number;
+  missingCustomerEmailsCount: number;
+  missingSkusCount: number;
+  zeroTotalInvoicesCount: number;
+  issues: BillingValidationIssue[];
+  statusSummary: 'perfect' | 'warnings' | 'errors';
 }
 
 /**
@@ -152,7 +198,7 @@ export function saleTimestampToDateKey(rawTimestamp: unknown): string {
 }
 
 /**
- * Convierte YYYY-MM-DD a DD/MM/AAAA para Siigo Cloud / World Office.
+ * Convierte YYYY-MM-DD a DD/MM/AAAA para Siigo Cloud / Loggro.
  */
 export function formatDateDDMMYYYY(dateKey: string): string {
   const parts = dateKey.split('-');
@@ -171,7 +217,6 @@ export function round2(value: number): number {
  * Desglosa el precio final PVP a la base gravable unitaria sin impuesto:
  * - INC 8% -> PVP / 1.08
  * - IVA 19% -> PVP / 1.19
- * - Cualquier otra tarifa > 0 -> PVP / (1 + tarifa / 100)
  * - Exento (0%) -> PVP
  */
 export function calculateUnitBaseFromPVP(
@@ -194,7 +239,7 @@ export function calculateUnitBaseFromPVP(
 }
 
 /**
- * Etiqueta estándar del impuesto para plantillas de Siigo Cloud, Alegra y World Office:
+ * Etiqueta estándar del impuesto para plantillas de Siigo Cloud, Alegra, Loggro:
  * "INC 8%", "IVA 19%", "IVA 5%" o "Exento 0%".
  */
 export function getProviderTaxLabel(taxType: ProductTaxType, taxRate: number): string {
@@ -211,12 +256,14 @@ export function getProviderTaxLabel(taxType: ProductTaxType, taxRate: number): s
 export function getPaymentMethodAccountingMeta(method?: PaymentMethod | string): {
   label: string;
   siigoLabel: string;
+  alegraLabel: string;
   dianCode: string;
 } {
   if (method === 'tarjeta') {
     return {
       label: 'Tarjeta Débito / Crédito',
       siigoLabel: 'Tarjeta',
+      alegraLabel: 'Tarjeta de crédito',
       dianCode: '48'
     };
   }
@@ -224,19 +271,35 @@ export function getPaymentMethodAccountingMeta(method?: PaymentMethod | string):
     return {
       label: 'Transferencia / QR (Nequi - Daviplata)',
       siigoLabel: 'Transferencia Bancaria',
+      alegraLabel: 'Transferencia',
       dianCode: '47'
     };
   }
   return {
     label: 'Efectivo',
     siigoLabel: 'Efectivo',
+    alegraLabel: 'Efectivo',
     dianCode: '10'
   };
 }
 
 /**
+ * Formatea el consecutivo de factura para cada venta.
+ */
+export function formatSaleInvoiceConsecutive(sale: SaleReceipt, index?: number): string {
+  if (sale.orderId && sale.orderId.trim()) {
+    const clean = sale.orderId.trim();
+    if (clean.toUpperCase().startsWith('FV-') || clean.toUpperCase().startsWith('SETT-')) {
+      return clean;
+    }
+    return `FV-${clean}`;
+  }
+  const suffix = (sale.id || String(index ?? 1)).slice(-6).toUpperCase();
+  return `FV-${suffix}`;
+}
+
+/**
  * Normaliza Cédula / NIT como String explícito conservando todos los ceros a la izquierda.
- * Si es NIT y no trae DV en el texto, calcula automáticamente el DV Módulo 11 de la DIAN.
  */
 export function normalizeCustomerIdentification(
   rawNumber?: string | null,
@@ -251,51 +314,44 @@ export function normalizeCustomerIdentification(
     return {
       identification: '222222222222',
       verificationDigit: '',
-      cleanDocType: 'CONSUMIDOR_FINAL'
+      cleanDocType: 'CC'
     };
   }
 
-  const compact = raw.replace(/[\s.]/g, '');
-
-  if (compact.includes('-')) {
-    const [basePart, dvPart = ''] = compact.split('-');
-    const safeBase = basePart.trim() || '222222222222';
-    const finalType = cleanDocType === 'CONSUMIDOR_FINAL' ? 'NIT' : cleanDocType;
-    const resolvedDv =
-      String(explicitDv || dvPart || '').trim() ||
-      (finalType === 'NIT' ? calculateColombiaNitDV(safeBase) : '');
-    return {
-      identification: String(safeBase),
-      verificationDigit: resolvedDv,
-      cleanDocType: finalType
-    };
-  }
-
-  const autoDv =
-    String(explicitDv || '').trim() ||
-    (cleanDocType === 'NIT' ? calculateColombiaNitDV(compact) : '');
+  const parts = raw.split('-');
+  const baseNumber = parts[0].replace(/\D/g, '');
+  const naturalDv = parts.length > 1 ? parts[1].replace(/\D/g, '') : '';
+  const finalDv =
+    explicitDv?.trim() || naturalDv || (cleanDocType === 'NIT' ? calculateColombiaNitDV(baseNumber) : '');
 
   return {
-    identification: String(compact),
-    verificationDigit: autoDv,
+    identification: baseNumber || '222222222222',
+    verificationDigit: finalDv,
     cleanDocType
   };
 }
 
 /**
- * Construye las líneas normalizadas de un ticket aplicando descuento proporcional si existe.
+ * Desglosa los ítems de una venta a líneas normalizadas con base gravable, tarifas de impuesto y SKU.
  */
-function extractNormalizedSaleLines(
+export function extractNormalizedSaleLines(
   sale: SaleReceipt,
   productsCatalog?: Product[]
 ): NormalizedInvoiceLine[] {
-  const discountPercent = Math.min(100, Math.max(0, Number(sale.discountPercent) || 0));
-  const discountFactor = 1 - discountPercent / 100;
-  const rawItems = Array.isArray(sale.items) ? sale.items : [];
+  const rawItems = sale.items || [];
+  const discountFactor =
+    sale.subtotal > 0 && sale.discountAmount > 0
+      ? Math.max(0, 1 - sale.discountAmount / sale.subtotal)
+      : 1;
+  const discountPercent =
+    sale.discountPercent > 0
+      ? sale.discountPercent
+      : sale.subtotal > 0 && sale.discountAmount > 0
+      ? round2((sale.discountAmount / sale.subtotal) * 100)
+      : 0;
 
-  if (rawItems.length === 0 && sale.subtotal > 0) {
-    const netPVP =
-      sale.subtotal - sale.discountAmount > 0 ? sale.subtotal - sale.discountAmount : sale.total;
+  if (rawItems.length === 0) {
+    const netPVP = sale.total - (sale.tipAmount || 0);
     const fallbackType: ProductTaxType =
       sale.ivaAmount && sale.ivaAmount > 0 && (!sale.impoconsumoAmount || sale.impoconsumoAmount === 0)
         ? 'iva'
@@ -335,7 +391,8 @@ function extractNormalizedSaleLines(
 
   const result: NormalizedInvoiceLine[] = [];
 
-  for (const item of rawItems) {
+  for (let idx = 0; idx < rawItems.length; idx++) {
+    const item = rawItems[idx];
     const qty = Number(item.quantity) || 0;
     const rawUnitPVP = Number(item.unitPrice) || 0;
     if (qty <= 0 || rawUnitPVP < 0) continue;
@@ -343,7 +400,7 @@ function extractNormalizedSaleLines(
     const catalogProduct = productsCatalog?.find((p) => p.id === item.productId);
     const sku =
       (catalogProduct?.sku || '').trim() ||
-      `PROD-${String(item.productId || '01').slice(-4).toUpperCase()}`;
+      `PROD-${String(item.productId || idx + 1).slice(-4).toUpperCase()}`;
     const cleanName = (item.name || catalogProduct?.name || 'Producto').trim();
     const codeAndName = catalogProduct?.sku?.trim()
       ? `${catalogProduct.sku.trim()} - ${cleanName}`
@@ -394,14 +451,13 @@ function extractNormalizedSaleLines(
 }
 
 /**
- * Agrupa líneas idénticas (mismo producto, mismo precio base sin impuesto y mismo impuesto)
- * sumando cantidades para empaquetar comprobantes limpios en Siigo / Alegra / World Office.
+ * Agrupa líneas idénticas sumando cantidades si es necesario.
  */
 function mergeInvoiceLines(lines: NormalizedInvoiceLine[]): NormalizedInvoiceLine[] {
   const map = new Map<string, NormalizedInvoiceLine>();
 
   for (const line of lines) {
-    const mergeKey = `${line.codeAndName}__${line.providerTaxLabel}__${line.unitBaseWithoutTax.toFixed(2)}`;
+    const mergeKey = `${line.sku}__${line.productName}__${line.providerTaxLabel}__${line.unitBaseWithoutTax.toFixed(2)}`;
     const existing = map.get(mergeKey);
     if (existing) {
       const nextQty = existing.quantity + line.quantity;
@@ -443,181 +499,114 @@ function summarizeDominantPaymentMethod(salesList: SaleReceipt[]): {
 }
 
 /**
- * Empaqueta una lista de ventas con cliente identificado en paquetes individuales por cliente,
- * conservando 100% de sus datos fiscales (NIT/CC, DV, Nombre, Correo, Teléfono, Dirección, Ciudad DANE, Régimen).
+ * Empaqueta ventas en comprobantes individuales o agrupados con cálculo de bases 0%, 8% y 19%.
  */
-function buildPackagesForIdentifiedSales(
+function buildPackageFromSales(
+  packageKey: string,
+  consecutiveNumber: string,
   salesList: SaleReceipt[],
-  productsCatalog: Product[] | undefined,
-  effectiveDay: string,
-  targetDate: string
-): ConsolidatedInvoicePackage[] {
-  const groupedByCustomer = new Map<
-    string,
-    {
-      salesList: SaleReceipt[];
-      billing: CustomerBillingInfo;
-      identification: string;
-      verificationDigit: string;
-      cleanDocType: string;
-      latestDateKey: string;
-    }
-  >();
+  customBilling: CustomerBillingInfo | null,
+  effectiveDate: string,
+  productsCatalog?: Product[]
+): ConsolidatedInvoicePackage {
+  const rawLines = salesList.flatMap((s) => extractNormalizedSaleLines(s, productsCatalog));
+  const mergedLines = mergeInvoiceLines(rawLines);
 
-  for (const sale of salesList) {
-    const resolvedBilling = resolveSaleBillingInfo(sale);
-    const normId = normalizeCustomerIdentification(
-      resolvedBilling.documentNumber,
-      resolvedBilling.documentType,
-      resolvedBilling.dv
-    );
-    const email = getSaleCustomerEmail(sale) || resolvedBilling.email || '';
-    const custName =
-      resolvedBilling.customerName &&
-      resolvedBilling.customerName.toLowerCase() !== 'consumidor final'
-        ? resolvedBilling.customerName
-        : 'Cliente Registrado';
-    const saleDateKey = saleTimestampToDateKey(sale.timestamp) || effectiveDay;
+  let totalBase = 0;
+  let totalBase0 = 0;
+  let totalBase8 = 0;
+  let totalBase19 = 0;
+  let totalInc = 0;
+  let totalIva = 0;
+  let totalGrossProducts = 0;
 
-    const buyerKey =
-      normId.identification !== '222222222222'
-        ? `ID_${normId.identification}`
-        : email
-        ? `EMAIL_${email.toLowerCase()}`
-        : custName !== 'Cliente Registrado'
-        ? `NAME_${custName.toLowerCase()}_${saleDateKey}`
-        : `TICKET_${sale.id}`;
-
-    const existing = groupedByCustomer.get(buyerKey);
-    if (existing) {
-      existing.salesList.push(sale);
-      if (!existing.billing.email && email) existing.billing.email = email;
-      if (!existing.billing.phone && resolvedBilling.phone) {
-        existing.billing.phone = resolvedBilling.phone;
-      }
-      if (!existing.billing.address && resolvedBilling.address) {
-        existing.billing.address = resolvedBilling.address;
-      }
-      if (!existing.billing.city && resolvedBilling.city) {
-        existing.billing.city = resolvedBilling.city;
-      }
-      if (!existing.billing.department && resolvedBilling.department) {
-        existing.billing.department = resolvedBilling.department;
-      }
-      if (!existing.billing.cityCode && resolvedBilling.cityCode) {
-        existing.billing.cityCode = resolvedBilling.cityCode;
-      }
-      if (
-        (existing.billing.customerName === 'Consumidor Final' ||
-          existing.billing.customerName === 'Cliente Registrado') &&
-        custName !== 'Cliente Registrado'
-      ) {
-        existing.billing.customerName = custName;
-      }
-      if (saleDateKey > existing.latestDateKey) {
-        existing.latestDateKey = saleDateKey;
-      }
-    } else {
-      groupedByCustomer.set(buyerKey, {
-        salesList: [sale],
-        billing: {
-          ...resolvedBilling,
-          customerName: custName,
-          email
-        },
-        identification: normId.identification,
-        verificationDigit: normId.verificationDigit,
-        cleanDocType: normId.cleanDocType === 'CONSUMIDOR_FINAL' ? 'CC' : normId.cleanDocType,
-        latestDateKey: saleDateKey
-      });
+  for (const l of mergedLines) {
+    totalBase += l.lineBaseTotal;
+    totalGrossProducts += l.lineGrossTotal;
+    if (l.taxType === 'exento' || l.taxRate === 0) {
+      totalBase0 += l.lineBaseTotal;
+    } else if (l.taxType === 'impoconsumo') {
+      totalBase8 += l.lineBaseTotal;
+      totalInc += l.lineTaxTotal;
+    } else if (l.taxType === 'iva') {
+      totalBase19 += l.lineBaseTotal;
+      totalIva += l.lineTaxTotal;
     }
   }
 
-  const out: ConsolidatedInvoicePackage[] = [];
+  const totalDiscount = round2(
+    salesList.reduce((acc, s) => acc + (Number(s.discountAmount) || 0), 0)
+  );
+  const totalTip = round2(
+    salesList.reduce((acc, s) => acc + (Number(s.tipAmount) || 0), 0)
+  );
+  const totalChargedWithTip = round2(
+    salesList.reduce((acc, s) => acc + (Number(s.total) || 0), 0)
+  );
 
-  for (const [buyerKey, group] of groupedByCustomer.entries()) {
-    const rawLines = group.salesList.flatMap((s) =>
-      extractNormalizedSaleLines(s, productsCatalog)
-    );
-    const mergedLines = mergeInvoiceLines(rawLines);
+  const primarySale = salesList[0];
+  const b = customBilling || resolveSaleBillingInfo(primarySale);
+  const normId = normalizeCustomerIdentification(
+    b.documentNumber,
+    b.documentType,
+    b.dv
+  );
+  const personType: CustomerPersonType =
+    b.personType || (normId.cleanDocType === 'NIT' ? 'juridica' : 'natural');
+  const splitName = splitNaturalPersonName(b.customerName);
+  const cityMeta = resolveColombianCity(b.cityCode || b.city);
+  const paySummary = summarizeDominantPaymentMethod(salesList);
+  const uniqueTables = Array.from(new Set(salesList.map((s) => s.tableName).filter(Boolean)));
+  const uniqueCashiers = Array.from(new Set(salesList.map((s) => s.cashierName).filter(Boolean)));
 
-    let totalBase = 0;
-    let totalInc = 0;
-    let totalIva = 0;
-    let totalGrossProducts = 0;
+  const isIssued = salesList.every((s) => s.electronicInvoiceStatus === 'emitida');
 
-    for (const l of mergedLines) {
-      totalBase += l.lineBaseTotal;
-      totalGrossProducts += l.lineGrossTotal;
-      if (l.taxType === 'impoconsumo') totalInc += l.lineTaxTotal;
-      if (l.taxType === 'iva') totalIva += l.lineTaxTotal;
-    }
-
-    const totalDiscount = round2(
-      group.salesList.reduce((acc, s) => acc + (Number(s.discountAmount) || 0), 0)
-    );
-    const totalTip = round2(
-      group.salesList.reduce((acc, s) => acc + (Number(s.tipAmount) || 0), 0)
-    );
-    const totalChargedWithTip = round2(
-      group.salesList.reduce((acc, s) => acc + (Number(s.total) || 0), 0)
-    );
-
-    const b = group.billing;
-    const personType: CustomerPersonType =
-      b.personType || (group.cleanDocType === 'NIT' ? 'juridica' : 'natural');
-    const splitName = splitNaturalPersonName(b.customerName);
-    const cityMeta = resolveColombianCity(b.cityCode || b.city);
-    const paySummary = summarizeDominantPaymentMethod(group.salesList);
-    const uniqueTables = Array.from(new Set(group.salesList.map((s) => s.tableName).filter(Boolean)));
-    const uniqueCashiers = Array.from(
-      new Set(group.salesList.map((s) => s.cashierName).filter(Boolean))
-    );
-
-    out.push({
-      packageKey: buyerKey,
-      invoiceDateKey: targetDate || group.latestDateKey || effectiveDay,
-      customerName: b.customerName,
-      firstName: personType === 'natural' ? b.firstName || splitName.firstName : '',
-      lastName: personType === 'natural' ? b.lastName || splitName.lastName : '',
-      personType,
-      documentType: group.cleanDocType,
-      dianDocCode: getDianDocumentTypeCode(group.cleanDocType),
-      identification: group.identification,
-      verificationDigit: group.verificationDigit,
-      email: b.email || '',
-      phone: b.phone || '',
-      address: b.address || '',
-      city: b.city || cityMeta?.city || '',
-      department: b.department || cityMeta?.department || '',
-      cityCode: b.cityCode || cityMeta?.cityCode || '',
-      departmentCode: b.departmentCode || cityMeta?.departmentCode || '',
-      taxRegime:
-        b.taxRegime || (personType === 'juridica' ? 'responsable_iva' : 'no_responsable_iva'),
-      fiscalResponsibility: b.fiscalResponsibility || 'R-99-PN',
-      paymentMethodLabel: paySummary.paymentMethodLabel,
-      siigoPaymentCode: paySummary.siigoPaymentCode,
-      tableNames: uniqueTables.join(', ') || 'Caja',
-      cashierNames: uniqueCashiers.join(', ') || 'Cajero',
-      ticketsCount: group.salesList.length,
-      ticketIds: group.salesList.map((s) => s.id),
-      shortTicketRefs: group.salesList.map((s) => `#${s.id.slice(-6)}`).join(', '),
-      lines: mergedLines,
-      totalBase: round2(totalBase),
-      totalInc: round2(totalInc),
-      totalIva: round2(totalIva),
-      totalDiscount,
-      totalTip,
-      totalGrossProducts: round2(totalGrossProducts),
-      totalChargedWithTip
-    });
-  }
-
-  return out;
+  return {
+    packageKey,
+    invoiceDateKey: effectiveDate,
+    consecutiveNumber,
+    customerName: b.customerName,
+    firstName: personType === 'natural' ? b.firstName || splitName.firstName : '',
+    lastName: personType === 'natural' ? b.lastName || splitName.lastName : '',
+    personType,
+    documentType: normId.cleanDocType,
+    dianDocCode: getDianDocumentTypeCode(normId.cleanDocType),
+    identification: normId.identification,
+    verificationDigit: normId.verificationDigit,
+    email: b.email || '',
+    phone: b.phone || '',
+    address: b.address || '',
+    city: b.city || cityMeta?.city || '',
+    department: b.department || cityMeta?.department || '',
+    cityCode: b.cityCode || cityMeta?.cityCode || '',
+    departmentCode: b.departmentCode || cityMeta?.departmentCode || '',
+    taxRegime:
+      b.taxRegime || (personType === 'juridica' ? 'responsable_iva' : 'no_responsable_iva'),
+    fiscalResponsibility: b.fiscalResponsibility || 'R-99-PN',
+    paymentMethodLabel: paySummary.paymentMethodLabel,
+    siigoPaymentCode: paySummary.siigoPaymentCode,
+    tableNames: uniqueTables.join(', ') || 'Caja',
+    cashierNames: uniqueCashiers.join(', ') || 'Cajero',
+    ticketsCount: salesList.length,
+    ticketIds: salesList.map((s) => s.id),
+    shortTicketRefs: salesList.map((s) => `#${s.id.slice(-6)}`).join(', '),
+    documentStatus: isIssued ? 'Emitida' : 'Pendiente',
+    lines: mergedLines,
+    totalBase: round2(totalBase),
+    totalBase0: round2(totalBase0),
+    totalBase8: round2(totalBase8),
+    totalInc: round2(totalInc),
+    totalBase19: round2(totalBase19),
+    totalIva: round2(totalIva),
+    totalDiscount,
+    totalTip,
+    totalGrossProducts: round2(totalGrossProducts),
+    totalChargedWithTip
+  };
 }
 
 /**
- * Construye los paquetes consolidados y la vista previa según el Modo de Agrupación y Proveedor.
+ * Construye la vista previa y paquetes consolidados según Modo, Fechas y Filtros.
  */
 export function buildBillingExportPreview(params: BillingExportParams): BillingExportPreview {
   const {
@@ -626,1255 +615,329 @@ export function buildBillingExportPreview(params: BillingExportParams): BillingE
     mode,
     provider,
     targetDate,
+    endDate,
     appName,
     excludeIndividualFeFromGlobal = false,
     onlyPendingElectronicInvoices = false,
     selectedSaleId,
-    customerOverride,
-    rawImportOnly = false
+    customerOverride
   } = params;
 
   const todayFallback = saleTimestampToDateKey(new Date());
   const effectiveDay = targetDate || todayFallback;
+  const effectiveEndDay = endDate || effectiveDay;
 
   let filteredTickets: SaleReceipt[] = [];
   const packages: ConsolidatedInvoicePackage[] = [];
 
+  const isInDateWindow = (dateKey: string) => {
+    if (!dateKey) return false;
+    if (effectiveDay && effectiveEndDay && effectiveDay !== effectiveEndDay) {
+      return dateKey >= effectiveDay && dateKey <= effectiveEndDay;
+    }
+    return dateKey === effectiveDay;
+  };
+
   if (mode === 'daily_global') {
     filteredTickets = sales.filter((s) => {
-      if (saleTimestampToDateKey(s.timestamp) !== effectiveDay) return false;
+      const d = saleTimestampToDateKey(s.timestamp);
+      if (!isInDateWindow(d)) return false;
       if (excludeIndividualFeFromGlobal && isElectronicInvoiceSale(s)) return false;
       return true;
     });
 
-    if (filteredTickets.length > 0) {
-      // Separar los tickets que SÍ tienen cliente identificado para NUNCA perder los datos del cliente
-      const identifiedDaySales = filteredTickets.filter((s) => hasIdentifiedCustomer(s));
-      const anonymousDaySales = filteredTickets.filter((s) => !hasIdentifiedCustomer(s));
-
-      if (identifiedDaySales.length > 0) {
-        const customerPkgs = buildPackagesForIdentifiedSales(
-          identifiedDaySales,
-          productsCatalog,
-          effectiveDay,
-          effectiveDay
-        );
-        packages.push(...customerPkgs);
+    // Mantener cada ticket con su cliente respectivo o un consolidado global
+    // Para contabilidad exacta se genera 1 comprobante por cada ticket de venta
+    filteredTickets.forEach((sale, idx) => {
+      const saleDate = saleTimestampToDateKey(sale.timestamp) || effectiveDay;
+      const consecutive = formatSaleInvoiceConsecutive(sale, idx + 1);
+      packages.push(
+        buildPackageFromSales(
+          `ticket_${sale.id}`,
+          consecutive,
+          [sale],
+          null,
+          saleDate,
+          productsCatalog
+        )
+      );
+    });
+  } else if (mode === 'specific_order') {
+    const targetSale = sales.find((s) => s.id === selectedSaleId) || sales[0];
+    if (targetSale) {
+      filteredTickets = [targetSale];
+      const saleDate = saleTimestampToDateKey(targetSale.timestamp) || effectiveDay;
+      let overrideBilling: CustomerBillingInfo | null = null;
+      if (customerOverride) {
+        const base = resolveSaleBillingInfo(targetSale);
+        overrideBilling = {
+          ...base,
+          ...customerOverride
+        } as CustomerBillingInfo;
       }
-
-      if (anonymousDaySales.length > 0) {
-        const rawLines = anonymousDaySales.flatMap((sale) =>
-          extractNormalizedSaleLines(sale, productsCatalog)
-        );
-        const mergedLines = mergeInvoiceLines(rawLines);
-
-        let totalBase = 0;
-        let totalInc = 0;
-        let totalIva = 0;
-        let totalGrossProducts = 0;
-
-        for (const l of mergedLines) {
-          totalBase += l.lineBaseTotal;
-          totalGrossProducts += l.lineGrossTotal;
-          if (l.taxType === 'impoconsumo') totalInc += l.lineTaxTotal;
-          if (l.taxType === 'iva') totalIva += l.lineTaxTotal;
-        }
-
-        const totalDiscount = round2(
-          anonymousDaySales.reduce((acc, s) => acc + (Number(s.discountAmount) || 0), 0)
-        );
-        const totalTip = round2(
-          anonymousDaySales.reduce((acc, s) => acc + (Number(s.tipAmount) || 0), 0)
-        );
-        const totalChargedWithTip = round2(
-          anonymousDaySales.reduce((acc, s) => acc + (Number(s.total) || 0), 0)
-        );
-        const paySummary = summarizeDominantPaymentMethod(anonymousDaySales);
-        const uniqueTables = Array.from(
-          new Set(anonymousDaySales.map((s) => s.tableName).filter(Boolean))
-        );
-        const uniqueCashiers = Array.from(
-          new Set(anonymousDaySales.map((s) => s.cashierName).filter(Boolean))
-        );
-
-        packages.push({
-          packageKey: `GLOBAL_${effectiveDay}`,
-          invoiceDateKey: effectiveDay,
-          customerName: 'Consumidor Final',
-          firstName: 'Consumidor',
-          lastName: 'Final',
-          personType: 'natural',
-          documentType: 'CONSUMIDOR_FINAL',
-          dianDocCode: '13',
-          identification: '222222222222',
-          verificationDigit: '',
-          email: '',
-          phone: '',
-          address: 'Venta en punto de venta',
-          city: 'Bogotá D.C.',
-          department: 'Bogotá D.C.',
-          cityCode: '11001',
-          departmentCode: '11',
-          taxRegime: 'no_responsable_iva',
-          fiscalResponsibility: 'R-99-PN',
-          paymentMethodLabel: paySummary.paymentMethodLabel,
-          siigoPaymentCode: paySummary.siigoPaymentCode,
-          tableNames: uniqueTables.join(', ') || 'Caja',
-          cashierNames: uniqueCashiers.join(', ') || 'Cajero',
-          ticketsCount: anonymousDaySales.length,
-          ticketIds: anonymousDaySales.map((t) => t.id),
-          shortTicketRefs: `Lote POS ${anonymousDaySales.length} tkt (${effectiveDay})`,
-          lines: mergedLines,
-          totalBase: round2(totalBase),
-          totalInc: round2(totalInc),
-          totalIva: round2(totalIva),
-          totalDiscount,
-          totalTip,
-          totalGrossProducts: round2(totalGrossProducts),
-          totalChargedWithTip
-        });
-      }
+      packages.push(
+        buildPackageFromSales(
+          `order_${targetSale.id}`,
+          formatSaleInvoiceConsecutive(targetSale, 1),
+          [targetSale],
+          overrideBilling,
+          saleDate,
+          productsCatalog
+        )
+      );
     }
-  } else if (mode === 'by_customer') {
+  } else {
+    // mode === 'by_customer'
     filteredTickets = sales.filter((s) => {
-      if (!hasIdentifiedCustomer(s)) return false;
-      if (onlyPendingElectronicInvoices && s.electronicInvoiceStatus === 'emitida') return false;
-      if (targetDate && saleTimestampToDateKey(s.timestamp) !== targetDate) return false;
+      const isFe = isElectronicInvoiceSale(s);
+      if (!isFe) return false;
+      if (targetDate) {
+        const d = saleTimestampToDateKey(s.timestamp);
+        if (!isInDateWindow(d)) return false;
+      }
+      if (onlyPendingElectronicInvoices && s.electronicInvoiceStatus === 'emitida') {
+        return false;
+      }
       return true;
     });
 
-    const customerPkgs = buildPackagesForIdentifiedSales(
-      filteredTickets,
-      productsCatalog,
-      effectiveDay,
-      targetDate
-    );
-    packages.push(...customerPkgs);
-  } else if (mode === 'specific_order') {
-    const targetSale = selectedSaleId ? sales.find((s) => s.id === selectedSaleId) : undefined;
-    if (targetSale) {
-      const baseBilling = resolveSaleBillingInfo(targetSale);
-      const overrideDocNum = (customerOverride?.documentNumber ?? '').trim();
-      const overrideDocType = customerOverride?.documentType;
-      const overrideName = (customerOverride?.customerName ?? '').trim();
-      const overrideEmail = (customerOverride?.email ?? '').trim().toLowerCase();
-
-      const hasOverrideDoc = Boolean(overrideDocNum && overrideDocNum !== '222222222222');
-      const rawDocNumber = hasOverrideDoc ? overrideDocNum : baseBilling.documentNumber || '';
-      const rawDocType =
-        (hasOverrideDoc && overrideDocType && overrideDocType !== 'CONSUMIDOR_FINAL'
-          ? overrideDocType
-          : undefined) ||
-        (baseBilling.documentType !== 'CONSUMIDOR_FINAL' ? baseBilling.documentType : undefined) ||
-        (rawDocNumber && rawDocNumber !== '222222222222'
-          ? rawDocNumber.includes('-')
-            ? 'NIT'
-            : 'CC'
-          : 'CONSUMIDOR_FINAL');
-
-      const normId = normalizeCustomerIdentification(
-        rawDocNumber,
-        rawDocType,
-        customerOverride?.dv || baseBilling.dv
+    filteredTickets.forEach((sale, idx) => {
+      const saleDate = saleTimestampToDateKey(sale.timestamp) || effectiveDay;
+      const consecutive = formatSaleInvoiceConsecutive(sale, idx + 1);
+      packages.push(
+        buildPackageFromSales(
+          `client_ticket_${sale.id}`,
+          consecutive,
+          [sale],
+          null,
+          saleDate,
+          productsCatalog
+        )
       );
-      const resolvedEmail = overrideEmail || baseBilling.email || '';
-      const cleanOverrideName =
-        overrideName &&
-        overrideName.toLowerCase() !== 'consumidor final' &&
-        overrideName.toLowerCase() !== 'cliente factura electrónica'
-          ? overrideName
-          : '';
-      const cleanBaseName =
-        baseBilling.customerName && baseBilling.customerName.toLowerCase() !== 'consumidor final'
-          ? baseBilling.customerName
-          : '';
-      const resolvedCustomerName =
-        cleanOverrideName || cleanBaseName || 'Cliente Factura Electrónica';
-
-      const personType: CustomerPersonType =
-        customerOverride?.personType ||
-        baseBilling.personType ||
-        (normId.cleanDocType === 'NIT' ? 'juridica' : 'natural');
-
-      const splitName = splitNaturalPersonName(resolvedCustomerName);
-      const resolvedPhone = (customerOverride?.phone || baseBilling.phone || '').trim();
-      const resolvedAddress = (customerOverride?.address || baseBilling.address || '').trim();
-      const rawCity = (customerOverride?.city || baseBilling.city || '').trim();
-      const rawCityCode = (customerOverride?.cityCode || baseBilling.cityCode || '').trim();
-      const cityMeta = resolveColombianCity(rawCityCode || rawCity);
-      const resolvedCity = cityMeta?.city || rawCity;
-      const resolvedDept = (
-        customerOverride?.department ||
-        baseBilling.department ||
-        cityMeta?.department ||
-        ''
-      ).trim();
-      const resolvedCityCode = rawCityCode || cityMeta?.cityCode || '';
-      const resolvedDeptCode = (
-        customerOverride?.departmentCode ||
-        baseBilling.departmentCode ||
-        cityMeta?.departmentCode ||
-        ''
-      ).trim();
-      const resolvedRegime: CustomerTaxRegime =
-        customerOverride?.taxRegime ||
-        baseBilling.taxRegime ||
-        (personType === 'juridica' ? 'responsable_iva' : 'no_responsable_iva');
-      const resolvedFiscalResp = (
-        customerOverride?.fiscalResponsibility ||
-        baseBilling.fiscalResponsibility ||
-        'R-99-PN'
-      ).trim();
-
-      const saleDateKey = saleTimestampToDateKey(targetSale.timestamp) || effectiveDay;
-      const fullDocDisplay = normId.verificationDigit
-        ? `${normId.identification}-${normId.verificationDigit}`
-        : normId.identification;
-
-      const enrichedBilling: CustomerBillingInfo = {
-        customerName: resolvedCustomerName,
-        documentType: normId.cleanDocType as CustomerBillingInfo['documentType'],
-        documentNumber: fullDocDisplay,
-        ...(normId.verificationDigit ? { dv: normId.verificationDigit } : {}),
-        personType,
-        ...(personType === 'natural'
-          ? { firstName: splitName.firstName, lastName: splitName.lastName }
-          : {}),
-        ...(resolvedEmail ? { email: resolvedEmail } : {}),
-        ...(resolvedPhone ? { phone: resolvedPhone } : {}),
-        ...(resolvedAddress ? { address: resolvedAddress } : {}),
-        ...(resolvedCity ? { city: resolvedCity } : {}),
-        ...(resolvedDept ? { department: resolvedDept } : {}),
-        ...(resolvedCityCode ? { cityCode: resolvedCityCode } : {}),
-        ...(resolvedDeptCode ? { departmentCode: resolvedDeptCode } : {}),
-        taxRegime: resolvedRegime,
-        fiscalResponsibility: resolvedFiscalResp,
-        requiresElectronicInvoice: true
-      };
-
-      const enrichedSaleForAudit: SaleReceipt = {
-        ...targetSale,
-        customerName: resolvedCustomerName,
-        customerDocumentType: normId.cleanDocType as SaleReceipt['customerDocumentType'],
-        customerDocumentNumber: fullDocDisplay,
-        customerEmail: resolvedEmail,
-        requiresElectronicInvoice: true,
-        billingInfo: enrichedBilling
-      };
-
-      filteredTickets = [enrichedSaleForAudit];
-
-      const rawLines = extractNormalizedSaleLines(targetSale, productsCatalog);
-      const mergedLines = mergeInvoiceLines(rawLines);
-
-      let totalBase = 0;
-      let totalInc = 0;
-      let totalIva = 0;
-      let totalGrossProducts = 0;
-
-      for (const l of mergedLines) {
-        totalBase += l.lineBaseTotal;
-        totalGrossProducts += l.lineGrossTotal;
-        if (l.taxType === 'impoconsumo') totalInc += l.lineTaxTotal;
-        if (l.taxType === 'iva') totalIva += l.lineTaxTotal;
-      }
-
-      const totalDiscount = round2(Number(targetSale.discountAmount) || 0);
-      const totalTip = round2(Number(targetSale.tipAmount) || 0);
-      const totalChargedWithTip = round2(Number(targetSale.total) || 0);
-      const paySummary = summarizeDominantPaymentMethod([targetSale]);
-
-      packages.push({
-        packageKey: `ORDER_${targetSale.id}_${normId.identification}`,
-        invoiceDateKey: saleDateKey,
-        customerName: resolvedCustomerName,
-        firstName: personType === 'natural' ? splitName.firstName : '',
-        lastName: personType === 'natural' ? splitName.lastName : '',
-        personType,
-        documentType: normId.cleanDocType,
-        dianDocCode: getDianDocumentTypeCode(normId.cleanDocType),
-        identification: normId.identification,
-        verificationDigit: normId.verificationDigit,
-        email: resolvedEmail,
-        phone: resolvedPhone,
-        address: resolvedAddress,
-        city: resolvedCity,
-        department: resolvedDept,
-        cityCode: resolvedCityCode,
-        departmentCode: resolvedDeptCode,
-        taxRegime: resolvedRegime,
-        fiscalResponsibility: resolvedFiscalResp,
-        paymentMethodLabel: paySummary.paymentMethodLabel,
-        siigoPaymentCode: paySummary.siigoPaymentCode,
-        tableNames: targetSale.tableName || 'Mesa',
-        cashierNames: targetSale.cashierName || 'Cajero',
-        ticketsCount: 1,
-        ticketIds: [targetSale.id],
-        shortTicketRefs: `#${targetSale.id.slice(-6)}`,
-        lines: mergedLines,
-        totalBase: round2(totalBase),
-        totalInc: round2(totalInc),
-        totalIva: round2(totalIva),
-        totalDiscount,
-        totalTip,
-        totalGrossProducts: round2(totalGrossProducts),
-        totalChargedWithTip
-      });
-    }
+    });
   }
 
-  const totalInvoicesCount = packages.length;
-  const totalTicketsCount = filteredTickets.length;
-  const totalLinesCount = packages.reduce((acc, p) => acc + p.lines.length, 0);
-  const totalTaxableBase = round2(packages.reduce((acc, p) => acc + p.totalBase, 0));
-  const totalIncAmount = round2(packages.reduce((acc, p) => acc + p.totalInc, 0));
-  const totalIvaAmount = round2(packages.reduce((acc, p) => acc + p.totalIva, 0));
-  const totalTipsAmount = round2(packages.reduce((acc, p) => acc + p.totalTip, 0));
-  const totalGrossProducts = round2(packages.reduce((acc, p) => acc + p.totalGrossProducts, 0));
+  // Totales
+  let totalTaxableBase = 0;
+  let totalBase0 = 0;
+  let totalBase8 = 0;
+  let totalIncAmount = 0;
+  let totalBase19 = 0;
+  let totalIvaAmount = 0;
+  let totalDiscountAmount = 0;
+  let totalTipsAmount = 0;
+  let totalGrossProducts = 0;
+  let totalChargedAmount = 0;
+  let totalLinesCount = 0;
 
-  // Vista previa en pantalla mostrando SIEMPRE primero los datos del cliente + pedido
+  for (const p of packages) {
+    totalTaxableBase += p.totalBase;
+    totalBase0 += p.totalBase0;
+    totalBase8 += p.totalBase8;
+    totalIncAmount += p.totalInc;
+    totalBase19 += p.totalBase19;
+    totalIvaAmount += p.totalIva;
+    totalDiscountAmount += p.totalDiscount;
+    totalTipsAmount += p.totalTip;
+    totalGrossProducts += p.totalGrossProducts;
+    totalChargedAmount += p.totalChargedWithTip;
+    totalLinesCount += p.lines.length;
+  }
+
+  // Vista previa tabular para UI
   const previewHeaders = [
-    'Ticket',
-    'Tipo Doc (DIAN)',
-    'NIT / Cédula',
-    'DV',
+    'Factura / Consecutivo',
+    'Fecha',
     'Cliente / Razón Social',
-    'Correo Envío FE',
-    'Teléfono',
-    'Ciudad / Dirección',
-    'Producto Pedido',
-    'Cant.',
-    'Base Unit. sin Imp.',
-    'Impuesto',
-    'Total Línea PVP'
+    'Doc. Identificación',
+    'Subtotal',
+    'Impuestos',
+    'Total Facturado',
+    'Medio Pago'
   ];
 
-  const allPreviewRows: Array<Array<string | number>> = [];
-  for (const pkg of packages) {
-    const loc = [pkg.city, pkg.address].filter(Boolean).join(' · ') || 'Sin dirección';
-    for (const line of pkg.lines) {
-      allPreviewRows.push([
-        pkg.shortTicketRefs,
-        `${pkg.documentType === 'CONSUMIDOR_FINAL' ? 'CF' : pkg.documentType} (${pkg.dianDocCode})`,
-        String(pkg.identification),
-        String(pkg.verificationDigit || '-'),
-        pkg.customerName,
-        pkg.email || 'Sin correo',
-        String(pkg.phone || '-'),
-        loc,
-        line.codeAndName,
-        line.quantity,
-        line.unitBaseWithoutTax,
-        line.providerTaxLabel,
-        line.lineGrossTotal
-      ]);
-    }
-  }
+  const previewRows: Array<Array<string | number>> = packages.slice(0, 15).map((p) => [
+    p.consecutiveNumber,
+    p.invoiceDateKey,
+    p.customerName,
+    p.verificationDigit ? `${p.identification}-${p.verificationDigit}` : p.identification,
+    p.totalBase,
+    round2(p.totalInc + p.totalIva),
+    p.totalChargedWithTip,
+    p.paymentMethodLabel
+  ]);
 
-  const includedSheets = rawImportOnly
-    ? provider === 'siigo'
-      ? ['1_Facturas_Siigo_Cloud', '2_Terceros_Clientes_Siigo']
-      : provider === 'alegra'
-      ? ['1_Facturas_Alegra', '2_Contactos_Clientes_Alegra']
-      : provider === 'world_office'
-      ? ['1_WorldOffice_Loggro', '2_Terceros_DIAN']
-      : ['1_Sabana_Clientes_y_Pedidos', '2_Terceros_DIAN']
-    : provider === 'siigo'
-    ? [
-        '1_Datos_Cliente_y_Pedido',
-        '2_Sabana_Clientes_y_Pedidos',
-        '3_Terceros_Clientes_Siigo',
-        '4_Facturas_Siigo_Cloud'
-      ]
-    : provider === 'alegra'
-    ? [
-        '1_Datos_Cliente_y_Pedido',
-        '2_Sabana_Clientes_y_Pedidos',
-        '3_Contactos_Clientes_Alegra',
-        '4_Facturas_Alegra'
-      ]
-    : provider === 'world_office'
-    ? [
-        '1_Datos_Cliente_y_Pedido',
-        '2_Sabana_Clientes_y_Pedidos',
-        '3_Terceros_DIAN',
-        '4_WorldOffice_Loggro'
-      ]
-    : [
-        '1_Datos_Cliente_y_Pedido',
-        '2_Sabana_Clientes_y_Pedidos',
-        '3_Directorio_Terceros_DIAN'
-      ];
-
-  const safeApp = (appName || 'Chinmi').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const providerSlug =
-    provider === 'siigo'
-      ? 'SiigoCloud'
-      : provider === 'alegra'
-      ? 'Alegra'
-      : provider === 'world_office'
-      ? 'WorldOffice_Loggro'
-      : 'Contadora_DIAN';
-
-  const prefix = rawImportOnly ? 'PlantillaImportar' : 'FE_Cliente_y_Pedido';
-
-  let suggestedFilename: string;
-  if (mode === 'specific_order' && packages.length === 1) {
-    const pkg = packages[0];
-    const shortTicket = (pkg.ticketIds[0] || 'pedido').slice(-6).replace(/[^a-zA-Z0-9]/g, '');
-    const idSlug = String(pkg.identification || 'Cliente').replace(/[^a-zA-Z0-9]/g, '');
-    suggestedFilename = `${prefix}_${providerSlug}_Doc_${idSlug}_Ticket_${shortTicket}_${pkg.invoiceDateKey}.xlsx`;
+  let includedSheets: string[] = [];
+  if (provider === 'chinmi') {
+    includedSheets = ['1_Resumen', '2_Facturas', '3_Detalle_Productos'];
+  } else if (provider === 'siigo') {
+    includedSheets = ['1_Facturas_Siigo', '2_Terceros_Siigo'];
+  } else if (provider === 'alegra') {
+    includedSheets = ['1_Facturas_Alegra', '2_Contactos_Alegra'];
+  } else if (provider === 'loggro') {
+    includedSheets = ['1_Encabezado', '2_Detalles', '3_Terceros_Loggro'];
+  } else if (provider === 'dian_support') {
+    includedSheets = [
+      '1_Resumen_Tributario',
+      '2_Libro_Ventas_y_Terceros',
+      '3_Detalle_Gravamen_Productos'
+    ];
   } else {
-    const modeSlug =
-      mode === 'daily_global'
-        ? 'VentasDia'
-        : mode === 'specific_order'
-        ? 'PedidoEspecifico'
-        : onlyPendingElectronicInvoices
-        ? 'PendientesFE'
-        : 'ClientesFE';
-    const dateSlug = targetDate || (mode === 'daily_global' ? effectiveDay : 'Consolidado');
-    suggestedFilename = `${prefix}_${providerSlug}_${modeSlug}_${safeApp}_${dateSlug}.xlsx`;
+    includedSheets = ['1_WorldOffice_Facturas', '2_Terceros_DIAN'];
   }
+
+  const cleanAppName = appName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() || 'chinmi';
+  const dateSuffix =
+    effectiveDay !== effectiveEndDay
+      ? `${effectiveDay}_al_${effectiveEndDay}`
+      : effectiveDay;
+  const suggestedFilename = `${cleanAppName}_facturacion_${provider}_${dateSuffix}.xlsx`;
 
   return {
     packages,
     filteredTickets,
-    totalInvoicesCount,
-    totalTicketsCount,
+    totalInvoicesCount: packages.length,
+    totalTicketsCount: filteredTickets.length,
     totalLinesCount,
-    totalTaxableBase,
-    totalIncAmount,
-    totalIvaAmount,
-    totalTipsAmount,
-    totalGrossProducts,
+    totalTaxableBase: round2(totalTaxableBase),
+    totalBase0: round2(totalBase0),
+    totalBase8: round2(totalBase8),
+    totalIncAmount: round2(totalIncAmount),
+    totalBase19: round2(totalBase19),
+    totalIvaAmount: round2(totalIvaAmount),
+    totalDiscountAmount: round2(totalDiscountAmount),
+    totalTipsAmount: round2(totalTipsAmount),
+    totalGrossProducts: round2(totalGrossProducts),
+    totalChargedAmount: round2(totalChargedAmount),
     previewHeaders,
-    previewRows: allPreviewRows.slice(0, 6),
+    previewRows,
     includedSheets,
     suggestedFilename
   };
 }
 
 /**
- * Construye la Hoja 1 principal: "1_Datos_Cliente_y_Pedido"
- * Se abre de primera en Excel mostrando claramente TODOS los datos fiscales del cliente arriba
- * y justo debajo la lista completa del pedido con sus impuestos y totales.
+ * Auditoría automática antes de la descarga para garantizar consistencia contable.
  */
-function buildAccountantCustomerAndOrderFichaWorksheet(
-  packages: ConsolidatedInvoicePackage[],
-  provider: ExportBillingProvider,
-  appName: string
-): XLSX.WorkSheet {
-  const providerName =
-    provider === 'siigo'
-      ? 'Siigo Nube / Siigo Cloud'
-      : provider === 'alegra'
-      ? 'Alegra Contabilidad'
-      : provider === 'world_office'
-      ? 'World Office / Loggro / Siigo Pyme'
-      : 'Universal DIAN (Facturatech / MisFacturas / Gosocket / Portal DIAN)';
+export function validateBillingExport(
+  params: BillingExportParams,
+  preview: BillingExportPreview
+): BillingValidationReport {
+  const issues: BillingValidationIssue[] = [];
+  let mathMismatchesCount = 0;
+  let missingCustomerIdsCount = 0;
+  let missingCustomerEmailsCount = 0;
+  let missingSkusCount = 0;
+  let zeroTotalInvoicesCount = 0;
 
-  const aoa: Array<Array<string | number>> = [];
-  const forceTextCells: Array<{ r: number; c: number; val: string }> = [];
-  const forceCurrencyCells: Array<{ r: number; c: number; val: number }> = [];
+  if (preview.packages.length === 0) {
+    issues.push({
+      type: 'warning',
+      message: 'No hay facturas o ventas en el rango de fechas y filtros seleccionados.'
+    });
+  }
 
-  const pushRow = (
-    row: Array<string | number>,
-    opts?: { textCols?: number[]; currencyCols?: number[] }
-  ) => {
-    const rIdx = aoa.length;
-    aoa.push(row);
-    if (opts?.textCols) {
-      for (const c of opts.textCols) {
-        if (c < row.length) {
-          forceTextCells.push({ r: rIdx, c, val: String(row[c] ?? '') });
-        }
+  for (const pkg of preview.packages) {
+    // 1. Consistencia matemática
+    const expectedTotal = round2(
+      pkg.totalBase - pkg.totalDiscount + pkg.totalInc + pkg.totalIva + pkg.totalTip
+    );
+    const diff = Math.abs(expectedTotal - pkg.totalChargedWithTip);
+    if (diff > 3) {
+      mathMismatchesCount++;
+      issues.push({
+        type: 'warning',
+        message: `Diferencia de cuadre ($${diff.toFixed(2)}) en factura ${pkg.consecutiveNumber}.`,
+        invoiceRef: pkg.consecutiveNumber
+      });
+    }
+
+    // 2. Factura sin valor o sin ítems
+    if (pkg.totalChargedWithTip <= 0 || pkg.lines.length === 0) {
+      zeroTotalInvoicesCount++;
+      issues.push({
+        type: 'warning',
+        message: `Factura ${pkg.consecutiveNumber} no tiene ítems o su valor total es $0.`,
+        invoiceRef: pkg.consecutiveNumber
+      });
+    }
+
+    // 3. Identificación del cliente para Factura Electrónica
+    const isGenericId = !pkg.identification || pkg.identification === '222222222222';
+    if (params.mode === 'by_customer' || params.mode === 'specific_order') {
+      if (isGenericId) {
+        missingCustomerIdsCount++;
+        issues.push({
+          type: 'warning',
+          message: `Factura ${pkg.consecutiveNumber}: Cliente "${pkg.customerName}" no tiene NIT/Cédula asignado (usa Consumidor Final).`,
+          invoiceRef: pkg.consecutiveNumber
+        });
+      }
+
+      // 4. Correo electrónico válido para emisión DIAN
+      if (!pkg.email || !isValidEmailFormat(pkg.email)) {
+        missingCustomerEmailsCount++;
+        issues.push({
+          type: 'warning',
+          message: `Factura ${pkg.consecutiveNumber}: Sin correo electrónico válido para recepción de Factura Electrónica.`,
+          invoiceRef: pkg.consecutiveNumber
+        });
       }
     }
-    if (opts?.currencyCols) {
-      for (const c of opts.currencyCols) {
-        if (c < row.length && typeof row[c] === 'number') {
-          forceCurrencyCells.push({ r: rIdx, c, val: Number(row[c]) });
-        }
+
+    // 5. SKU de productos
+    for (const line of pkg.lines) {
+      if (!line.sku || line.sku.startsWith('PROD-')) {
+        missingSkusCount++;
       }
     }
-  };
-
-  pushRow([
-    `REPORTE CONTABLE DE FACTURACIÓN ELECTRÓNICA — ${(appName || 'RESTAURANTE').toUpperCase()}`,
-    '',
-    '',
-    `Proveedor destino: ${providerName}`,
-    '',
-    `Facturas incluidas: ${packages.length}`
-  ]);
-  pushRow([
-    'Contiene en esta hoja la Ficha Fiscal completa de cada Cliente + Lista detallada de su Pedido. Las pestañas inferiores contienen las tablas planas de importación directa.'
-  ]);
-  pushRow([]);
-
-  packages.forEach((pkg, idx) => {
-    const isCompany = pkg.personType === 'juridica' || pkg.documentType === 'NIT';
-    const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === pkg.taxRegime);
-    const formattedDate = formatDateDDMMYYYY(pkg.invoiceDateKey);
-    const fullDocLabel = pkg.verificationDigit
-      ? `${pkg.identification}-${pkg.verificationDigit}`
-      : pkg.identification;
-
-    pushRow([
-      `FACTURA #${idx + 1} DE ${packages.length} — CLIENTE: ${pkg.customerName.toUpperCase()} (${
-        pkg.documentType
-      } ${fullDocLabel})`,
-      '',
-      '',
-      `Ticket(s): ${pkg.shortTicketRefs}`,
-      `Fecha compra: ${formattedDate}`,
-      `Medio de Pago: ${pkg.paymentMethodLabel}`
-    ], { textCols: [0, 3, 4, 5] });
-
-    // SECCIÓN 1: DATOS COMPLETOS DEL CLIENTE (TERCERO DIAN)
-    pushRow([
-      '1. DATOS FISCALES DEL CLIENTE (PARA CREAR TERCERO Y ENVIAR FACTURA ELECTRÓNICA)',
-      'VALOR REGISTRADO',
-      'CAMPO COMPLEMENTARIO DIAN',
-      'VALOR REGISTRADO',
-      'CLASIFICACIÓN CONTABLE',
-      'VALOR REGISTRADO'
-    ]);
-
-    pushRow(
-      [
-        'Nombre Completo / Razón Social:',
-        pkg.customerName,
-        'Tipo de Persona:',
-        isCompany ? 'Persona Jurídica (Empresa)' : 'Persona Natural',
-        'Régimen Tributario:',
-        regimeOpt?.label || 'No responsable de IVA'
-      ],
-      { textCols: [1, 3, 5] }
-    );
-
-    pushRow(
-      [
-        'Tipo de Documento (Cód. DIAN):',
-        `${pkg.documentType === 'CONSUMIDOR_FINAL' ? 'Consumidor Final' : pkg.documentType} (Código DIAN: ${pkg.dianDocCode})`,
-        'Número Identificación (Sin DV):',
-        String(pkg.identification),
-        'Dígito de Verificación (DV):',
-        String(pkg.verificationDigit || (isCompany ? calculateColombiaNitDV(pkg.identification) : 'N/A'))
-      ],
-      { textCols: [1, 3, 5] }
-    );
-
-    pushRow(
-      [
-        'Nombres (Persona Natural):',
-        isCompany ? 'N/A (Persona Jurídica)' : pkg.firstName || pkg.customerName,
-        'Apellidos (Persona Natural):',
-        isCompany ? 'N/A (Persona Jurídica)' : pkg.lastName || '',
-        'Responsabilidad Fiscal DIAN:',
-        `${pkg.fiscalResponsibility || 'R-99-PN'} · Resp. IVA: ${
-          regimeOpt?.siigoIvaResponsible || (isCompany ? 'Sí' : 'No')
-        }`
-      ],
-      { textCols: [1, 3, 5] }
-    );
-
-    pushRow(
-      [
-        'Correo Recepción Factura Electrónica:',
-        pkg.email || 'PENDIENTE CORREO DEL CLIENTE',
-        'Teléfono / Celular / WhatsApp:',
-        String(pkg.phone || 'No registrado'),
-        'Dirección Fiscal del Cliente:',
-        pkg.address || 'No registrada'
-      ],
-      { textCols: [1, 3, 5] }
-    );
-
-    pushRow(
-      [
-        'Ciudad / Municipio:',
-        pkg.city || 'No registrada',
-        'Departamento:',
-        pkg.department || 'No registrado',
-        'Código Ciudad DANE (5 dígitos):',
-        String(pkg.cityCode || '11001')
-      ],
-      { textCols: [1, 3, 5] }
-    );
-
-    pushRow(
-      [
-        'Mesa / Ubicación Pedido:',
-        pkg.tableNames,
-        'Cajero / Responsable Cobro:',
-        pkg.cashierNames,
-        'Forma de Pago Homologada:',
-        `${pkg.paymentMethodLabel} (Siigo: ${pkg.siigoPaymentCode})`
-      ],
-      { textCols: [1, 3, 5] }
-    );
-
-    pushRow([]);
-
-    // SECCIÓN 2: DETALLE DE LA COMPRA / LISTA DEL PEDIDO
-    pushRow([
-      '2. DETALLE DE LA COMPRA / LISTA DEL PEDIDO TOMADO'
-    ]);
-    pushRow([
-      'Código / SKU',
-      'Producto / Descripción',
-      'Cantidad',
-      'PVP Unitario (Con Imp.)',
-      '% Descuento',
-      'Valor Unitario Base (Sin Imp.)',
-      'Impuesto Aplicado',
-      'Subtotal Base Gravable',
-      'Valor Impuesto Línea',
-      'Total Línea PVP'
-    ]);
-
-    for (const line of pkg.lines) {
-      pushRow(
-        [
-          String(line.sku),
-          line.productName,
-          line.quantity,
-          line.unitPricePVP,
-          line.discountPercent,
-          line.unitBaseWithoutTax,
-          line.providerTaxLabel,
-          line.lineBaseTotal,
-          line.lineTaxTotal,
-          line.lineGrossTotal
-        ],
-        {
-          textCols: [0, 1, 6],
-          currencyCols: [3, 5, 7, 8, 9]
-        }
-      );
-    }
-
-    // SECCIÓN 3: RESUMEN DE IMPUESTOS Y TOTALES
-    pushRow(
-      [
-        '',
-        'SUBTOTAL BASE GRAVABLE (SIN IMPUESTOS):',
-        '',
-        '',
-        '',
-        '',
-        '',
-        pkg.totalBase,
-        pkg.totalInc + pkg.totalIva,
-        pkg.totalGrossProducts
-      ],
-      { currencyCols: [7, 8, 9] }
-    );
-
-    if (pkg.totalInc > 0) {
-      pushRow(
-        ['', 'Total Impoconsumo Nacional (INC 8%):', '', '', '', '', 'INC 8%', '', pkg.totalInc, ''],
-        { currencyCols: [8] }
-      );
-    }
-
-    if (pkg.totalIva > 0) {
-      pushRow(
-        ['', 'Total IVA Generado (19%):', '', '', '', '', 'IVA 19%', '', pkg.totalIva, ''],
-        { currencyCols: [8] }
-      );
-    }
-
-    if (pkg.totalDiscount > 0) {
-      pushRow(
-        ['', 'Descuentos Aplicados en Caja:', '', '', '', '', '', '', '', -pkg.totalDiscount],
-        { currencyCols: [9] }
-      );
-    }
-
-    pushRow(
-      [
-        '',
-        'TOTAL FACTURA ELECTRÓNICA DIAN (PRODUCTOS):',
-        '',
-        '',
-        '',
-        '',
-        '',
-        pkg.totalBase,
-        round2(pkg.totalInc + pkg.totalIva),
-        pkg.totalGrossProducts
-      ],
-      { currencyCols: [7, 8, 9] }
-    );
-
-    if (pkg.totalTip > 0) {
-      pushRow(
-        [
-          '',
-          'Propina Voluntaria Servicio (No gravada en base DIAN):',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          pkg.totalTip
-        ],
-        { currencyCols: [9] }
-      );
-      pushRow(
-        [
-          '',
-          'TOTAL RECAUDADO EN CAJA (FACTURA + PROPINA):',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          '',
-          pkg.totalChargedWithTip
-        ],
-        { currencyCols: [9] }
-      );
-    }
-
-    pushRow([]);
-    pushRow([]);
-  });
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  for (const item of forceTextCells) {
-    const addr = XLSX.utils.encode_cell({ r: item.r, c: item.c });
-    if (ws[addr]) {
-      ws[addr].t = 's';
-      ws[addr].v = item.val;
-      ws[addr].z = '@';
-    }
   }
 
-  for (const item of forceCurrencyCells) {
-    const addr = XLSX.utils.encode_cell({ r: item.r, c: item.c });
-    if (ws[addr]) {
-      ws[addr].t = 'n';
-      ws[addr].v = item.val;
-      ws[addr].z = '#,##0.00';
-    }
-  }
+  const hasErrors = preview.packages.length === 0;
+  const hasWarnings =
+    mathMismatchesCount > 0 ||
+    missingCustomerIdsCount > 0 ||
+    missingCustomerEmailsCount > 0 ||
+    zeroTotalInvoicesCount > 0;
 
-  ws['!cols'] = [
-    { wch: 34 },
-    { wch: 36 },
-    { wch: 30 },
-    { wch: 28 },
-    { wch: 28 },
-    { wch: 32 },
-    { wch: 18 },
-    { wch: 22 },
-    { wch: 20 },
-    { wch: 22 }
-  ];
-
-  return ws;
-}
-
-/**
- * Construye la Sabana Maestra Plana donde CADA fila tiene TODOS los datos del cliente + el producto comprado.
- */
-function buildMasterSabanaRows(packages: ConsolidatedInvoicePackage[]): {
-  headers: string[];
-  rows: Array<Array<string | number>>;
-  textColumnIndices: number[];
-  currencyColumnIndices: number[];
-} {
-  const headers = [
-    'Fecha Compra',
-    'Ref Ticket',
-    'Mesa',
-    'Cajero',
-    'Tipo Persona',
-    'Cód DIAN',
-    'Tipo Documento',
-    'Identificación (Sin DV)',
-    'DV',
-    'Cliente / Razón Social',
-    'Nombres (Persona Natural)',
-    'Apellidos (Persona Natural)',
-    'Correo Envío FE',
-    'Teléfono Cliente',
-    'Dirección Fiscal',
-    'Ciudad / Municipio',
-    'Departamento',
-    'Código DANE',
-    'Régimen Tributario',
-    'Responsabilidad Fiscal DIAN',
-    'SKU Producto',
-    'Producto Pedido',
-    'Cantidad',
-    'PVP Unitario (Con Imp.)',
-    'Base Unitaria sin Impuesto',
-    'Impuesto Aplicado',
-    'Base Gravable Línea',
-    'Valor Impuesto Línea',
-    'Total Línea PVP',
-    'Medio de Pago'
-  ];
-
-  const rows: Array<Array<string | number>> = [];
-  for (const pkg of packages) {
-    const isCompany = pkg.personType === 'juridica' || pkg.documentType === 'NIT';
-    const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === pkg.taxRegime);
-    for (const line of pkg.lines) {
-      rows.push([
-        pkg.invoiceDateKey,
-        pkg.shortTicketRefs,
-        pkg.tableNames,
-        pkg.cashierNames,
-        isCompany ? 'Persona Jurídica' : 'Persona Natural',
-        String(pkg.dianDocCode),
-        pkg.documentType,
-        String(pkg.identification),
-        String(pkg.verificationDigit || ''),
-        pkg.customerName,
-        isCompany ? '' : pkg.firstName || pkg.customerName,
-        isCompany ? '' : pkg.lastName || '',
-        pkg.email || '',
-        String(pkg.phone || ''),
-        pkg.address || '',
-        pkg.city || '',
-        pkg.department || '',
-        String(pkg.cityCode || ''),
-        regimeOpt?.shortLabel || 'No resp. IVA',
-        pkg.fiscalResponsibility || 'R-99-PN',
-        String(line.sku),
-        line.productName,
-        line.quantity,
-        line.unitPricePVP,
-        line.unitBaseWithoutTax,
-        line.providerTaxLabel,
-        line.lineBaseTotal,
-        line.lineTaxTotal,
-        line.lineGrossTotal,
-        pkg.paymentMethodLabel
-      ]);
-    }
-  }
+  const statusSummary: 'perfect' | 'warnings' | 'errors' = hasErrors
+    ? 'errors'
+    : hasWarnings
+    ? 'warnings'
+    : 'perfect';
 
   return {
-    headers,
-    rows,
-    textColumnIndices: [
-      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 25, 29
-    ],
-    currencyColumnIndices: [23, 24, 26, 27, 28]
+    isValid: !hasErrors,
+    canExport: preview.packages.length > 0,
+    totalInvoicesChecked: preview.packages.length,
+    totalLinesChecked: preview.totalLinesCount,
+    mathMismatchesCount,
+    missingCustomerIdsCount,
+    missingCustomerEmailsCount,
+    missingSkusCount,
+    zeroTotalInvoicesCount,
+    issues,
+    statusSummary
   };
 }
 
 /**
- * Genera los encabezados y filas de Facturas de Venta según el proveedor elegido,
- * incluyendo SIEMPRE columnas de identificación, contacto, ubicación y correo del cliente.
+ * Crea una hoja de Excel asegurando formato texto '@' en documentos, NITs, fechas y códigos DANE,
+ * y formato número '#,##0.00' en columnas monetarias.
  */
-function buildPrimarySheetRows(
-  packages: ConsolidatedInvoicePackage[],
-  provider: ExportBillingProvider
-): {
-  headers: string[];
-  rows: Array<Array<string | number>>;
-  textColumnIndices: number[];
-  currencyColumnIndices: number[];
-} {
-  if (provider === 'siigo') {
-    const headers = [
-      'Código Comprobante',
-      'Fecha Elaboración',
-      'Tipo Doc DIAN',
-      'Tipo Documento',
-      'Identificación Tercero',
-      'DV',
-      'Sucursal',
-      'Nombre / Razón Social Cliente',
-      'Correo Envío FE',
-      'Teléfono Cliente',
-      'Dirección Cliente',
-      'Ciudad',
-      'Código Ciudad DANE',
-      'Código Producto',
-      'Código/Nombre Producto',
-      'Cantidad',
-      'Valor Unitario sin impuesto',
-      '% Descuento',
-      'Impuesto Cargo',
-      'Total Línea PVP',
-      'Forma de Pago',
-      'Ref Ticket Caja'
-    ];
-    const rows: Array<Array<string | number>> = [];
-    for (const pkg of packages) {
-      const siigoDate = formatDateDDMMYYYY(pkg.invoiceDateKey);
-      for (const line of pkg.lines) {
-        rows.push([
-          'FV-1',
-          siigoDate,
-          String(pkg.dianDocCode),
-          pkg.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : pkg.documentType,
-          String(pkg.identification),
-          String(pkg.verificationDigit || ''),
-          '0',
-          pkg.customerName,
-          pkg.email || '',
-          String(pkg.phone || ''),
-          pkg.address || '',
-          pkg.city || '',
-          String(pkg.cityCode || '11001'),
-          String(line.sku),
-          line.codeAndName,
-          line.quantity,
-          line.unitBaseWithoutTax,
-          0,
-          line.providerTaxLabel,
-          line.lineGrossTotal,
-          pkg.siigoPaymentCode,
-          pkg.shortTicketRefs
-        ]);
-      }
-    }
-    return {
-      headers,
-      rows,
-      textColumnIndices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18, 20, 21],
-      currencyColumnIndices: [16, 19]
-    };
-  }
-
-  if (provider === 'alegra') {
-    const headers = [
-      'Referencia Ticket',
-      'Cliente / Razón Social',
-      'Tipo Identificación',
-      'Identificación',
-      'DV',
-      'Correo Electrónico FE',
-      'Teléfono Cliente',
-      'Dirección Cliente',
-      'Ciudad / Municipio',
-      'Código DANE',
-      'Fecha',
-      'Vencimiento',
-      'Forma de Pago',
-      'Código Item',
-      'Item',
-      'Precio Unitario sin impuesto',
-      'Cantidad',
-      'Impuesto',
-      'Total Línea PVP'
-    ];
-    const rows: Array<Array<string | number>> = [];
-    for (const pkg of packages) {
-      const isoDate = pkg.invoiceDateKey;
-      for (const line of pkg.lines) {
-        rows.push([
-          pkg.shortTicketRefs,
-          pkg.customerName,
-          pkg.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : pkg.documentType,
-          String(pkg.identification),
-          String(pkg.verificationDigit || ''),
-          pkg.email || '',
-          String(pkg.phone || ''),
-          pkg.address || '',
-          pkg.city || '',
-          String(pkg.cityCode || ''),
-          isoDate,
-          isoDate,
-          pkg.paymentMethodLabel,
-          String(line.sku),
-          line.codeAndName,
-          line.unitBaseWithoutTax,
-          line.quantity,
-          line.providerTaxLabel,
-          line.lineGrossTotal
-        ]);
-      }
-    }
-    return {
-      headers,
-      rows,
-      textColumnIndices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 17],
-      currencyColumnIndices: [15, 18]
-    };
-  }
-
-  if (provider === 'world_office') {
-    const headers = [
-      'Fecha (DD/MM/AAAA)',
-      'Tipo Comprobante',
-      'Referencia Ticket',
-      'Tipo Doc DIAN',
-      'Tipo Documento',
-      'NIT / Cédula Tercero',
-      'DV',
-      'Nombre / Razón Social',
-      'Dirección Tercero',
-      'Ciudad',
-      'Código Ciudad DANE',
-      'Teléfono',
-      'Correo Facturación Electrónica',
-      'Código Producto',
-      'Descripción Producto',
-      'Cantidad',
-      'Valor Unitario Base',
-      '% IVA',
-      'Valor IVA Línea',
-      '% Impoconsumo',
-      'Valor INC Línea',
-      'Total Línea PVP',
-      'Forma de Pago'
-    ];
-    const rows: Array<Array<string | number>> = [];
-    for (const pkg of packages) {
-      const woDate = formatDateDDMMYYYY(pkg.invoiceDateKey);
-      for (const line of pkg.lines) {
-        const ivaRate = line.taxType === 'iva' ? line.taxRate : 0;
-        const ivaVal = line.taxType === 'iva' ? line.lineTaxTotal : 0;
-        const incRate = line.taxType === 'impoconsumo' ? line.taxRate : 0;
-        const incVal = line.taxType === 'impoconsumo' ? line.lineTaxTotal : 0;
-
-        rows.push([
-          woDate,
-          'FV',
-          pkg.shortTicketRefs,
-          String(pkg.dianDocCode),
-          pkg.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : pkg.documentType,
-          String(pkg.identification),
-          String(pkg.verificationDigit || ''),
-          pkg.customerName,
-          pkg.address || 'Ciudad',
-          pkg.city || 'Bogotá D.C.',
-          String(pkg.cityCode || '11001'),
-          String(pkg.phone || ''),
-          pkg.email || '',
-          String(line.sku),
-          line.productName,
-          line.quantity,
-          line.unitBaseWithoutTax,
-          ivaRate,
-          ivaVal,
-          incRate,
-          incVal,
-          line.lineGrossTotal,
-          pkg.paymentMethodLabel
-        ]);
-      }
-    }
-    return {
-      headers,
-      rows,
-      textColumnIndices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 22],
-      currencyColumnIndices: [16, 18, 20, 21]
-    };
-  }
-
-  return buildMasterSabanaRows(packages);
-}
-
-/**
- * Construye la plantilla de Creación/Actualización de Terceros (Clientes) adaptada al proveedor,
- * para que la contadora importe clientes nuevos sin rechazos en Siigo / Alegra / World Office.
- */
-function buildThirdPartiesSheet(
-  packages: ConsolidatedInvoicePackage[],
-  provider: ExportBillingProvider,
-  sheetPrefix = '3_'
-): {
-  sheetName: string;
-  headers: string[];
-  rows: Array<Array<string | number>>;
-  textColumnIndices: number[];
-} {
-  const uniqueMap = new Map<string, ConsolidatedInvoicePackage>();
-  for (const pkg of packages) {
-    const key = `${pkg.documentType}_${pkg.identification}_${pkg.customerName}`;
-    if (!uniqueMap.has(key)) {
-      uniqueMap.set(key, pkg);
-    }
-  }
-  const uniqueClients = Array.from(uniqueMap.values());
-
-  if (provider === 'siigo') {
-    const headers = [
-      'Tipo de Persona',
-      'Código Tipo Documento DIAN',
-      'Tipo Documento',
-      'Identificación (sin DV)',
-      'Dígito Verificación',
-      'Sucursal',
-      'Razón Social (Empresa)',
-      'Nombres (Persona Natural)',
-      'Apellidos (Persona Natural)',
-      'Nombre Comercial',
-      'Dirección',
-      'Código País',
-      'Código Departamento DANE',
-      'Departamento',
-      'Código Ciudad DANE',
-      'Ciudad',
-      'Teléfono',
-      'Correo Recepción Factura Electrónica',
-      'Responsable de IVA',
-      'Código Responsabilidad Fiscal'
-    ];
-    const rows = uniqueClients.map((c) => {
-      const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
-      const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
-      return [
-        isCompany ? 'Empresa' : 'Persona Natural',
-        String(c.dianDocCode),
-        c.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : c.documentType,
-        String(c.identification),
-        String(c.verificationDigit || ''),
-        '0',
-        isCompany ? c.customerName : '',
-        isCompany ? '' : c.firstName || c.customerName,
-        isCompany ? '' : c.lastName || 'Cliente',
-        c.customerName,
-        c.address || 'Dirección pendiente',
-        'Co',
-        String(c.departmentCode || '11'),
-        c.department || 'Bogotá D.C.',
-        String(c.cityCode || '11001'),
-        c.city || 'Bogotá D.C.',
-        String(c.phone || ''),
-        c.email || '',
-        regimeOpt?.siigoIvaResponsible || (isCompany ? 'Sí' : 'No'),
-        c.fiscalResponsibility || 'R-99-PN'
-      ];
-    });
-    return {
-      sheetName: `${sheetPrefix}Terceros_Clientes_Siigo`,
-      headers,
-      rows,
-      textColumnIndices: headers.map((_, idx) => idx)
-    };
-  }
-
-  if (provider === 'alegra') {
-    const headers = [
-      'Nombre / Razón Social',
-      'Primer Nombre',
-      'Apellidos',
-      'Tipo de Persona',
-      'Tipo de Identificación',
-      'Identificación',
-      'DV',
-      'Correo Electrónico (Envío FE)',
-      'Teléfono / Celular',
-      'Dirección',
-      'Ciudad / Municipio',
-      'Departamento',
-      'Código Municipio DANE',
-      'Régimen Tributario',
-      'Responsabilidad Fiscal DIAN'
-    ];
-    const rows = uniqueClients.map((c) => {
-      const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
-      const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
-      return [
-        c.customerName,
-        isCompany ? '' : c.firstName,
-        isCompany ? '' : c.lastName,
-        isCompany ? 'Persona Jurídica' : 'Persona Natural',
-        c.documentType === 'CONSUMIDOR_FINAL' ? 'CC' : c.documentType,
-        String(c.identification),
-        String(c.verificationDigit || ''),
-        c.email || '',
-        String(c.phone || ''),
-        c.address || '',
-        c.city || '',
-        c.department || '',
-        String(c.cityCode || ''),
-        regimeOpt?.shortLabel || 'No resp. IVA',
-        c.fiscalResponsibility || 'R-99-PN'
-      ];
-    });
-    return {
-      sheetName: `${sheetPrefix}Contactos_Clientes_Alegra`,
-      headers,
-      rows,
-      textColumnIndices: headers.map((_, idx) => idx)
-    };
-  }
-
-  const headers = [
-    'Código Tipo Doc DIAN',
-    'Tipo Documento',
-    'Identificación (sin DV)',
-    'DV',
-    'Tipo Persona',
-    'Razón Social / Nombre Completo',
-    'Nombres',
-    'Apellidos',
-    'Correo Envío Factura Electrónica',
-    'Teléfono / WhatsApp',
-    'Dirección Fiscal',
-    'Ciudad / Municipio',
-    'Departamento',
-    'Código DANE Municipio',
-    'Régimen Tributario',
-    'Responsabilidad Fiscal DIAN'
-  ];
-  const rows = uniqueClients.map((c) => {
-    const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
-    const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
-    return [
-      String(c.dianDocCode),
-      c.documentType,
-      String(c.identification),
-      String(c.verificationDigit || ''),
-      isCompany ? 'Persona Jurídica' : 'Persona Natural',
-      c.customerName,
-      isCompany ? '' : c.firstName,
-      isCompany ? '' : c.lastName,
-      c.email || '',
-      String(c.phone || ''),
-      c.address || '',
-      c.city || '',
-      c.department || '',
-      String(c.cityCode || ''),
-      regimeOpt?.label || 'No responsable de IVA',
-      c.fiscalResponsibility || 'R-99-PN'
-    ];
-  });
-
-  return {
-    sheetName:
-      provider === 'world_office'
-        ? `${sheetPrefix}Terceros_DIAN`
-        : `${sheetPrefix}Directorio_Terceros_DIAN`,
-    headers,
-    rows,
-    textColumnIndices: headers.map((_, idx) => idx)
-  };
-}
-
-/**
- * Crea una hoja de Excel desde una matriz AOA forzando formato Texto explícito ('@')
- * en las columnas de NIT/Cédula, DV, Códigos DANE, Sucursal y Fechas para nunca perder ceros iniciales.
- */
-function createFormattedWorksheet(
+function createStyledSheet(
   headers: string[],
   rows: Array<Array<string | number>>,
   textColumnIndices: number[],
-  currencyColumnIndices: number[]
+  currencyColumnIndices: number[],
+  qtyColumnIndices: number[] = []
 ): XLSX.WorkSheet {
   const aoa: Array<Array<string | number>> = [headers, ...rows];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
   const textColSet = new Set(textColumnIndices);
-  const currencyColSet = new Set(currencyColumnIndices);
+  const currColSet = new Set(currencyColumnIndices);
+  const qtyColSet = new Set(qtyColumnIndices);
 
   for (let r = 1; r <= rows.length; r++) {
     const row = rows[r - 1];
@@ -1887,33 +950,904 @@ function createFormattedWorksheet(
         cell.t = 's';
         cell.v = String(row[c] ?? '');
         cell.z = '@';
-      } else if (currencyColSet.has(c) && typeof row[c] === 'number') {
+      } else if (currColSet.has(c) && typeof row[c] === 'number') {
         cell.t = 'n';
         cell.v = Number(row[c]);
         cell.z = '#,##0.00';
+      } else if (qtyColSet.has(c) && typeof row[c] === 'number') {
+        cell.t = 'n';
+        cell.v = Number(row[c]);
+        cell.z = '#,##0.##';
       }
     }
   }
 
+  // Habilitar autofiltro en la primera fila de datos
+  if (rows.length > 0) {
+    ws['!autofilter'] = {
+      ref: XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: rows.length, c: headers.length - 1 }
+      })
+    };
+  }
+
   ws['!cols'] = headers.map((header, colIdx) => {
     let maxLen = header.length;
-    for (const row of rows) {
-      const valStr = row[colIdx] !== undefined && row[colIdx] !== null ? String(row[colIdx]) : '';
+    for (let r = 0; r < Math.min(rows.length, 100); r++) {
+      const valStr = rows[r][colIdx] !== undefined && rows[r][colIdx] !== null ? String(rows[r][colIdx]) : '';
       if (valStr.length > maxLen) {
         maxLen = valStr.length;
       }
     }
-    return { wch: Math.min(Math.max(maxLen + 4, 14), 44) };
+    return { wch: Math.min(Math.max(maxLen + 3, 12), 48) };
   });
 
   return ws;
 }
 
 /**
- * Genera y descarga el paquete contable .xlsx:
- * - Por defecto la Hoja 1 ("1_Datos_Cliente_y_Pedido") abre mostrando la Ficha Fiscal completa de cada cliente
- *   arriba y debajo la lista exacta de su pedido con impuestos y totales, seguida de la Sabana Plana, Terceros y Plantilla Proveedor.
- * - Si rawImportOnly === true, coloca en Hoja 1 únicamente la tabla plana con fila 1 de encabezados del proveedor.
+ * 1. CONSTRUCTOR FORMATO CHINMI GENERAL (Exactamente 3 Hojas)
+ */
+function buildChinmiWorkbook(
+  params: BillingExportParams,
+  preview: BillingExportPreview
+): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new();
+  const establishmentName = params.businessName || params.appName || 'CHINMI RESTAURANTE';
+  const establishmentNit = params.businessNit || '900.000.000-1';
+  const period =
+    params.targetDate === (params.endDate || params.targetDate)
+      ? params.targetDate
+      : `${params.targetDate} al ${params.endDate || params.targetDate}`;
+
+  // HOJA 1: 1_Resumen
+  const resumenAoa: Array<Array<string | number>> = [
+    ['RESUMEN GENERAL DE FACTURACIÓN Y VENTAS - CHINMI APP'],
+    ['Establecimiento:', establishmentName],
+    ['NIT / RUT:', establishmentNit],
+    ['Período Analizado:', period],
+    ['Fecha de Generación:', new Date().toLocaleString('es-CO')],
+    ['Moneda:', 'COP ($)'],
+    [''],
+    ['CONCEPTO TRIBUTARIO / OPERACIONAL', 'VALOR / TOTAL'],
+    ['Total Facturas / Comprobantes Emitidos', preview.totalInvoicesCount],
+    ['Total Ítems / Productos Vendidos', preview.totalLinesCount],
+    ['Ventas Brutas Totales (PVP)', preview.totalGrossProducts],
+    ['Descuentos Comerciales Otorgados', preview.totalDiscountAmount],
+    ['Ventas Netas Totales', round2(preview.totalGrossProducts - preview.totalDiscountAmount)],
+    ['Base Gravable Exenta (Tarifa 0%)', preview.totalBase0],
+    ['Base Gravable Impoconsumo (Tarifa 8%)', preview.totalBase8],
+    ['Impuesto Nacional al Consumo Recaudado (INC 8%)', preview.totalIncAmount],
+    ['Base Gravable IVA (Tarifa 19%)', preview.totalBase19],
+    ['Impuesto al Valor Agregado Recaudado (IVA 19%)', preview.totalIvaAmount],
+    ['Total Impuestos Liquidados (INC + IVA)', round2(preview.totalIncAmount + preview.totalIvaAmount)],
+    ['Total Propinas Voluntarias Recaudadas', preview.totalTipsAmount],
+    ['TOTAL FACTURADO / RECAUDADO GENERAL', preview.totalChargedAmount],
+    [''],
+    ['DESGLOSE POR MÉTODO DE PAGO', 'CANTIDAD COMPROBANTES', 'TOTAL RECAUDADO ($)', 'PARTICIPACIÓN (%)']
+  ];
+
+  // Métodos de pago acumulados
+  const paymentStats = new Map<string, { count: number; total: number }>();
+  for (const pkg of preview.packages) {
+    const method = pkg.paymentMethodLabel;
+    const cur = paymentStats.get(method) || { count: 0, total: 0 };
+    paymentStats.set(method, {
+      count: cur.count + 1,
+      total: round2(cur.total + pkg.totalChargedWithTip)
+    });
+  }
+
+  for (const [method, stats] of paymentStats.entries()) {
+    const pct = preview.totalChargedAmount > 0 ? round2((stats.total / preview.totalChargedAmount) * 100) : 0;
+    resumenAoa.push([method, stats.count, stats.total, `${pct}%`]);
+  }
+
+  const resumenWs = XLSX.utils.aoa_to_sheet(resumenAoa);
+  resumenWs['!cols'] = [{ wch: 44 }, { wch: 24 }, { wch: 22 }, { wch: 18 }];
+  // Forzar números en resumen
+  for (let r = 8; r <= 20; r++) {
+    const addr = XLSX.utils.encode_cell({ r, c: 1 });
+    if (resumenWs[addr] && typeof resumenAoa[r][1] === 'number') {
+      resumenWs[addr].t = 'n';
+      resumenWs[addr].z = r === 8 || r === 9 ? '#,##0' : '#,##0.00';
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, resumenWs, '1_Resumen');
+
+  // HOJA 2: 2_Facturas (1 fila por factura)
+  const facturasHeaders = [
+    'ID Interno',
+    'Número Factura',
+    'Fecha Emisión',
+    'Nombre del Cliente',
+    'Tipo Documento',
+    'Número Identificación',
+    'DV',
+    'Subtotal',
+    'Descuento',
+    'Base 0%',
+    'Base INC 8%',
+    'Valor INC 8%',
+    'Base IVA 19%',
+    'Valor IVA 19%',
+    'Total Impuestos',
+    'Propina',
+    'Total Pagado',
+    'Método de Pago',
+    'Estado Documento'
+  ];
+
+  const facturasRows = preview.packages.map((pkg) => [
+    pkg.ticketIds.join(','),
+    pkg.consecutiveNumber,
+    pkg.invoiceDateKey,
+    pkg.customerName,
+    pkg.documentType,
+    String(pkg.identification),
+    String(pkg.verificationDigit || ''),
+    pkg.totalBase,
+    pkg.totalDiscount,
+    pkg.totalBase0,
+    pkg.totalBase8,
+    pkg.totalInc,
+    pkg.totalBase19,
+    pkg.totalIva,
+    round2(pkg.totalInc + pkg.totalIva),
+    pkg.totalTip,
+    pkg.totalChargedWithTip,
+    pkg.paymentMethodLabel,
+    pkg.documentStatus
+  ]);
+
+  const facturasWs = createStyledSheet(
+    facturasHeaders,
+    facturasRows,
+    [0, 1, 2, 3, 4, 5, 6, 17, 18], // text
+    [7, 8, 9, 10, 11, 12, 13, 14, 15, 16] // currency
+  );
+  XLSX.utils.book_append_sheet(wb, facturasWs, '2_Facturas');
+
+  // HOJA 3: 3_Detalle_Productos (1 fila por producto vendido)
+  const detalleHeaders = [
+    'ID Interno Factura',
+    'Número Factura',
+    'Fecha Factura',
+    'Código SKU',
+    'Nombre del Producto',
+    'Cantidad',
+    'Precio Unitario PVP',
+    'Descuento Línea',
+    'Base Gravable Unitaria',
+    'Base Gravable Total',
+    'Tarifa Impuesto',
+    'Porcentaje Impuesto (%)',
+    'Valor Impuesto Total',
+    'Total Línea (PVP)'
+  ];
+
+  const detalleRows: Array<Array<string | number>> = [];
+  for (const pkg of preview.packages) {
+    for (const line of pkg.lines) {
+      detalleRows.push([
+        pkg.ticketIds[0] || pkg.packageKey,
+        pkg.consecutiveNumber,
+        pkg.invoiceDateKey,
+        String(line.sku),
+        line.productName,
+        line.quantity,
+        line.unitPricePVP,
+        round2(line.rawUnitPricePVP - line.unitPricePVP),
+        line.unitBaseWithoutTax,
+        line.lineBaseTotal,
+        line.providerTaxLabel,
+        line.taxRate,
+        line.lineTaxTotal,
+        line.lineGrossTotal
+      ]);
+    }
+  }
+
+  const detalleWs = createStyledSheet(
+    detalleHeaders,
+    detalleRows,
+    [0, 1, 2, 3, 4, 10], // text
+    [6, 7, 8, 9, 12, 13], // currency
+    [5, 11] // qty
+  );
+  XLSX.utils.book_append_sheet(wb, detalleWs, '3_Detalle_Productos');
+
+  return wb;
+}
+
+/**
+ * 2. CONSTRUCTOR FORMATO SIIGO CLOUD (Comprobantes FV-1 + Terceros Siigo)
+ */
+function buildSiigoWorkbook(
+  params: BillingExportParams,
+  preview: BillingExportPreview
+): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new();
+
+  // HOJA 1: 1_Facturas_Siigo (Plantilla estándar de comprobantes de ventas FV-1 Siigo Nube)
+  const siigoHeaders = [
+    'Tipo de Comprobante',
+    'Consecutivo',
+    'Fecha de elaboración',
+    'Sigla Moneda',
+    'Tasa de Cambio',
+    'Identificación Tercero',
+    'Sucursal',
+    'Código Producto',
+    'Nombre Producto',
+    'Cantidad',
+    'Valor Unitario',
+    'Porcentaje Descuento',
+    'Valor Descuento',
+    'Impuesto Cargo',
+    'Valor Impuesto',
+    'Valor Total',
+    'Forma de Pago',
+    'Observaciones'
+  ];
+
+  const siigoRows: Array<Array<string | number>> = [];
+  for (const pkg of preview.packages) {
+    for (const line of pkg.lines) {
+      siigoRows.push([
+        'FV-1',
+        pkg.consecutiveNumber,
+        formatDateDDMMYYYY(pkg.invoiceDateKey),
+        'COP',
+        1,
+        String(pkg.identification),
+        0,
+        String(line.sku),
+        line.productName,
+        line.quantity,
+        line.unitBaseWithoutTax,
+        line.discountPercent,
+        round2((line.rawUnitBaseWithoutTax - line.unitBaseWithoutTax) * line.quantity),
+        line.providerTaxLabel,
+        line.lineTaxTotal,
+        line.lineGrossTotal,
+        pkg.siigoPaymentCode,
+        `Mesa: ${pkg.tableNames} · Chinmi App`
+      ]);
+    }
+  }
+
+  const siigoWs = createStyledSheet(
+    siigoHeaders,
+    siigoRows,
+    [0, 1, 2, 3, 5, 6, 7, 8, 13, 16, 17], // text
+    [10, 12, 14, 15], // currency
+    [4, 9, 11] // qty / rate
+  );
+  XLSX.utils.book_append_sheet(wb, siigoWs, '1_Facturas_Siigo');
+
+  // HOJA 2: 2_Terceros_Siigo
+  const tercerosHeaders = [
+    'Tipo Tercero',
+    'Código Tipo Doc DIAN',
+    'Tipo Identificación',
+    'Número Identificación',
+    'Dígito Verificación',
+    'Tipo Persona',
+    'Razón Social / Nombre Completo',
+    'Primer Nombre',
+    'Apellidos',
+    'Nombre Comercial',
+    'Ciudad',
+    'Código Ciudad DANE',
+    'Dirección',
+    'Teléfono',
+    'Correo Electrónico (FE)',
+    'Régimen Tributario',
+    'Responsabilidad Fiscal'
+  ];
+
+  const uniqueClients = extractUniqueCustomersFromPackages(preview.packages);
+  const tercerosRows = uniqueClients.map((c) => {
+    const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
+    const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
+    return [
+      'Cliente',
+      String(c.dianDocCode),
+      c.documentType,
+      String(c.identification),
+      String(c.verificationDigit || ''),
+      isCompany ? 'Persona Jurídica' : 'Persona Natural',
+      c.customerName,
+      isCompany ? '' : c.firstName,
+      isCompany ? '' : c.lastName,
+      c.customerName,
+      c.city || 'Bogotá',
+      String(c.cityCode || '11001'),
+      c.address || 'Calle 1 # 1-1',
+      String(c.phone || ''),
+      c.email || '',
+      regimeOpt?.label || 'No responsable de IVA',
+      c.fiscalResponsibility || 'R-99-PN'
+    ];
+  });
+
+  const tercerosWs = createStyledSheet(
+    tercerosHeaders,
+    tercerosRows,
+    tercerosHeaders.map((_, i) => i),
+    []
+  );
+  XLSX.utils.book_append_sheet(wb, tercerosWs, '2_Terceros_Siigo');
+
+  return wb;
+}
+
+/**
+ * 3. CONSTRUCTOR FORMATO ALEGRA (Facturas Alegra + Contactos Alegra)
+ */
+function buildAlegraWorkbook(
+  params: BillingExportParams,
+  preview: BillingExportPreview
+): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new();
+
+  // HOJA 1: 1_Facturas_Alegra
+  const alegraHeaders = [
+    'Número de Factura',
+    'Fecha',
+    'Vencimiento',
+    'Identificación Cliente',
+    'Nombre Cliente',
+    'Correo Cliente',
+    'Teléfono Cliente',
+    'Método de Pago',
+    'Ítem / Referencia',
+    'Descripción Ítem',
+    'Precio Unitario',
+    'Cantidad',
+    'Descuento (%)',
+    'Impuesto',
+    'Valor Total',
+    'Observaciones'
+  ];
+
+  const alegraRows: Array<Array<string | number>> = [];
+  for (const pkg of preview.packages) {
+    for (const line of pkg.lines) {
+      const alegraTax =
+        line.taxType === 'impoconsumo'
+          ? 'Impoconsumo (8%)'
+          : line.taxType === 'iva'
+          ? `IVA (${line.taxRate}%)`
+          : 'Ninguno (0%)';
+
+      alegraRows.push([
+        pkg.consecutiveNumber,
+        pkg.invoiceDateKey,
+        pkg.invoiceDateKey,
+        String(pkg.identification),
+        pkg.customerName,
+        pkg.email || '',
+        String(pkg.phone || ''),
+        getPaymentMethodAccountingMeta(pkg.paymentMethodLabel).alegraLabel,
+        String(line.sku),
+        line.productName,
+        line.unitBaseWithoutTax,
+        line.quantity,
+        line.discountPercent,
+        alegraTax,
+        line.lineGrossTotal,
+        `Mesa: ${pkg.tableNames} · Venta Chinmi`
+      ]);
+    }
+  }
+
+  const alegraWs = createStyledSheet(
+    alegraHeaders,
+    alegraRows,
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 15], // text
+    [10, 14], // currency
+    [11, 12] // qty / disc
+  );
+  XLSX.utils.book_append_sheet(wb, alegraWs, '1_Facturas_Alegra');
+
+  // HOJA 2: 2_Contactos_Alegra
+  const contactosHeaders = [
+    'Nombre / Razón Social',
+    'Tipo Identificación',
+    'Identificación',
+    'Dígito Verificación',
+    'Tipo Persona',
+    'Primer Nombre',
+    'Apellidos',
+    'Correo Electrónico (FE)',
+    'Teléfono Principal',
+    'Dirección',
+    'Ciudad',
+    'Régimen'
+  ];
+
+  const uniqueClients = extractUniqueCustomersFromPackages(preview.packages);
+  const contactosRows = uniqueClients.map((c) => {
+    const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
+    const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
+    return [
+      c.customerName,
+      c.documentType,
+      String(c.identification),
+      String(c.verificationDigit || ''),
+      isCompany ? 'Persona Jurídica' : 'Persona Natural',
+      isCompany ? '' : c.firstName,
+      isCompany ? '' : c.lastName,
+      c.email || '',
+      String(c.phone || ''),
+      c.address || '',
+      c.city || 'Bogotá',
+      regimeOpt?.label || 'No responsable de IVA'
+    ];
+  });
+
+  const contactosWs = createStyledSheet(
+    contactosHeaders,
+    contactosRows,
+    contactosHeaders.map((_, i) => i),
+    []
+  );
+  XLSX.utils.book_append_sheet(wb, contactosWs, '2_Contactos_Alegra');
+
+  return wb;
+}
+
+/**
+ * 4. CONSTRUCTOR FORMATO LOGGRO (1_Encabezado y 2_Detalles vinculadas por Consecutivo Factura + 3_Terceros_Loggro)
+ */
+function buildLoggroWorkbook(
+  params: BillingExportParams,
+  preview: BillingExportPreview
+): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new();
+
+  // HOJA 1: 1_Encabezado
+  const encabezadoHeaders = [
+    'Consecutivo Factura',
+    'Tipo de Comprobante',
+    'Fecha de Factura',
+    'Fecha de Vencimiento',
+    'Identificación Cliente',
+    'Nombre / Razón Social Cliente',
+    'Tipo Documento Cliente',
+    'Medio de Pago',
+    'Subtotal Factura',
+    'Descuento Factura',
+    'Total Impuestos',
+    'Total Propina',
+    'Total Factura',
+    'Estado Factura',
+    'Observaciones'
+  ];
+
+  const encabezadoRows = preview.packages.map((pkg) => [
+    pkg.consecutiveNumber,
+    'Factura de Venta (FV)',
+    formatDateDDMMYYYY(pkg.invoiceDateKey),
+    formatDateDDMMYYYY(pkg.invoiceDateKey),
+    String(pkg.identification),
+    pkg.customerName,
+    pkg.documentType,
+    pkg.paymentMethodLabel,
+    pkg.totalBase,
+    pkg.totalDiscount,
+    round2(pkg.totalInc + pkg.totalIva),
+    pkg.totalTip,
+    pkg.totalChargedWithTip,
+    pkg.documentStatus,
+    `Mesa: ${pkg.tableNames} · Chinmi App`
+  ]);
+
+  const encabezadoWs = createStyledSheet(
+    encabezadoHeaders,
+    encabezadoRows,
+    [0, 1, 2, 3, 4, 5, 6, 7, 13, 14], // text
+    [8, 9, 10, 11, 12] // currency
+  );
+  XLSX.utils.book_append_sheet(wb, encabezadoWs, '1_Encabezado');
+
+  // HOJA 2: 2_Detalles (Vinculadas por Consecutivo Factura)
+  const detallesHeaders = [
+    'Consecutivo Factura',
+    'Línea',
+    'Código Ítem / SKU',
+    'Descripción Ítem',
+    'Cantidad',
+    'Unidad de Medida',
+    'Precio Unitario Base',
+    'Porcentaje Descuento',
+    'Tipo Impuesto',
+    'Tarifa Impuesto (%)',
+    'Valor Impuesto',
+    'Total Línea'
+  ];
+
+  const detallesRows: Array<Array<string | number>> = [];
+  for (const pkg of preview.packages) {
+    pkg.lines.forEach((line, idx) => {
+      const taxTypeCode =
+        line.taxType === 'impoconsumo' ? 'INC' : line.taxType === 'iva' ? 'IVA' : 'Exento';
+
+      detallesRows.push([
+        pkg.consecutiveNumber,
+        idx + 1,
+        String(line.sku),
+        line.productName,
+        line.quantity,
+        'UND',
+        line.unitBaseWithoutTax,
+        line.discountPercent,
+        taxTypeCode,
+        line.taxRate,
+        line.lineTaxTotal,
+        line.lineGrossTotal
+      ]);
+    });
+  }
+
+  const detallesWs = createStyledSheet(
+    detallesHeaders,
+    detallesRows,
+    [0, 2, 3, 5, 8], // text
+    [6, 10, 11], // currency
+    [1, 4, 7, 9] // qty / line numbers
+  );
+  XLSX.utils.book_append_sheet(wb, detallesWs, '2_Detalles');
+
+  // HOJA 3: 3_Terceros_Loggro
+  const tercerosLoggroHeaders = [
+    'Tipo Documento',
+    'Identificación',
+    'DV',
+    'Tipo Persona',
+    'Razón Social / Nombre Completo',
+    'Primer Nombre',
+    'Apellidos',
+    'Dirección',
+    'Código DANE Ciudad',
+    'Ciudad / Municipio',
+    'Departamento',
+    'Teléfono',
+    'Correo Electrónico (FE)',
+    'Régimen Fiscal'
+  ];
+
+  const uniqueClients = extractUniqueCustomersFromPackages(preview.packages);
+  const tercerosLoggroRows = uniqueClients.map((c) => {
+    const isCompany = c.personType === 'juridica' || c.documentType === 'NIT';
+    const regimeOpt = TAX_REGIME_OPTIONS.find((r) => r.value === c.taxRegime);
+    return [
+      c.documentType,
+      String(c.identification),
+      String(c.verificationDigit || ''),
+      isCompany ? 'Persona Jurídica' : 'Persona Natural',
+      c.customerName,
+      isCompany ? '' : c.firstName,
+      isCompany ? '' : c.lastName,
+      c.address || 'Calle 1 # 1-1',
+      String(c.cityCode || '11001'),
+      c.city || 'Bogotá',
+      c.department || 'Bogotá D.C.',
+      String(c.phone || ''),
+      c.email || '',
+      regimeOpt?.label || 'No responsable de IVA'
+    ];
+  });
+
+  const tercerosLoggroWs = createStyledSheet(
+    tercerosLoggroHeaders,
+    tercerosLoggroRows,
+    tercerosLoggroHeaders.map((_, i) => i),
+    []
+  );
+  XLSX.utils.book_append_sheet(wb, tercerosLoggroWs, '3_Terceros_Loggro');
+
+  return wb;
+}
+
+/**
+ * 5. CONSTRUCTOR REPORTE DE SOPORTE PARA DIAN / CONTADOR
+ */
+function buildDianSupportWorkbook(
+  params: BillingExportParams,
+  preview: BillingExportPreview
+): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new();
+  const establishmentName = params.businessName || params.appName || 'CHINMI RESTAURANTE';
+  const establishmentNit = params.businessNit || '900.000.000-1';
+  const period =
+    params.targetDate === (params.endDate || params.targetDate)
+      ? params.targetDate
+      : `${params.targetDate} al ${params.endDate || params.targetDate}`;
+
+  // HOJA 1: 1_Resumen_Tributario (con advertencia legal explícita)
+  const resumenTributarioAoa: Array<Array<string | number>> = [
+    ['INFORME DE SOPORTE CONTABLE Y CONCILIACIÓN TRIBUTARIA - CHINMI APP'],
+    [
+      'AVISO LEGAL / FISCAL: Este archivo es un reporte estructurado de soporte contable y conciliación fiscal para el contador o revisor fiscal. No sustituye la emisión electrónica formal ante la DIAN (XML con firma digital y código CUFE), la cual requiere habilitación directa mediante software propio o proveedor tecnológico autorizado.'
+    ],
+    [''],
+    ['Establecimiento:', establishmentName],
+    ['NIT / RUT:', establishmentNit],
+    ['Período Auditado:', period],
+    ['Fecha de Emisión del Reporte:', new Date().toLocaleString('es-CO')],
+    [''],
+    ['CONCEPTO FISCAL / CONTABLE', 'VALOR ($) / CANTIDAD', 'NOTAS TRIBUTARIAS DIAN'],
+    ['Total Facturas / Comprobantes POS Auditados', preview.totalInvoicesCount, 'Registros de venta generados en el sistema'],
+    ['Total Ítems / Productos Facturados', preview.totalLinesCount, 'Líneas detalladas de comanda'],
+    ['Ventas Brutas Totales (PVP)', preview.totalGrossProducts, 'Ingreso bruto antes de descuentos'],
+    ['Descuentos Comerciales Concedidos', preview.totalDiscountAmount, 'Menor valor del ingreso (Art. 26 E.T.)'],
+    ['Ventas Netas Totales', round2(preview.totalGrossProducts - preview.totalDiscountAmount), 'Ingreso operacional neto'],
+    ['Base Gravable Exenta (Tarifa 0%)', preview.totalBase0, 'Art. 477 y concordantes del Estatuto Tributario'],
+    ['Base Gravable Impoconsumo (Tarifa 8%)', preview.totalBase8, 'Servicio de expendio de comidas y bebidas (Art. 512-1 E.T.)'],
+    ['Impuesto Nacional al Consumo Recaudado (INC 8%)', preview.totalIncAmount, 'Valor a declarar en Formulario 310 DIAN'],
+    ['Base Gravable IVA (Tarifa 19%)', preview.totalBase19, 'Venta de productos gravados con tarifa general'],
+    ['Impuesto al Valor Agregado Recaudado (IVA 19%)', preview.totalIvaAmount, 'Valor a declarar en Formulario 300 DIAN'],
+    ['Total Impuestos Recaudados (INC + IVA)', round2(preview.totalIncAmount + preview.totalIvaAmount), 'Total pasivo por impuestos recaudados'],
+    [
+      'Propinas Voluntarias Recaudadas',
+      preview.totalTipsAmount,
+      'Recaudo a favor de terceros (meseros). NO constituye ingreso propio ni base de IVA/INC (Ley 1935/2018)'
+    ],
+    ['TOTAL RECAUDADO / FACTURADO GENERAL', preview.totalChargedAmount, 'Flujo total percibido en caja'],
+    [''],
+    ['CONCILIACIÓN DE MEDIOS DE PAGO', 'OPERACIONES', 'VALOR TOTAL ($)', 'PARTICIPACIÓN (%)']
+  ];
+
+  const paymentStats = new Map<string, { count: number; total: number }>();
+  for (const pkg of preview.packages) {
+    const cur = paymentStats.get(pkg.paymentMethodLabel) || { count: 0, total: 0 };
+    paymentStats.set(pkg.paymentMethodLabel, {
+      count: cur.count + 1,
+      total: round2(cur.total + pkg.totalChargedWithTip)
+    });
+  }
+
+  for (const [m, st] of paymentStats.entries()) {
+    const pct = preview.totalChargedAmount > 0 ? round2((st.total / preview.totalChargedAmount) * 100) : 0;
+    resumenTributarioAoa.push([m, st.count, st.total, `${pct}%`]);
+  }
+
+  const resumenWs = XLSX.utils.aoa_to_sheet(resumenTributarioAoa);
+  resumenWs['!cols'] = [{ wch: 48 }, { wch: 26 }, { wch: 54 }, { wch: 18 }];
+  for (let r = 9; r <= 22; r++) {
+    const addr = XLSX.utils.encode_cell({ r, c: 1 });
+    if (resumenWs[addr] && typeof resumenTributarioAoa[r][1] === 'number') {
+      resumenWs[addr].t = 'n';
+      resumenWs[addr].z = r === 9 || r === 10 ? '#,##0' : '#,##0.00';
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, resumenWs, '1_Resumen_Tributario');
+
+  // HOJA 2: 2_Libro_Ventas_y_Terceros (Alineado a Formato de Medios Magnéticos Exógena DIAN)
+  const libroHeaders = [
+    'Fecha Factura',
+    'Número Factura',
+    'Tipo Doc DIAN',
+    'Tipo Identificación',
+    'Identificación Tercero',
+    'DV',
+    'Razón Social / Nombre Completo',
+    'Tipo Persona',
+    'Correo Electrónico (FE)',
+    'Dirección',
+    'Código DANE Ciudad',
+    'Ciudad / Municipio',
+    'Base Gravable Exenta',
+    'Base Gravable INC 8%',
+    'Valor INC 8%',
+    'Base Gravable IVA 19%',
+    'Valor IVA 19%',
+    'Subtotal',
+    'Descuento',
+    'Total Impuestos',
+    'Propina',
+    'Total Facturado',
+    'Medio de Pago'
+  ];
+
+  const libroRows = preview.packages.map((pkg) => [
+    pkg.invoiceDateKey,
+    pkg.consecutiveNumber,
+    String(pkg.dianDocCode),
+    pkg.documentType,
+    String(pkg.identification),
+    String(pkg.verificationDigit || ''),
+    pkg.customerName,
+    pkg.personType === 'juridica' ? 'Persona Jurídica' : 'Persona Natural',
+    pkg.email || '',
+    pkg.address || '',
+    String(pkg.cityCode || ''),
+    pkg.city || '',
+    pkg.totalBase0,
+    pkg.totalBase8,
+    pkg.totalInc,
+    pkg.totalBase19,
+    pkg.totalIva,
+    pkg.totalBase,
+    pkg.totalDiscount,
+    round2(pkg.totalInc + pkg.totalIva),
+    pkg.totalTip,
+    pkg.totalChargedWithTip,
+    pkg.paymentMethodLabel
+  ]);
+
+  const libroWs = createStyledSheet(
+    libroHeaders,
+    libroRows,
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22], // text
+    [12, 13, 14, 15, 16, 17, 18, 19, 20, 21] // currency
+  );
+  XLSX.utils.book_append_sheet(wb, libroWs, '2_Libro_Ventas_y_Terceros');
+
+  // HOJA 3: 3_Detalle_Gravamen_Productos
+  const gravamenHeaders = [
+    'Régimen / Tarifa Fiscal',
+    'Código SKU',
+    'Nombre del Producto',
+    'Unidades Vendidas',
+    'Precio Unitario Promedio',
+    'Base Gravable Acumulada',
+    'Total Impuesto Recaudado',
+    'Total Recaudado (PVP)'
+  ];
+
+  // Agrupar por producto y tarifa
+  const productTaxMap = new Map<
+    string,
+    {
+      regime: string;
+      sku: string;
+      name: string;
+      qty: number;
+      base: number;
+      tax: number;
+      gross: number;
+    }
+  >();
+
+  for (const pkg of preview.packages) {
+    for (const l of pkg.lines) {
+      const key = `${l.providerTaxLabel}__${l.sku}__${l.productName}`;
+      const cur = productTaxMap.get(key) || {
+        regime: l.providerTaxLabel,
+        sku: l.sku,
+        name: l.productName,
+        qty: 0,
+        base: 0,
+        tax: 0,
+        gross: 0
+      };
+      productTaxMap.set(key, {
+        ...cur,
+        qty: cur.qty + l.quantity,
+        base: round2(cur.base + l.lineBaseTotal),
+        tax: round2(cur.tax + l.lineTaxTotal),
+        gross: round2(cur.gross + l.lineGrossTotal)
+      });
+    }
+  }
+
+  const gravamenRows = Array.from(productTaxMap.values()).map((it) => [
+    it.regime,
+    String(it.sku),
+    it.name,
+    it.qty,
+    it.qty > 0 ? round2(it.gross / it.qty) : 0,
+    it.base,
+    it.tax,
+    it.gross
+  ]);
+
+  const gravamenWs = createStyledSheet(
+    gravamenHeaders,
+    gravamenRows,
+    [0, 1, 2], // text
+    [4, 5, 6, 7], // currency
+    [3] // qty
+  );
+  XLSX.utils.book_append_sheet(wb, gravamenWs, '3_Detalle_Gravamen_Productos');
+
+  return wb;
+}
+
+/**
+ * 6. RELLENO DE PLANTILLA .XLSX PERSONALIZADA DEL USUARIO (p. ej. Siigo)
+ */
+function fillCustomTemplate(
+  buffer: ArrayBuffer,
+  preview: BillingExportPreview
+): XLSX.WorkBook {
+  const wb = XLSX.read(buffer, { type: 'array' });
+  const sheetNames = wb.SheetNames;
+  if (sheetNames.length === 0) return wb;
+
+  // Tomar la primera hoja o una llamada "Facturas" / "FV"
+  const targetSheetName =
+    sheetNames.find((s) => /factura|fv|comprobante/i.test(s)) || sheetNames[0];
+  const ws = wb.Sheets[targetSheetName];
+  if (!ws) return wb;
+
+  // Convertir a matriz para inspeccionar encabezados
+  const data: Array<Array<unknown>> = XLSX.utils.sheet_to_json(ws, { header: 1 });
+  const headerRowIdx = data.findIndex(
+    (row) => Array.isArray(row) && row.some((c) => typeof c === 'string' && /comprobante|consecutivo|fecha|producto|tercero|nit|cliente/i.test(c))
+  );
+
+  const startRow = headerRowIdx >= 0 ? headerRowIdx + 1 : 1;
+
+  // Insertar filas mapeadas
+  const appendRows: Array<Array<string | number>> = [];
+  for (const pkg of preview.packages) {
+    for (const line of pkg.lines) {
+      appendRows.push([
+        'FV-1',
+        pkg.consecutiveNumber,
+        formatDateDDMMYYYY(pkg.invoiceDateKey),
+        'COP',
+        1,
+        String(pkg.identification),
+        0,
+        String(line.sku),
+        line.productName,
+        line.quantity,
+        line.unitBaseWithoutTax,
+        line.discountPercent,
+        round2((line.rawUnitBaseWithoutTax - line.unitBaseWithoutTax) * line.quantity),
+        line.providerTaxLabel,
+        line.lineTaxTotal,
+        line.lineGrossTotal,
+        pkg.siigoPaymentCode,
+        `Mesa: ${pkg.tableNames} · Chinmi App`
+      ]);
+    }
+  }
+
+  // Escribir en la hoja existente a partir de startRow
+  appendRows.forEach((row, rIdx) => {
+    const curR = startRow + rIdx;
+    row.forEach((val, cIdx) => {
+      const cellAddr = XLSX.utils.encode_cell({ r: curR, c: cIdx });
+      ws[cellAddr] = {
+        t: typeof val === 'number' ? 'n' : 's',
+        v: val,
+        z: typeof val === 'number' ? '#,##0.00' : '@'
+      };
+    });
+  });
+
+  // Ajustar rango
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  range.e.r = Math.max(range.e.r, startRow + appendRows.length - 1);
+  range.e.c = Math.max(range.e.c, 17);
+  ws['!ref'] = XLSX.utils.encode_range(range);
+
+  return wb;
+}
+
+function extractUniqueCustomersFromPackages(
+  packages: ConsolidatedInvoicePackage[]
+): ConsolidatedInvoicePackage[] {
+  const map = new Map<string, ConsolidatedInvoicePackage>();
+  for (const p of packages) {
+    const key = `${p.documentType}__${p.identification}`;
+    if (!map.has(key)) {
+      map.set(key, p);
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * Función principal para generar y descargar el archivo Excel según el proveedor y requisitos.
  */
 export function downloadBillingExcelFile(params: BillingExportParams): {
   success: boolean;
@@ -1931,79 +1865,31 @@ export function downloadBillingExcelFile(params: BillingExportParams): {
     };
   }
 
-  const wb = XLSX.utils.book_new();
+  let wb: XLSX.WorkBook;
 
-  if (params.rawImportOnly) {
-    const primary = buildPrimarySheetRows(preview.packages, params.provider);
-    const primaryWs = createFormattedWorksheet(
-      primary.headers,
-      primary.rows,
-      primary.textColumnIndices,
-      primary.currencyColumnIndices
-    );
-    const primarySheetName =
-      params.provider === 'siigo'
-        ? '1_Facturas_Siigo_Cloud'
-        : params.provider === 'alegra'
-        ? '1_Facturas_Alegra'
-        : params.provider === 'world_office'
-        ? '1_WorldOffice_Loggro'
-        : '1_Sabana_Clientes_y_Pedidos';
-    XLSX.utils.book_append_sheet(wb, primaryWs, primarySheetName);
-
-    const thirdParties = buildThirdPartiesSheet(preview.packages, params.provider, '2_');
-    const thirdPartiesWs = createFormattedWorksheet(
-      thirdParties.headers,
-      thirdParties.rows,
-      thirdParties.textColumnIndices,
-      []
-    );
-    XLSX.utils.book_append_sheet(wb, thirdPartiesWs, thirdParties.sheetName);
+  if (params.customTemplateBuffer) {
+    wb = fillCustomTemplate(params.customTemplateBuffer, preview);
   } else {
-    // HOJA 1 (VISIBLE AL ABRIR EL ARCHIVO): Ficha completa del Cliente + Lista del Pedido + Totales DIAN
-    const fichaWs = buildAccountantCustomerAndOrderFichaWorksheet(
-      preview.packages,
-      params.provider,
-      params.appName
-    );
-    XLSX.utils.book_append_sheet(wb, fichaWs, '1_Datos_Cliente_y_Pedido');
-
-    // HOJA 2: Sabana plana donde cada línea de producto tiene al lado todos los datos del cliente
-    const sabana = buildMasterSabanaRows(preview.packages);
-    const sabanaWs = createFormattedWorksheet(
-      sabana.headers,
-      sabana.rows,
-      sabana.textColumnIndices,
-      sabana.currencyColumnIndices
-    );
-    XLSX.utils.book_append_sheet(wb, sabanaWs, '2_Sabana_Clientes_y_Pedidos');
-
-    // HOJA 3: Maestro de Terceros / Clientes para importar al proveedor sin rechazos
-    const thirdParties = buildThirdPartiesSheet(preview.packages, params.provider, '3_');
-    const thirdPartiesWs = createFormattedWorksheet(
-      thirdParties.headers,
-      thirdParties.rows,
-      thirdParties.textColumnIndices,
-      []
-    );
-    XLSX.utils.book_append_sheet(wb, thirdPartiesWs, thirdParties.sheetName);
-
-    // HOJA 4 (cuando es Siigo, Alegra o World Office): Plantilla exacta de comprobantes del proveedor
-    if (params.provider !== 'chinmi') {
-      const providerInvoices = buildPrimarySheetRows(preview.packages, params.provider);
-      const providerWs = createFormattedWorksheet(
-        providerInvoices.headers,
-        providerInvoices.rows,
-        providerInvoices.textColumnIndices,
-        providerInvoices.currencyColumnIndices
-      );
-      const providerSheetName =
-        params.provider === 'siigo'
-          ? '4_Facturas_Siigo_Cloud'
-          : params.provider === 'alegra'
-          ? '4_Facturas_Alegra'
-          : '4_WorldOffice_Loggro';
-      XLSX.utils.book_append_sheet(wb, providerWs, providerSheetName);
+    switch (params.provider) {
+      case 'chinmi':
+        wb = buildChinmiWorkbook(params, preview);
+        break;
+      case 'siigo':
+        wb = buildSiigoWorkbook(params, preview);
+        break;
+      case 'alegra':
+        wb = buildAlegraWorkbook(params, preview);
+        break;
+      case 'loggro':
+        wb = buildLoggroWorkbook(params, preview);
+        break;
+      case 'dian_support':
+        wb = buildDianSupportWorkbook(params, preview);
+        break;
+      case 'world_office':
+      default:
+        wb = buildSiigoWorkbook(params, preview);
+        break;
     }
   }
 

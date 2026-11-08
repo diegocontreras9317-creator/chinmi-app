@@ -352,7 +352,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
             <Palette className="w-3.5 h-3.5" />
             <span>🎨 Temas Visuales</span>
             <span className="px-1.5 py-0.2 rounded-md bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-300 text-[10px] font-extrabold border border-rose-200 dark:border-rose-900">
-              5 Estilos
+              6 Estilos
             </span>
           </button>
 
@@ -414,7 +414,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
                       Tema Visual Activo de la Carta QR
                     </span>
                     <p className="font-bold text-xs text-slate-900 dark:text-white">
-                      {QR_THEMES[qrSettings.qrTheme || 'modern_slate']?.name || 'Gastrobar Urbano'}
+                      {QR_THEMES[qrSettings.qrTheme || 'default_normal']?.name || 'Tema Normal (Original Chinmi)'}
                     </p>
                   </div>
                 </div>
@@ -618,7 +618,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
 
               <div className="grid grid-cols-1 gap-2.5">
                 {Object.values(QR_THEMES).map((thm) => {
-                  const isSelected = (qrSettings.qrTheme || 'modern_slate') === thm.id;
+                  const isSelected = (qrSettings.qrTheme || 'default_normal') === thm.id;
                   return (
                     <button
                       key={thm.id}

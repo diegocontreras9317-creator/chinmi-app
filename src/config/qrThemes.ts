@@ -1,4 +1,4 @@
-export type QrThemeId = 'modern_slate' | 'warm_gastrobar' | 'luxury_dark' | 'fresh_emerald' | 'vibrant_neon';
+export type QrThemeId = 'default_normal' | 'modern_slate' | 'warm_gastrobar' | 'luxury_dark' | 'fresh_emerald' | 'vibrant_neon';
 
 export interface QrThemeDefinition {
   id: QrThemeId;
@@ -30,6 +30,34 @@ export interface QrThemeDefinition {
 }
 
 export const QR_THEMES: Record<QrThemeId, QrThemeDefinition> = {
+  default_normal: {
+    id: 'default_normal',
+    name: 'Tema Normal (Original Chinmi)',
+    tagline: 'El diseño limpio, estándar y oficial de Chinmi App con fondo neutro y acentos vinotinto.',
+    previewColors: {
+      bg: '#f8fafc',
+      card: '#ffffff',
+      accent: '#881337',
+      text: '#0f172a',
+    },
+    bgClass: 'bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100',
+    textClass: 'text-slate-900 dark:text-white',
+    headerBg: 'bg-white/95 dark:bg-slate-900/95',
+    headerBorder: 'border-slate-200 dark:border-slate-800',
+    cardBg: 'bg-white dark:bg-slate-900',
+    cardBorder: 'border-slate-200 dark:border-slate-800',
+    cardHoverBorder: 'hover:border-slate-400 dark:hover:border-slate-600',
+    accentBg: 'bg-rose-950 hover:bg-rose-900 text-white',
+    accentText: 'text-rose-950 dark:text-rose-400',
+    accentHoverBg: 'hover:bg-rose-900',
+    badgeBg: 'bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border-stone-200 dark:border-stone-700',
+    badgeText: 'text-rose-950 dark:text-rose-400',
+    priceText: 'text-slate-900 dark:text-slate-100',
+    floatingBarBg: 'bg-rose-950 text-white',
+    floatingBarText: 'text-white',
+    categoryActiveBg: 'bg-rose-950 text-white shadow-xs',
+    categoryActiveText: 'text-rose-950 dark:text-rose-300'
+  },
   modern_slate: {
     id: 'modern_slate',
     name: 'Gastrobar Urbano (Slate & Rose)',

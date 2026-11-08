@@ -89,7 +89,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [allowCallWaiter, setAllowCallWaiter] = useState(config.qrSettings?.allowCallWaiter ?? true);
   const [allowRequestBill, setAllowRequestBill] = useState(config.qrSettings?.allowRequestBill ?? true);
   const [menuOnlyMode, setMenuOnlyMode] = useState(config.qrSettings?.menuOnlyMode ?? false);
-  const [qrTheme, setQrTheme] = useState<QrThemeId>(config.qrSettings?.qrTheme || 'modern_slate');
+  const [qrTheme, setQrTheme] = useState<QrThemeId>(config.qrSettings?.qrTheme || 'default_normal');
 
   useEffect(() => {
     if (isOpen) {
@@ -105,7 +105,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setAllowCallWaiter(config.qrSettings?.allowCallWaiter ?? true);
       setAllowRequestBill(config.qrSettings?.allowRequestBill ?? true);
       setMenuOnlyMode(config.qrSettings?.menuOnlyMode ?? false);
-      setQrTheme(config.qrSettings?.qrTheme || 'modern_slate');
+      setQrTheme(config.qrSettings?.qrTheme || 'default_normal');
     }
   }, [isOpen, config]);
 

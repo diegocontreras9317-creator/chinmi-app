@@ -67,6 +67,6 @@ export const defaultAppConfig: AppConfig = {
     allowCallWaiter: true,
     allowRequestBill: true,
     menuOnlyMode: false,
-    qrTheme: 'modern_slate'
+    qrTheme: 'default_normal'
   }
 };

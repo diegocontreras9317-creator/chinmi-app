@@ -120,11 +120,11 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     allowCallWaiter: true,
     allowRequestBill: true,
     menuOnlyMode: false,
-    qrTheme: 'modern_slate'
+    qrTheme: 'default_normal'
   };
 
-  const activeThemeId: QrThemeId = qrSettings.qrTheme || 'modern_slate';
-  const theme = QR_THEMES[activeThemeId] || QR_THEMES.modern_slate;
+  const activeThemeId: QrThemeId = qrSettings.qrTheme || 'default_normal';
+  const theme = QR_THEMES[activeThemeId] || QR_THEMES.default_normal;
 
   const isMenuOnly = qrSettings.menuOnlyMode || !qrSettings.allowOrdering;
   const canOrder = qrSettings.allowOrdering && !qrSettings.menuOnlyMode;

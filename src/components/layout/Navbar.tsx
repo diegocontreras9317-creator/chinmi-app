@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 import { ROLE_PERMISSIONS } from '../../types';
 import { getExpiryStatus } from '../../utils/perishableUtils';
+import { compressImageFile } from '../../utils/imageUtils';
 import {
   UtensilsCrossed,
   Package,
@@ -17,7 +18,10 @@ import {
   CreditCard,
   BellRing,
   Apple,
-  Users
+  Users,
+  Camera,
+  Trash2,
+  Upload
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -39,10 +43,32 @@ export const Navbar: React.FC<NavbarProps> = ({
     user,
     isGerente,
     empleadoActivo,
-    bloquearPantalla
+    bloquearPantalla,
+    updateUserAvatar,
+    removeUserAvatar
   } = useAuth();
   const { config, theme, toggleTheme, cloudStatus, syncNow, tables, perishables, dismissWaiterCall, setSelectedTableId } = useApp();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleAvatarFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingAvatar(true);
+    try {
+      const dataUrl = await compressImageFile(file, 300, 300, 0.85);
+      await updateUserAvatar(dataUrl);
+    } catch (err) {
+      console.error('Error procesando foto de perfil:', err);
+      alert('No se pudo procesar la imagen seleccionada.');
+    } finally {
+      setIsUploadingAvatar(false);
+      if (e.target) e.target.value = '';
+    }
+  };
 
   const callingTables = tables.filter(t => t.waiterCall !== null && t.waiterCall !== undefined);
 
@@ -275,38 +301,123 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               )}
 
-              {/* 6. Avatar Interactivo (Botón para Bloquear pantalla / Cambiar de usuario) */}
-              <button
-                type="button"
-                id="btn-user-avatar-action"
-                onClick={bloquearPantalla}
-                title={`Bloquear pantalla / Cambiar de usuario (${empleadoActivo ? empleadoActivo.nombre : user?.name || 'Usuario'})`}
-                className="flex items-center gap-1.5 sm:gap-2 p-1 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-stone-100 dark:hover:bg-stone-800/60 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all active:scale-95 shrink-0 shadow-xs group"
-              >
-                <div className="relative shrink-0">
-                  {user?.avatar ? (
-                    <img
-                      src={user.avatar}
-                      alt={user?.name || 'Usuario'}
-                      className="w-7 h-7 sm:w-8 sm:h-8 rounded-md object-cover border border-slate-300 dark:border-slate-700 group-hover:border-slate-400 transition-colors shrink-0"
-                    />
-                  ) : (
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-rose-950 text-white flex items-center justify-center font-bold text-xs sm:text-sm shadow-xs shrink-0 select-none">
-                      {(empleadoActivo?.nombre || user?.name || 'U').charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
-                </div>
+              {/* 6. Avatar Interactivo con Carga de Imagen Personalizada y Menú de Perfil */}
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  id="btn-user-avatar-action"
+                  onClick={() => setAvatarMenuOpen(!avatarMenuOpen)}
+                  title={`Opciones de cuenta personal (${user?.name || 'Usuario'})`}
+                  className="flex items-center gap-1.5 sm:gap-2 p-1 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-stone-100 dark:hover:bg-stone-800/60 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all active:scale-95 shrink-0 shadow-xs group"
+                >
+                  <div className="relative shrink-0 group/avatar">
+                    {user?.avatar && user.avatar.trim() !== '' && !user.avatar.includes('api.dicebear.com') ? (
+                      <img
+                        src={user.avatar}
+                        alt={user?.name || 'Usuario'}
+                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-md object-cover border border-slate-300 dark:border-slate-700 group-hover:border-slate-400 transition-colors shrink-0"
+                      />
+                    ) : (
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md bg-rose-950 text-white flex items-center justify-center font-bold text-xs sm:text-sm shadow-xs shrink-0 select-none">
+                        {(empleadoActivo?.nombre || user?.name || 'U').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                  </div>
 
-                <div className="hidden lg:block text-left text-xs pr-1">
-                  <p className="font-semibold text-slate-900 dark:text-white leading-tight group-hover:text-rose-900 dark:group-hover:text-rose-300 transition-colors">
-                    {empleadoActivo ? empleadoActivo.nombre : user?.name}
-                  </p>
-                  <p className="text-[10px] text-rose-900 dark:text-rose-400 font-bold capitalize">
-                    {empleadoActivo ? `${empleadoActivo.rol} (Activo)` : (currentRoleConfig?.label || user?.role)}
-                  </p>
-                </div>
-              </button>
+                  <div className="hidden lg:block text-left text-xs pr-1">
+                    <p className="font-semibold text-slate-900 dark:text-white leading-tight group-hover:text-rose-900 dark:group-hover:text-rose-300 transition-colors">
+                      {empleadoActivo ? empleadoActivo.nombre : user?.name}
+                    </p>
+                    <p className="text-[10px] text-rose-900 dark:text-rose-400 font-bold capitalize">
+                      {empleadoActivo ? `${empleadoActivo.rol} (Activo)` : (currentRoleConfig?.label || user?.role)}
+                    </p>
+                  </div>
+                </button>
+
+                {/* Popover desplegable para administrar foto de perfil personal */}
+                {avatarMenuOpen && (
+                  <div
+                    className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 z-50 animate-in fade-in slide-in-from-top-2 text-xs"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-3 pb-3 mb-2 border-b border-slate-100 dark:border-slate-800">
+                      {user?.avatar && user.avatar.trim() !== '' && !user.avatar.includes('api.dicebear.com') ? (
+                        <img
+                          src={user.avatar}
+                          alt={user?.name || 'Usuario'}
+                          className="w-11 h-11 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-xs"
+                        />
+                      ) : (
+                        <div className="w-11 h-11 rounded-lg bg-rose-950 text-white flex items-center justify-center font-extrabold text-base shadow-xs select-none">
+                          {(user?.name || 'U').charAt(0).toUpperCase()}
+                        </div>
+                      )}
+
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-bold text-slate-900 dark:text-white truncate">
+                          {user?.name || 'Usuario'}
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {user?.email}
+                        </p>
+                        <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                          ● Guardado en tu cuenta de nube
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <button
+                        type="button"
+                        onClick={() => avatarInputRef.current?.click()}
+                        disabled={isUploadingAvatar}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold transition cursor-pointer"
+                      >
+                        <Camera className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                        <span>{isUploadingAvatar ? 'Guardando foto...' : 'Subir / Cambiar foto'}</span>
+                      </button>
+
+                      {user?.avatar && user.avatar.trim() !== '' && !user.avatar.includes('api.dicebear.com') && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await removeUserAvatar();
+                            setAvatarMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-medium transition cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Quitar foto (Usar inicial)</span>
+                        </button>
+                      )}
+
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAvatarMenuOpen(false);
+                            bloquearPantalla();
+                          }}
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-900 dark:text-stone-100 font-bold transition cursor-pointer"
+                        >
+                          <span>Cambiar de perfil / Bloquear</span>
+                          <span className="text-[10px]">🔒</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* File Input oculto para cargar la imagen personal */}
+                <input
+                  type="file"
+                  ref={avatarInputRef}
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarFileSelect}
+                />
+              </div>
 
             </div>
           </div>

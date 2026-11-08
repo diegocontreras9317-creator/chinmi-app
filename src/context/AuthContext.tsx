@@ -84,6 +84,8 @@ interface AuthContextType {
   updateMemberRole: (userId: string, newRole: UserRole) => void;
   addTeamMember: (name: string, email: string, role: UserRole) => void;
   removeTeamMember: (userId: string) => void;
+  updateUserAvatar: (avatarDataUrl: string) => Promise<{ success: boolean; error?: string }>;
+  removeUserAvatar: () => Promise<{ success: boolean; error?: string }>;
 }
 
 const MANAGER_PIN_STORAGE_KEY = 'appgenerica_manager_pin_v1';
@@ -773,6 +775,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateUserAvatar = async (avatarDataUrl: string): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'No hay usuario autenticado' };
+
+    try {
+      setUser(prev => prev ? { ...prev, avatar: avatarDataUrl } : prev);
+
+      await setDoc(
+        doc(db, 'users', user.id),
+        {
+          avatar: avatarDataUrl,
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error guardando avatar en Firestore:', err);
+      return { success: false, error: err?.message || 'No se pudo guardar la imagen en tu cuenta.' };
+    }
+  };
+
+  const removeUserAvatar = async (): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'No hay usuario autenticado' };
+
+    try {
+      setUser(prev => prev ? { ...prev, avatar: '' } : prev);
+
+      await setDoc(
+        doc(db, 'users', user.id),
+        {
+          avatar: '',
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error eliminando avatar de Firestore:', err);
+      return { success: false, error: err?.message || 'No se pudo eliminar la imagen.' };
+    }
+  };
+
   const updateMemberRole = (userId: string, newRole: UserRole) => {
     setTeamMembers(prev => prev.map(m => m.id === userId ? { ...m, role: newRole } : m));
   };
@@ -992,7 +1036,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         enableDeveloperMode,
         updateMemberRole,
         addTeamMember,
-        removeTeamMember
+        removeTeamMember,
+        updateUserAvatar,
+        removeUserAvatar
       }}
     >
       {children}

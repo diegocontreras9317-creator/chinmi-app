@@ -145,8 +145,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const canCallWaiter = qrSettings.allowCallWaiter !== false;
   const canRequestBill = qrSettings.allowRequestBill !== false;
 
-  const [menuViewMode, setMenuViewMode] = useState<'list' | 'small' | 'medium' | 'large'>(() => {
-    return qrSettings.menuViewMode || 'medium';
+  const [menuViewMode, setMenuViewMode] = useState<'list' | 'medium'>(() => {
+    return qrSettings.menuViewMode === 'list' ? 'list' : 'medium';
   });
 
   useEffect(() => {
@@ -796,8 +796,22 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const isWaiterCurrentlyCalled = table.waiterCall?.type === 'waiter';
   const isBillCurrentlyRequested = table.status === 'cuenta' || table.waiterCall?.type === 'bill';
 
+  const bgImage = firestoreQrSettings?.bgImageUrl || qrSettings.bgImageUrl;
+  const customTextColor = firestoreQrSettings?.textColor || qrSettings.textColor || '';
+
   return (
-    <div className={`min-h-screen ${theme.bgClass} flex flex-col pb-36`}>
+    <div 
+      className="min-h-screen flex flex-col pb-36 relative"
+      style={{
+        ...(bgImage ? {
+          backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.5), rgba(0,0,0,0.7)), url(${bgImage})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundAttachment: 'fixed'
+        } : {}),
+        ...(customTextColor ? { color: customTextColor } : {})
+      }}
+    >
       
       {/* Brand & Table Header */}
       <header className={`sticky top-0 z-30 ${theme.headerBg} backdrop-blur border-b ${theme.headerBorder} shadow-xs`}>

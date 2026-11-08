@@ -91,9 +91,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [allowRequestBill, setAllowRequestBill] = useState(config.qrSettings?.allowRequestBill ?? true);
   const [menuOnlyMode, setMenuOnlyMode] = useState(config.qrSettings?.menuOnlyMode ?? false);
   const [qrTheme, setQrTheme] = useState<QrThemeId>(config.qrSettings?.qrTheme || 'default_normal');
-  const [menuViewMode, setMenuViewMode] = useState<'list' | 'small' | 'medium' | 'large'>(config.qrSettings?.menuViewMode || 'medium');
+  const [menuViewMode, setMenuViewMode] = useState<'list' | 'medium'>(config.qrSettings?.menuViewMode || 'medium');
   const [categories, setCategories] = useState<string[]>(config.categories || []);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [bgImageUrl, setBgImageUrl] = useState(config.qrSettings?.bgImageUrl || '');
+  const [textColor, setTextColor] = useState(config.qrSettings?.textColor || '#0f172a');
 
   useEffect(() => {
     if (isOpen) {
@@ -109,9 +111,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setAllowCallWaiter(config.qrSettings?.allowCallWaiter ?? true);
       setAllowRequestBill(config.qrSettings?.allowRequestBill ?? true);
       setMenuOnlyMode(config.qrSettings?.menuOnlyMode ?? false);
-      setQrTheme(config.qrSettings?.qrTheme || 'default_normal');
       setMenuViewMode(config.qrSettings?.menuViewMode || 'medium');
       setCategories(config.categories || []);
+      setBgImageUrl(config.qrSettings?.bgImageUrl || '');
+      setTextColor(config.qrSettings?.textColor || '#0f172a');
     }
   }, [isOpen, config]);
 
@@ -150,8 +153,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         allowCallWaiter,
         allowRequestBill,
         menuOnlyMode,
-        qrTheme,
-        menuViewMode
+        menuViewMode,
+        bgImageUrl: bgImageUrl.trim(),
+        textColor: textColor.trim()
       }
     });
 
@@ -772,72 +776,100 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Tema Visual de la Carta QR */}
-            <div className="space-y-3 pt-2">
+            {/* Imagen de Fondo Personalizada y Color de Texto (Wallpaper Móvil) */}
+            <div className="space-y-4 pt-2">
               <div className="flex items-center gap-2">
                 <Palette className="w-4 h-4 text-rose-900 dark:text-rose-400" />
                 <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
-                  Tema Visual de la Carta Digital QR
+                  Fondo Personalizado y Color de Letra (Carta QR Móvil)
                 </h4>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Elige el estilo visual y colores que verán tus clientes al escanear el menú desde sus teléfonos móviles:
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Sube una imagen de fondo o introduce una URL para la carta digital que verán tus clientes en sus celulares. 
+                <span className="block font-bold text-rose-950 dark:text-rose-300 mt-1">
+                  📐 Tamaño recomendado: 1080 x 1920 px (Vertical / Wallpaper móvil)
+                </span>
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {Object.values(QR_THEMES).map((theme) => {
-                  const isSelected = qrTheme === theme.id;
-                  return (
-                    <button
-                      key={theme.id}
-                      type="button"
-                      onClick={() => setQrTheme(theme.id)}
-                      className={`p-3.5 rounded-lg border text-left transition cursor-pointer flex flex-col justify-between relative overflow-hidden ${
-                        isSelected
-                          ? 'border-rose-900 ring-2 ring-rose-900/40 bg-slate-50 dark:bg-slate-800/80 shadow-xs'
-                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="font-black text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                            {theme.name}
-                          </span>
-                          {isSelected && (
-                            <span className="p-1 rounded-full bg-rose-950 text-white">
-                              <Check className="w-3 h-3 stroke-[3]" />
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug mb-3">
-                          {theme.tagline}
-                        </p>
-                      </div>
+              <div className="space-y-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-16 h-24 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800 shrink-0 flex items-center justify-center relative">
+                    {bgImageUrl ? (
+                      <img src={bgImageUrl} alt="Fondo QR" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-slate-400" />
+                    )}
+                  </div>
 
-                      {/* Swatch Preview Bar */}
-                      <div className="flex items-center gap-1.5 p-2 rounded-md bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                        <div
-                          className="w-4 h-4 rounded-full border border-black/20"
-                          style={{ backgroundColor: theme.previewColors.bg }}
-                          title="Fondo Canvas"
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-100 dark:bg-stone-900 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-800 hover:bg-stone-200 dark:hover:bg-stone-800 font-bold text-xs cursor-pointer transition">
+                        <Upload className="w-3.5 h-3.5 text-stone-700 dark:text-stone-300" />
+                        <span>Subir imagen de fondo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                if (reader.result) {
+                                  setBgImageUrl(reader.result as string);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
                         />
-                        <div
-                          className="w-4 h-4 rounded-md border border-black/20"
-                          style={{ backgroundColor: theme.previewColors.card }}
-                          title="Tarjetas de Producto"
-                        />
-                        <div
-                          className="w-4 h-4 rounded-md border border-black/20"
-                          style={{ backgroundColor: theme.previewColors.accent }}
-                          title="Color de Acento / Botones"
-                        />
-                        <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 ml-auto font-semibold">
-                          Vista previa
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
+                      </label>
+                      {bgImageUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setBgImageUrl('')}
+                          className="text-[10px] text-rose-600 hover:underline font-semibold cursor-pointer"
+                        >
+                          Quitar fondo
+                        </button>
+                      )}
+                    </div>
+
+                    <input
+                      type="text"
+                      value={bgImageUrl}
+                      onChange={(e) => setBgImageUrl(e.target.value)}
+                      placeholder="O introduce URL de imagen (https://...)"
+                      className="w-full px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
+                    />
+                  </div>
+                </div>
+
+                {/* Color de Letra */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Color de la Letra / Texto
+                    </label>
+                    <p className="text-[10px] text-slate-500">
+                      Elige el color del texto para garantizar la legibilidad sobre tu fondo.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input
+                      type="color"
+                      value={textColor}
+                      onChange={(e) => setTextColor(e.target.value)}
+                      className="w-8 h-8 rounded border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent"
+                    />
+                    <input
+                      type="text"
+                      value={textColor}
+                      onChange={(e) => setTextColor(e.target.value)}
+                      className="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs text-center bg-white dark:bg-slate-900"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 

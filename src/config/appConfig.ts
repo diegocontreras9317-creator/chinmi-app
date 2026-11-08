@@ -11,7 +11,9 @@ export interface QrMenuSettings {
   allowRequestBill: boolean;  // Opción de pedir la cuenta
   menuOnlyMode: boolean;      // Modo sólo ver menú (desactiva pedidos desde QR)
   qrTheme?: QrThemeId;        // Tema visual para la carta QR del cliente
-  menuViewMode?: 'list' | 'small' | 'medium' | 'large'; // Modo de visualización de productos
+  menuViewMode?: 'list' | 'medium'; // Modo de visualización de productos
+  bgImageUrl?: string;        // Imagen de fondo personalizada subida por el admin
+  textColor?: string;         // Color de texto personalizado
 }
 
 export interface AppConfig {

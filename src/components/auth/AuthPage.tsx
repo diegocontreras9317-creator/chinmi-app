@@ -28,6 +28,8 @@ import {
   Moon
 } from 'lucide-react';
 
+import { isValidRealEmail } from '../../utils/emailValidation';
+
 export interface AuthPageProps {
   initialMode?: 'login' | 'register';
   initialWantPro?: boolean;
@@ -138,8 +140,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       setFormError('Ingresa la dirección de tu local.');
       return;
     }
-    if (!email.trim() || !email.includes('@')) {
-      setFormError('Ingresa un correo electrónico válido.');
+    const emailCheck = isValidRealEmail(email.trim());
+    if (!emailCheck.valid) {
+      setFormError(emailCheck.reason || 'Ingresa un correo electrónico real y válido.');
       return;
     }
     if (password.length < 6) {

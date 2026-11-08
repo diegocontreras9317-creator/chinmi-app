@@ -17,6 +17,7 @@ import { ProfileSelectionScreen } from './components/auth/ProfileSelectionScreen
 import { EmployeeManagementModal } from './components/settings/EmployeeManagementModal';
 import { FloatingProWhatsappSupport } from './components/common/FloatingProWhatsappSupport';
 import { EpaycoReturnHandler } from './components/pricing/EpaycoReturnHandler';
+import { UnverifiedEmailBanner } from './components/common/UnverifiedEmailBanner';
 
 const MainLayout: React.FC = () => {
   const { isGerente, empleadoActivo } = useAuth();
@@ -64,6 +65,9 @@ const MainLayout: React.FC = () => {
       ) : (
         <div className={`min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors ${theme === 'dark' ? 'dark' : ''}`}>
           
+          {/* Banner de Verificación de Correo Electrónico */}
+          <UnverifiedEmailBanner />
+
           {/* Top Navbar (PrivateNavbar para rutas privadas con branding dinámico de restaurante) */}
           <PrivateNavbar
             activeTab={activeTab}

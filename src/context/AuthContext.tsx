@@ -17,6 +17,7 @@ import {
   saveEmpleadoToFirestore,
   deleteEmpleadoFromFirestore
 } from '../services/firestoreUserStorage';
+import { isValidRealEmail } from '../utils/emailValidation';
 
 export interface RegisteredAccount {
   id: string;
@@ -86,6 +87,8 @@ interface AuthContextType {
   removeTeamMember: (userId: string) => void;
   updateUserAvatar: (avatarDataUrl: string) => Promise<{ success: boolean; error?: string }>;
   removeUserAvatar: () => Promise<{ success: boolean; error?: string }>;
+  isEmailVerified: boolean;
+  reloadEmailVerification: () => Promise<boolean>;
 }
 
 const MANAGER_PIN_STORAGE_KEY = 'appgenerica_manager_pin_v1';
@@ -120,6 +123,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isEmailVerified, setIsEmailVerified] = useState<boolean>(true);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
 
   // Sub-usuarios / Perfiles de empleados (Netflix / POS)
@@ -182,6 +186,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         if (fbUser) {
+          const isVerified = Boolean(
+            fbUser.emailVerified ||
+            fbUser.providerData?.some(p => p.providerId === 'google.com' || p.providerId === 'facebook.com')
+          );
+          setIsEmailVerified(isVerified);
+
           const uid = fbUser.uid;
           const cleanEmail = fbUser.email?.toLowerCase() || '';
           const cleanName = fbUser.displayName || cleanEmail.split('@')[0] || 'Restaurante';
@@ -571,6 +581,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const reloadEmailVerification = async (): Promise<boolean> => {
+    if (!auth.currentUser) return false;
+    try {
+      await auth.currentUser.reload();
+      const verified = Boolean(
+        auth.currentUser.emailVerified ||
+        auth.currentUser.providerData?.some(p => p.providerId === 'google.com' || p.providerId === 'facebook.com')
+      );
+      setIsEmailVerified(verified);
+      return verified;
+    } catch {
+      return false;
+    }
+  };
+
   const register = async (
     name: string,
     email: string,
@@ -588,9 +613,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanBusiness = businessName.trim() || 'Mi Negocio Gastro';
     const cleanAddress = businessAddress?.trim() || '';
 
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+    const emailCheck = isValidRealEmail(cleanEmail);
+    if (!emailCheck.valid) {
       setIsLoading(false);
-      return { success: false, error: 'Por favor ingresa un correo electrónico válido.' };
+      return { success: false, error: emailCheck.reason || 'Por favor ingresa un correo electrónico real y válido.' };
     }
 
     if (!cleanName) {
@@ -1038,7 +1064,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addTeamMember,
         removeTeamMember,
         updateUserAvatar,
-        removeUserAvatar
+        removeUserAvatar,
+        isEmailVerified,
+        reloadEmailVerification
       }}
     >
       {children}

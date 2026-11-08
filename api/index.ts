@@ -187,4 +187,102 @@ app.get('/api/epayco/validate/:refPayco', async (req: Request, res: Response) =>
   }
 });
 
+const EXPECTED_PLAN_AMOUNTS: Record<string, number> = {
+  monthly: 89000,
+  quarterly: 240300,
+  annual: 854400
+};
+
+const processedSubscriptionsStore: Record<string, boolean> = {};
+
+app.post('/api/epayco/verify-subscription', async (req: Request, res: Response) => {
+  try {
+    const { refPayco, planId, userEmail, userId } = req.body || {};
+    const cleanRef = String(refPayco || '').trim();
+    const cleanPlanId = String(planId || 'monthly').trim().toLowerCase();
+
+    if (!cleanRef) {
+      return res.status(400).json({ verified: false, error: 'Referencia ePayco (refPayco) no proporcionada' });
+    }
+
+    const expectedAmount = EXPECTED_PLAN_AMOUNTS[cleanPlanId] || 89000;
+
+    // Consultar API oficial de validación de ePayco
+    const epaycoRes = await fetch(
+      `https://secure.epayco.co/validation/v1/reference/${encodeURIComponent(cleanRef)}`
+    );
+
+    if (!epaycoRes.ok) {
+      return res.status(502).json({
+        verified: false,
+        error: 'No se pudo verificar la transacción con los servidores de ePayco'
+      });
+    }
+
+    const json = await epaycoRes.json();
+    const tx = json?.data;
+
+    if (!json?.success || !tx) {
+      return res.status(404).json({
+        verified: false,
+        error: 'Referencia no encontrada en ePayco'
+      });
+    }
+
+    const codResponse = Number(tx.x_cod_response);
+    const txAmount = Number(tx.x_amount) || 0;
+    const responseText = String(tx.x_response || '').toLowerCase();
+
+    // 1. Verificar si la transacción está APROBADA (cod === 1)
+    if (codResponse !== 1 && responseText !== 'aceptada' && responseText !== 'aprobada') {
+      if (codResponse === 3 || responseText === 'pendiente') {
+        return res.json({
+          verified: false,
+          status: 'pending',
+          message: 'La transacción (PSE/Transferencia) está pendiente por confirmación bancaria. Tu suscripción se activará tan pronto como ePayco valide la aprobación.',
+          refPayco: cleanRef
+        });
+      }
+
+      return res.json({
+        verified: false,
+        status: 'rejected',
+        message: tx.x_response_reason_text || 'La transacción fue rechazada o fallida.',
+        refPayco: cleanRef
+      });
+    }
+
+    // 2. Verificar monto cobrado
+    const diff = Math.abs(txAmount - expectedAmount);
+    if (diff > 500) {
+      return res.status(400).json({
+        verified: false,
+        status: 'invalid_amount',
+        error: `El monto cobrado ($${txAmount} COP) no coincide con la tarifa oficial del plan ($${expectedAmount} COP).`
+      });
+    }
+
+    // 3. Prevenir doble procesamiento del mismo pago
+    const alreadyProcessed = Boolean(processedSubscriptionsStore[cleanRef]);
+    processedSubscriptionsStore[cleanRef] = true;
+
+    return res.json({
+      verified: true,
+      status: 'approved',
+      alreadyProcessed,
+      planId: cleanPlanId,
+      billedAmount: txAmount,
+      refPayco: cleanRef,
+      transactionId: tx.x_transaction_id,
+      userEmail,
+      userId
+    });
+  } catch {
+    return res.status(500).json({
+      verified: false,
+      error: 'Error interno en la verificación del pago de suscripción'
+    });
+  }
+});
+
 export default app;

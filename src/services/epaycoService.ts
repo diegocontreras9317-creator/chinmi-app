@@ -83,6 +83,17 @@ declare global {
   }
 }
 
+let customRuntimePublicKey: string | null = null;
+
+export function setRuntimeEpaycoPublicKey(key: string): void {
+  customRuntimePublicKey = key.trim();
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      sessionStorage.setItem('epayco_public_key', key.trim());
+    } catch {}
+  }
+}
+
 export function getBackendBaseUrl(): string {
   const envUrl = import.meta.env.VITE_BACKEND_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
@@ -95,7 +106,16 @@ export function getBackendBaseUrl(): string {
 }
 
 export function getEpaycoPublicKey(): string {
-  return (import.meta.env.VITE_EPAYCO_PUBLIC_KEY || '').trim();
+  const envKey = (import.meta.env.VITE_EPAYCO_PUBLIC_KEY || '').trim();
+  if (envKey && envKey !== 'TU_PUBLIC_KEY_DE_EPAYCO') return envKey;
+  if (customRuntimePublicKey) return customRuntimePublicKey;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      const stored = sessionStorage.getItem('epayco_public_key');
+      if (stored) return stored.trim();
+    } catch {}
+  }
+  return '';
 }
 
 export function getEpaycoTestMode(): boolean {
@@ -108,6 +128,68 @@ export function getEpaycoTestMode(): boolean {
     .trim()
     .toLowerCase();
   return raw === 'true' || raw === '1';
+}
+
+export interface SubscriptionVerificationResult {
+  verified: boolean;
+  status: 'approved' | 'pending' | 'rejected' | 'invalid_amount' | 'error';
+  message?: string;
+  error?: string;
+  alreadyProcessed?: boolean;
+  planId?: string;
+  billedAmount?: number;
+  refPayco?: string;
+}
+
+export async function verifySubscriptionWithBackend(params: {
+  refPayco: string;
+  planId: string;
+  userEmail?: string;
+  userId?: string;
+}): Promise<SubscriptionVerificationResult> {
+  const baseUrl = getBackendBaseUrl();
+  try {
+    const res = await fetch(`${baseUrl}/api/epayco/verify-subscription`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data as SubscriptionVerificationResult;
+    }
+  } catch (err) {
+    console.error('Error llamando a verify-subscription en backend:', err);
+  }
+
+  // Fallback a validación directa si el backend de verificación fallara
+  const txData = await validateEpaycoReference(params.refPayco);
+  if (txData) {
+    const cod = Number(txData.x_cod_response);
+    if (cod === 1) {
+      return {
+        verified: true,
+        status: 'approved',
+        planId: params.planId,
+        billedAmount: Number(txData.x_amount),
+        refPayco: txData.x_ref_payco
+      };
+    }
+    if (cod === 3) {
+      return {
+        verified: false,
+        status: 'pending',
+        message: 'La transacción (PSE) se encuentra en proceso de verificación bancaria.'
+      };
+    }
+  }
+
+  return {
+    verified: false,
+    status: 'rejected',
+    message: 'No se pudo verificar la transacción con ePayco.'
+  };
 }
 
 /**

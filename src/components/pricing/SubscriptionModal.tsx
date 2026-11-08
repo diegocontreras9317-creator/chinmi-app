@@ -150,6 +150,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                 businessName={config?.businessName || user?.businessName}
                 userEmail={user?.email}
                 userName={user?.name}
+                userId={user?.id}
                 onSuccess={() => {
                   upgradePlan('pro', selectedCycle);
                   setUpgradeSuccess(true);

@@ -16,6 +16,7 @@ import { NewOrderToast } from './components/common/NewOrderToast';
 import { ProfileSelectionScreen } from './components/auth/ProfileSelectionScreen';
 import { EmployeeManagementModal } from './components/settings/EmployeeManagementModal';
 import { FloatingProWhatsappSupport } from './components/common/FloatingProWhatsappSupport';
+import { EpaycoReturnHandler } from './components/pricing/EpaycoReturnHandler';
 
 const MainLayout: React.FC = () => {
   const { isGerente, empleadoActivo } = useAuth();
@@ -54,6 +55,7 @@ const MainLayout: React.FC = () => {
 
   return (
     <ProtectedRoute>
+      <EpaycoReturnHandler />
       {/* Si la cuenta de Firebase está logueada pero NO se ha seleccionado perfil de empleado activo: */}
       {!empleadoActivo ? (
         <ProfileSelectionScreen

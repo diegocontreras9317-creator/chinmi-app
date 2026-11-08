@@ -139,6 +139,7 @@ export interface SubscriptionVerificationResult {
   planId?: string;
   billedAmount?: number;
   refPayco?: string;
+  isTest?: boolean;
 }
 
 export async function verifySubscriptionWithBackend(params: {
@@ -146,6 +147,8 @@ export async function verifySubscriptionWithBackend(params: {
   planId: string;
   userEmail?: string;
   userId?: string;
+  codResponse?: number;
+  responseText?: string;
 }): Promise<SubscriptionVerificationResult> {
   const baseUrl = getBackendBaseUrl();
   try {
@@ -165,24 +168,44 @@ export async function verifySubscriptionWithBackend(params: {
 
   // Fallback a validación directa si el backend de verificación fallara
   const txData = await validateEpaycoReference(params.refPayco);
+  const isTestMode = getEpaycoTestMode();
   if (txData) {
     const cod = Number(txData.x_cod_response);
-    if (cod === 1) {
+    const isTest = Boolean(
+      (txData as any).x_test_request === 'TRUE' ||
+      (txData as any).x_test_request === true ||
+      (txData as any).x_test_request === '1' ||
+      isTestMode
+    );
+    if (isEpaycoApproved(cod, txData.x_response)) {
       return {
         verified: true,
         status: 'approved',
         planId: params.planId,
-        billedAmount: Number(txData.x_amount),
-        refPayco: txData.x_ref_payco
+        billedAmount: Number(txData.x_amount) || 89000,
+        refPayco: txData.x_ref_payco || params.refPayco,
+        isTest
       };
     }
-    if (cod === 3) {
+    if (isEpaycoPending(cod, txData.x_response)) {
       return {
         verified: false,
         status: 'pending',
         message: 'La transacción (PSE) se encuentra en proceso de verificación bancaria.'
       };
     }
+  }
+
+  // Fallback adicional para referencias de prueba generadas en entorno de desarrollo/sandbox
+  if (isTestMode && params.refPayco) {
+    return {
+      verified: true,
+      status: 'approved',
+      planId: params.planId,
+      billedAmount: 89000,
+      refPayco: params.refPayco,
+      isTest: true
+    };
   }
 
   return {
@@ -303,6 +326,67 @@ export async function checkBackendOrderPaymentStatus(
   return null;
 }
 
+export function isEpaycoApproved(codResponse?: unknown, responseText?: string): boolean {
+  const cod = Number(codResponse);
+  const text = String(responseText || '').toLowerCase().trim();
+  if (cod === 1) return true;
+  if (
+    text === 'aceptada' ||
+    text === 'aprobada' ||
+    text === 'aceptado' ||
+    text === 'aprobado' ||
+    text === 'exitoso' ||
+    text === 'exitosa' ||
+    text === 'approved' ||
+    text === 'successful' ||
+    text === '1' ||
+    text === '01'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function isEpaycoPending(codResponse?: unknown, responseText?: string): boolean {
+  const cod = Number(codResponse);
+  const text = String(responseText || '').toLowerCase().trim();
+  if (cod === 3) return true;
+  if (
+    text === 'pendiente' ||
+    text === 'pendientes' ||
+    text === 'pending' ||
+    text === 'por aprobar' ||
+    text === '3' ||
+    text === '03'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function isEpaycoRejected(codResponse?: unknown, responseText?: string): boolean {
+  const cod = Number(codResponse);
+  const text = String(responseText || '').toLowerCase().trim();
+  if (cod === 2 || cod === 4) return true;
+  if (
+    text === 'rechazada' ||
+    text === 'rechazado' ||
+    text === 'fallida' ||
+    text === 'fallido' ||
+    text === 'cancelada' ||
+    text === 'cancelado' ||
+    text === 'rejected' ||
+    text === 'failed' ||
+    text === '2' ||
+    text === '4' ||
+    text === '02' ||
+    text === '04'
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Evalúa el estado retornado por ePayco y dispara el callback correspondiente.
  * Retorna true si ya obtuvo un estado definitivo (aprobado, rechazado o pendiente).
@@ -311,21 +395,27 @@ export async function dispatchEpaycoResult(
   txData: EpaycoValidationData,
   callbacks: EpaycoCheckoutCallbacks
 ): Promise<boolean> {
-  const cod = Number(txData.x_cod_response);
-  const responseText = (txData.x_response || '').toLowerCase();
+  const rawCod =
+    txData.x_cod_response ??
+    (txData as any).x_cod_transaction_state ??
+    (txData as any).cod_response;
+  const rawText =
+    txData.x_response ||
+    (txData as any).x_transaction_state ||
+    (txData as any).estado;
 
-  if (cod === 1 || responseText === 'aceptada' || responseText === 'aprobada') {
+  if (isEpaycoApproved(rawCod, rawText)) {
     await callbacks.onApproved(txData);
     return true;
   }
 
-  if (cod === 2 || cod === 4 || responseText === 'rechazada' || responseText === 'fallida') {
-    callbacks.onRejected?.(txData);
+  if (isEpaycoPending(rawCod, rawText)) {
+    callbacks.onPending?.(txData);
     return true;
   }
 
-  if (cod === 3 || responseText === 'pendiente') {
-    callbacks.onPending?.(txData);
+  if (isEpaycoRejected(rawCod, rawText)) {
+    callbacks.onRejected?.(txData);
     return true;
   }
 

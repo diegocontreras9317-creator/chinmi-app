@@ -66,6 +66,7 @@ export interface User {
   plan: PlanType;
   billingFrequency?: BillingFrequency;
   planExpiresAt?: string | null;
+  isTestSubscription?: boolean;
   businessName: string;
   businessAddress?: string;
   createdAt: string;

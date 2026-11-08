@@ -79,7 +79,7 @@ interface AuthContextType {
   loginAsDemoRole: (role: UserRole) => void;
   logout: () => void;
   hasActivePaidSubscription: boolean;
-  upgradePlan: (newPlan: PlanType, billingFrequency?: BillingFrequency, customDays?: number) => void;
+  upgradePlan: (newPlan: PlanType, billingFrequency?: BillingFrequency, customDays?: number, isTestSubscription?: boolean) => void;
   enableDeveloperMode: () => void;
   updateMemberRole: (userId: string, newRole: UserRole) => void;
   addTeamMember: (name: string, email: string, role: UserRole) => void;
@@ -226,6 +226,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 role: data.role || 'gerente',
                 avatar: data.avatar || cleanAvatar,
                 plan: effectivePlan,
+                isTestSubscription: Boolean(rawData.isTestSubscription ?? rawData.isTest),
                 ...(effectivePlan === 'pro' && data.billingFrequency
                   ? { billingFrequency: data.billingFrequency }
                   : {}),
@@ -283,6 +284,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               role: data.role || prev?.role || 'gerente',
               avatar: data.avatar || prev?.avatar || cleanAvatar,
               plan: effectivePlan,
+              isTestSubscription: Boolean(rawData.isTestSubscription ?? rawData.isTest),
               ...(effectivePlan === 'pro' && data.billingFrequency ? { billingFrequency: data.billingFrequency } : {}),
               planExpiresAt: effectivePlan === 'pro' ? parsedExpiry : null,
               businessName: data.businessName || prev?.businessName || 'Mi GastroBar',
@@ -687,7 +689,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const upgradePlan = (newPlan: PlanType, billingFrequency?: BillingFrequency, customDays?: number) => {
+  const upgradePlan = (
+    newPlan: PlanType,
+    billingFrequency?: BillingFrequency,
+    customDays?: number,
+    isTestSubscription: boolean = false
+  ) => {
     if (!user) return;
 
     if (newPlan === 'pro') {
@@ -702,6 +709,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updated: User = {
         ...user,
         plan: 'pro',
+        isTestSubscription,
         ...(billingFrequency || user.billingFrequency ? { billingFrequency: resolvedFrequency } : {}),
         planExpiresAt: expiryIso
       };
@@ -709,8 +717,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const firestorePayload: Record<string, unknown> = {
         plan: 'pro',
+        isTestSubscription,
+        planMode: isTestSubscription ? 'test' : 'live',
         plan_expira: Timestamp.fromDate(expiryDate),
-        planExpiresAt: expiryIso
+        planExpiresAt: expiryIso,
+        updatedAt: new Date().toISOString()
       };
       if (billingFrequency || user.billingFrequency) {
         firestorePayload.billingFrequency = resolvedFrequency;
@@ -718,10 +729,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setDoc(doc(db, 'users', user.id), firestorePayload, { merge: true }).catch(() => {});
     } else {
-      const { billingFrequency: _removedFreq, ...restUser } = user;
+      const { billingFrequency: _removedFreq, isTestSubscription: _removedTest, ...restUser } = user;
       const updated: User = {
         ...restUser,
         plan: 'free',
+        isTestSubscription: false,
         planExpiresAt: null
       };
       setUser(updated);
@@ -730,6 +742,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         doc(db, 'users', user.id),
         {
           plan: 'free',
+          isTestSubscription: false,
+          planMode: deleteField(),
           plan_expira: null,
           planExpiresAt: null,
           billingFrequency: deleteField()

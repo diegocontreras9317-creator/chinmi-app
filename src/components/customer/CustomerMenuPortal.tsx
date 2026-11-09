@@ -387,11 +387,17 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
   // Filter products
   const filteredProducts = useMemo(() => {
-    return activeProducts.filter(p => {
+    const list = activeProducts.filter(p => {
       const matchesCat = selectedCategory === 'Todas las categorías' || p.category === selectedCategory;
       const matchesQuery = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            (p.description || '').toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCat && matchesQuery;
+    });
+    return list.sort((a, b) => {
+      const orderA = a.displayOrder ?? 0;
+      const orderB = b.displayOrder ?? 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.name.localeCompare(b.name);
     });
   }, [activeProducts, selectedCategory, searchQuery]);
 
@@ -847,9 +853,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       {/* Main Container */}
       <main className="max-w-3xl mx-auto px-4 py-4 w-full space-y-4">
         
-        {/* Restaurant Brand Banner (1200 x 400 - 3:1 ratio) or Minimalist Header */}
+        {/* Restaurant Brand Banner (1200 x 600 - 2:1 panoramic ratio) or Minimalist Header */}
         {restaurantBanner ? (
-          <div className="relative w-full aspect-[3/1] max-h-48 sm:max-h-60 rounded-2xl overflow-hidden bg-slate-900 shadow-md border border-slate-200/60 dark:border-slate-800">
+          <div className="relative w-full aspect-[2/1] max-h-52 sm:max-h-64 rounded-2xl overflow-hidden bg-slate-900 shadow-md border border-slate-200/60 dark:border-slate-800">
             <img
               src={restaurantBanner}
               alt={restaurantName}

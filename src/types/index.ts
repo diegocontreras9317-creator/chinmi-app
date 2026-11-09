@@ -210,6 +210,7 @@ export interface Product {
   taxRate?: number;
   tipoInventario?: 'directo' | 'receta';
   receta?: RecipeIngredient[];
+  displayOrder?: number;      // Orden personalizado para mostrar platos en el menú
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'bizum';

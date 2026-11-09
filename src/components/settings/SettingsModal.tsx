@@ -906,10 +906,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </h4>
                     <div className="mt-1 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                       <p className="font-bold text-slate-700 dark:text-slate-300">
-                        Dimensiones recomendadas: 1200 × 400 píxeles.
+                        Dimensiones recomendadas: 1200 × 600 píxeles.
                       </p>
                       <p>
-                        • Proporción 3:1 • Formatos JPG, PNG o WebP • Tamaño máximo recomendado: 3 MB
+                        • Proporción 2:1 (Panorámica ideal para celulares) • Formatos JPG, PNG o WebP • Tamaño máximo: 3 MB
                       </p>
                     </div>
                   </div>

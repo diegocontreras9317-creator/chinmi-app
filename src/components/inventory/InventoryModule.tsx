@@ -18,7 +18,9 @@ import {
   Sparkles,
   Check,
   X,
-  ChefHat
+  ChefHat,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { NewProductModal } from './NewProductModal';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
@@ -93,6 +95,22 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
   const handleEdit = (product: Product) => {
     setProductToEdit(product);
     setIsModalOpen(true);
+  };
+
+  const handleMoveProduct = (product: Product, direction: 'up' | 'down') => {
+    const sorted = [...products].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+    const idx = sorted.findIndex(p => p.id === product.id);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= sorted.length) return;
+
+    const temp = sorted[idx].displayOrder ?? idx;
+    sorted[idx].displayOrder = sorted[targetIdx].displayOrder ?? targetIdx;
+    sorted[targetIdx].displayOrder = temp;
+
+    sorted.forEach((p, index) => {
+      addProduct({ ...p, displayOrder: index });
+    });
   };
 
   const handleDelete = (item: Product | string, e?: React.MouseEvent) => {
@@ -804,6 +822,20 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                   </span>
 
                   <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleMoveProduct(product, 'up')}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                      title="Subir plato en el menú"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleMoveProduct(product, 'down')}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                      title="Bajar plato en el menú"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={() => handleEdit(product)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"

@@ -428,7 +428,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return tbl;
         }
 
-        const matchingOrder = (activeOrders || []).find(o => o.tableId === tbl.id || o.tableName === tbl.name);
+        const matchingOrder = (activeOrders || []).find(o =>
+          o &&
+          !o.closed &&
+          o.estado === 'activa' &&
+          o.status !== 'pagada' &&
+          o.status !== 'cobrado' &&
+          (o.tableId === tbl.id || o.tableName === tbl.name)
+        );
+
         if (matchingOrder && matchingOrder.items && matchingOrder.items.length > 0) {
           const isDifferentOrder = !tbl.order || tbl.order.id !== matchingOrder.id;
           const isItemCountDifferent = tbl.order && (tbl.order.items?.length !== matchingOrder.items.length);
@@ -448,7 +456,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return {
             ...tbl,
             status: 'libre' as TableStatus,
-            order: undefined
+            order: undefined,
+            waiterCall: null
           };
         }
         return tbl;
@@ -1261,6 +1270,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 2. Free the table and reset active order & waiter calls
     const nowIso = new Date().toISOString();
     delete prevWaiterCallsRef.current[tableId];
+    lastLocalTableMutations.current[tableId] = Date.now();
 
     const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;

@@ -574,6 +574,14 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
   if (!uid || !order.id) return;
   const path = `users/${uid}/pedidos/${order.id}`;
   try {
+    const isClosed = Boolean(
+      order.closed ||
+      order.estado === 'pagada' ||
+      order.status === 'pagada' ||
+      order.estado === 'cancelada' ||
+      order.status === 'cancelada'
+    );
+
     const cleanItems = (order.items || []).map(it => ({
       id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       productId: it.productId || '',
@@ -591,24 +599,20 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
     const cleanOrder = sanitizeForFirestore({
       ...order,
       userId: uid,
-      items: cleanItems,
-      productos: cleanItems,
-      status: 'activa',
-      estado: 'activa',
-      closed: false,
+      items: isClosed ? [] : cleanItems,
+      productos: isClosed ? [] : cleanItems,
+      status: isClosed ? (order.status || 'pagada') : 'activa',
+      estado: isClosed ? (order.estado || 'pagada') : 'activa',
+      closed: isClosed,
       lastUpdatedAt: new Date().toISOString()
     });
-    await setDoc(doc(db, 'users', uid, 'pedidos', order.id), cleanOrder);
+    await setDoc(doc(db, 'users', uid, 'pedidos', order.id), cleanOrder, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;
   }
 }
 
-/**
- * Sincroniza atómicamente el estado de comanda de una mesa tanto en 'mesas' como en 'pedidos'.
- * Si la comanda queda sin productos, libera la mesa y marca el pedido como cerrado/cancelado.
- */
 /**
  * Sincroniza atómicamente el estado de comanda de una mesa tanto en 'mesas' como en 'pedidos'.
  * Si la comanda queda sin productos, libera la mesa y marca el pedido como cerrado/cancelado.
@@ -630,9 +634,18 @@ export async function syncTableOrderToFirestore(
   }
   const nowIso = new Date().toISOString();
 
-  const hasItems = order && Array.isArray(order.items) && order.items.length > 0;
+  const isOrderActive = Boolean(
+    order &&
+    !order.closed &&
+    order.estado !== 'pagada' &&
+    order.status !== 'pagada' &&
+    order.estado !== 'cancelada' &&
+    order.status !== 'cancelada' &&
+    Array.isArray(order.items) &&
+    order.items.length > 0
+  );
 
-  if (hasItems && order) {
+  if (isOrderActive && order) {
     if (!order.id) {
       console.error("ERROR CRÍTICO: order.id es undefined en syncTableOrderToFirestore");
       throw new Error("syncTableOrderToFirestore abortado: ID del pedido es undefined");
@@ -695,7 +708,7 @@ export async function syncTableOrderToFirestore(
       throw error;
     }
   } else {
-    // No hay ítems en la comanda (o fue vaciada / eliminada por completo)
+    // No hay ítems en la comanda (o fue vaciada / eliminada por completo o ya está pagada)
     const tableFreeData = sanitizeForFirestore({
       id: tableId,
       status: 'libre',
@@ -717,24 +730,25 @@ export async function syncTableOrderToFirestore(
     }
 
     if (order?.id) {
-      const orderCancelData = sanitizeForFirestore({
-        status: 'cancelada',
-        estado: 'cancelada',
+      const isAlreadyPaid = order.closed || order.estado === 'pagada' || order.status === 'pagada';
+      const orderClosedData = sanitizeForFirestore({
+        status: isAlreadyPaid ? 'pagada' : 'cancelada',
+        estado: isAlreadyPaid ? 'pagada' : 'cancelada',
         closed: true,
         closedAt: nowIso,
         items: [],
         productos: []
       });
-      console.log("Intentando actualizar doc con ID:", order.id, "Datos:", orderCancelData);
+      console.log("Intentando actualizar doc con ID:", order.id, "Datos:", orderClosedData);
       try {
         const orderDocRef = doc(db, 'users', uid, 'pedidos', order.id);
-        await updateDoc(orderDocRef, orderCancelData);
-        console.log("Éxito al cancelar comanda vacía con updateDoc en Firebase con ID:", order.id);
+        await updateDoc(orderDocRef, orderClosedData);
+        console.log("Éxito al cambiar estado comanda en Firebase con ID:", order.id);
       } catch (error) {
         console.error("ERROR CRÍTICO EN FIREBASE al hacer updateDoc:", error);
         try {
           const orderDocRef = doc(db, 'users', uid, 'pedidos', order.id);
-          await setDoc(orderDocRef, orderCancelData, { merge: true });
+          await setDoc(orderDocRef, orderClosedData, { merge: true });
         } catch (setErr) {
           console.error("ERROR CRÍTICO EN FIREBASE (fallback setDoc):", setErr);
           throw setErr;
@@ -756,15 +770,25 @@ export async function saveTableToFirestore(table: Table, targetUid?: string): Pr
     throw new Error("saveTableToFirestore abortado: UID no autenticado");
   }
 
-  const hasOrder = table.order && Array.isArray(table.order.items) && table.order.items.length > 0;
+  const isOrderActive = Boolean(
+    table.order &&
+    !table.order.closed &&
+    table.order.estado !== 'pagada' &&
+    table.order.status !== 'pagada' &&
+    table.order.estado !== 'cancelada' &&
+    table.order.status !== 'cancelada' &&
+    Array.isArray(table.order.items) &&
+    table.order.items.length > 0
+  );
+
   const cleanTable = sanitizeForFirestore({
     ...table,
     userId: uid,
-    status: table.status || (hasOrder ? 'ocupada' : 'libre'),
-    estado: table.status || (hasOrder ? 'ocupada' : 'libre'),
-    order: hasOrder ? table.order : null,
-    currentOrder: hasOrder ? table.order : null,
-    pedidoActual: hasOrder ? table.order : null,
+    status: table.status || (isOrderActive ? 'ocupada' : 'libre'),
+    estado: table.status || (isOrderActive ? 'ocupada' : 'libre'),
+    order: isOrderActive ? table.order : null,
+    currentOrder: isOrderActive ? table.order : null,
+    pedidoActual: isOrderActive ? table.order : null,
     waiterCall: table.waiterCall || null
   });
 
@@ -778,7 +802,7 @@ export async function saveTableToFirestore(table: Table, targetUid?: string): Pr
     throw error;
   }
 
-  if (hasOrder && table.order) {
+  if (isOrderActive && table.order) {
     await saveOrderToFirestore(table.order, uid);
   }
 }

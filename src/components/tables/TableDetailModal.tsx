@@ -114,7 +114,17 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   const handleSaveAndUpdateComanda = async () => {
     const activeUid = auth.currentUser?.uid || user?.id;
     const nowIso = new Date().toISOString();
-    const pedidoId = order?.id || `ord-${table?.id || Date.now()}`;
+    const isOrderActive = Boolean(
+      order &&
+      order.id &&
+      !order.closed &&
+      (order as any).estado === 'activa' &&
+      (order as any).status !== 'pagada' &&
+      (order as any).status !== 'cobrado'
+    );
+    const pedidoId = isOrderActive && order?.id
+      ? order.id
+      : `ord-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const fallbackRate = Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
 
     const cleanItems = (items || []).map((it: OrderItem) => {

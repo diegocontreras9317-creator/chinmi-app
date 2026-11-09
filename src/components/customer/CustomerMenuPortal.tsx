@@ -490,7 +490,19 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
     const nowIso = new Date().toISOString();
     const existingOrder = table.order;
-    const orderId = existingOrder?.id || `ord-${Date.now()}`;
+    const isExistingOrderActive = Boolean(
+      existingOrder &&
+      existingOrder.id &&
+      !existingOrder.closed &&
+      (existingOrder as any).estado === 'activa' &&
+      (existingOrder as any).status !== 'pagada' &&
+      (existingOrder as any).status !== 'cobrado' &&
+      Array.isArray(existingOrder.items)
+    );
+
+    const orderId = isExistingOrderActive && existingOrder?.id
+      ? existingOrder.id
+      : `ord-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     const cleanCartEmail = customerEmail.trim().toLowerCase();
     if (cleanCartEmail && !isValidEmailFormat(cleanCartEmail)) {
@@ -510,7 +522,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     };
     const resolvedBilling: CustomerBillingInfo | null = hasCustomBillingData(candidateBilling)
       ? normalizeBillingInfo(candidateBilling)
-      : existingOrder?.billingInfo || null;
+      : (isExistingOrderActive ? (existingOrder?.billingInfo || null) : null);
 
     const effectiveCustomerLabel =
       customerName.trim() ||
@@ -536,8 +548,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       };
     });
 
-    // Limpiar también cualquier item preexistente para garantizar que no arrastre undefined
-    const cleanExistingItems: OrderItem[] = (existingOrder?.items || []).map(it => {
+    // Solo mantener ítems si la comanda previa estaba realmente activa en la mesa
+    const sourceItems = isExistingOrderActive ? (existingOrder?.items || []) : [];
+    const cleanExistingItems: OrderItem[] = sourceItems.map(it => {
       const resolvedItemTax = resolveOrderItemTax(
         it as unknown as Partial<OrderItem> & Record<string, unknown>,
         activeProducts,

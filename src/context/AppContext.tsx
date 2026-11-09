@@ -132,6 +132,7 @@ interface AppContextType {
   addProduct: (product: Omit<Product, 'id'> & { id?: string }) => { success: boolean; error?: string };
   updateProduct: (id: string, partial: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
+  reorderProducts: (products: Product[]) => void;
   adjustProductStock: (id: string, delta: number) => void;
 
   // Perishables & Fresh Produce operations (Verduras, Frutas, Insumos Bar & Cocina)
@@ -459,8 +460,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubMenu = subscribeUserMenu(activeUid, (newProducts) => {
-      productsRef.current = newProducts;
-      setProducts(newProducts);
+      // Deduplicate by ID and sort by displayOrder ascending
+      const seen = new Set<string>();
+      const deduped = (newProducts || []).filter(p => {
+        if (!p || !p.id || seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
+      deduped.sort((a, b) => {
+        const orderA = a.displayOrder ?? 9999;
+        const orderB = b.displayOrder ?? 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name);
+      });
+      productsRef.current = deduped;
+      setProducts(deduped);
       setCloudStatus('synced');
     });
 
@@ -1307,6 +1321,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Product & Inventory operations
   const addProduct = (prodData: Omit<Product, 'id'> & { id?: string }): { success: boolean; error?: string } => {
+    // If product already exists with this ID, delegate to updateProduct to prevent duplicates
+    if (prodData.id) {
+      const existingProduct = products.find(p => p.id === prodData.id);
+      if (existingProduct) {
+        updateProduct(prodData.id, prodData);
+        return { success: true };
+      }
+    }
+
     if (!canAddProduct()) {
       return {
         success: false,
@@ -1322,7 +1345,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: prodData.id || `prod-${Date.now()}`
     };
 
-    const nextProducts = [newProd, ...products];
+    // Remove any duplicate if present, then prepend
+    const nextProducts = [newProd, ...products.filter(p => p.id !== newProd.id)];
     setProducts(nextProducts);
     if (activeUid && activeUid !== 'default') {
       saveProductToFirestore(newProd, activeUid).catch(console.error);
@@ -1351,6 +1375,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       saveProductToFirestore(updatedTarget, activeUid).catch(console.error);
     }
     persistChanges(tables, nextProducts, sales);
+  };
+
+  const reorderProducts = (newOrderedProducts: Product[]) => {
+    const seen = new Set<string>();
+    const deduped: Product[] = [];
+
+    // Assign sequential displayOrder
+    newOrderedProducts.forEach((p, idx) => {
+      if (p && p.id && !seen.has(p.id)) {
+        seen.add(p.id);
+        deduped.push({ ...p, displayOrder: idx });
+      }
+    });
+
+    // Ensure any product from current state not in newOrderedProducts is appended
+    products.forEach(p => {
+      if (p && p.id && !seen.has(p.id)) {
+        seen.add(p.id);
+        deduped.push({ ...p, displayOrder: deduped.length });
+      }
+    });
+
+    setProducts(deduped);
+    persistChanges(tables, deduped, sales);
+
+    if (activeUid && activeUid !== 'default') {
+      // Only persist products whose displayOrder actually changed to conserve daily write units
+      deduped.forEach(prod => {
+        const oldProd = products.find(p => p.id === prod.id);
+        if (!oldProd || oldProd.displayOrder !== prod.displayOrder) {
+          saveProductToFirestore(prod, activeUid).catch(() => {});
+        }
+      });
+    }
   };
 
   const deleteProduct = (id: string) => {
@@ -1851,6 +1909,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addProduct,
         updateProduct,
         deleteProduct,
+        reorderProducts,
         adjustProductStock,
         addPerishable,
         updatePerishable,

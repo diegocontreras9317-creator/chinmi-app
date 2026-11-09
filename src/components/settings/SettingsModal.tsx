@@ -34,6 +34,7 @@ import {
   Utensils
 } from 'lucide-react';
 import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
+import { compressImageFile } from '../../utils/imageCompressor';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -124,6 +125,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setQrBannerUrl(config.qrSettings?.bannerUrl || '');
     }
   }, [isOpen, config]);
+
+  const [isCompressingLogo, setIsCompressingLogo] = useState(false);
+  const [isCompressingBanner, setIsCompressingBanner] = useState(false);
+  const [isCompressingBg, setIsCompressingBg] = useState(false);
+
+  const handleUploadLogo = async (file: File) => {
+    try {
+      setIsCompressingLogo(true);
+      const compressed = await compressImageFile(file, 512, 512, 0.85, true);
+      setQrLogoUrl(compressed);
+      setLogoUrl(compressed);
+    } catch (err) {
+      console.error('Error al comprimir logo:', err);
+    } finally {
+      setIsCompressingLogo(false);
+    }
+  };
+
+  const handleUploadBanner = async (file: File) => {
+    try {
+      setIsCompressingBanner(true);
+      const compressed = await compressImageFile(file, 1200, 500, 0.82, false);
+      setQrBannerUrl(compressed);
+    } catch (err) {
+      console.error('Error al comprimir banner:', err);
+    } finally {
+      setIsCompressingBanner(false);
+    }
+  };
+
+  const handleUploadBg = async (file: File) => {
+    try {
+      setIsCompressingBg(true);
+      const compressed = await compressImageFile(file, 1080, 1920, 0.78, false);
+      setBgImageUrl(compressed);
+    } catch (err) {
+      console.error('Error al comprimir fondo:', err);
+    } finally {
+      setIsCompressingBg(false);
+    }
+  };
 
   // New Team Member State
   const [newMemberName, setNewMemberName] = useState('');
@@ -423,26 +465,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center gap-2">
                     <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-100 dark:bg-stone-900 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-800 hover:bg-stone-200 dark:hover:bg-stone-800 font-bold text-xs cursor-pointer transition">
                       <Upload className="w-3.5 h-3.5 text-stone-700 dark:text-stone-300" />
-                      <span>Subir archivo de logo</span>
+                      <span>{isCompressingLogo ? 'Optimizando...' : 'Subir archivo de logo'}</span>
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
                         className="hidden"
+                        disabled={isCompressingLogo}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              if (reader.result) {
-                                setLogoUrl(reader.result as string);
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                          }
+                          if (file) handleUploadLogo(file);
                         }}
                       />
                     </label>
-                    <span className="text-[10px] text-slate-400">PNG, JPG, SVG o WebP</span>
+                    <span className="text-[10px] text-slate-400">PNG, JPG o WebP (auto-comprimido)</span>
                   </div>
 
                   <input
@@ -815,17 +850,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </h4>
                     <div className="mt-1 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                       <p className="font-bold text-slate-700 dark:text-slate-300">
-                        Dimensiones recomendadas: 512 × 512 píxeles.
+                        Dimensiones recomendadas: 512 × 512 píxeles (1:1 Cuadrada).
                       </p>
                       <p>
-                        • Proporción 1:1 • Formatos PNG, JPG o WebP • Tamaño máximo recomendado: 2 MB
+                        • Formatos PNG (transparente), JPG o WebP • Compresión inteligente automática para carga instantánea en móviles.
                       </p>
                     </div>
                   </div>
                   {qrLogoUrl && (
                     <button
                       type="button"
-                      onClick={() => setQrLogoUrl('')}
+                      onClick={() => {
+                        setQrLogoUrl('');
+                        setLogoUrl('');
+                      }}
                       className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline font-semibold cursor-pointer shrink-0"
                     >
                       Eliminar logo
@@ -840,7 +878,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <img
                         src={qrLogoUrl}
                         alt="Vista previa logo"
-                        className="w-full h-full object-cover rounded-lg"
+                        className="w-full h-full object-contain rounded-lg"
                         onError={(e) => {
                           (e.target as HTMLImageElement).src = '/src/assets/images/regenerated_image_1790196085462.png';
                         }}
@@ -857,30 +895,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="flex items-center gap-2">
                       <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700 hover:bg-stone-200 dark:hover:bg-stone-700 font-bold text-xs cursor-pointer transition shadow-xs">
                         <Upload className="w-3.5 h-3.5 text-stone-700 dark:text-stone-300" />
-                        <span>{qrLogoUrl ? 'Reemplazar logo' : 'Subir logo'}</span>
+                        <span>{isCompressingLogo ? 'Optimizando...' : qrLogoUrl ? 'Reemplazar logo' : 'Subir logo'}</span>
                         <input
                           type="file"
                           accept="image/png,image/jpeg,image/webp,image/svg+xml"
                           className="hidden"
+                          disabled={isCompressingLogo}
                           onChange={(e) => {
                             const file = e.target.files?.[0];
-                            if (file) {
-                              if (file.size > 2 * 1024 * 1024) {
-                                alert('El tamaño del logo supera los 2 MB recomendados.');
-                              }
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                if (reader.result) {
-                                  setQrLogoUrl(reader.result as string);
-                                  setLogoUrl(reader.result as string);
-                                }
-                              };
-                              reader.readAsDataURL(file);
-                            }
+                            if (file) handleUploadLogo(file);
                           }}
                         />
                       </label>
-                      <span className="text-[10px] text-slate-400 hidden sm:inline">512 × 512 px (1:1)</span>
+                      <span className="text-[10px] text-slate-400 hidden sm:inline">512 × 512 px</span>
                     </div>
 
                     <input
@@ -902,14 +929,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <h4 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <span>B. Banner del restaurante (Encabezado Horizontal)</span>
+                      <span>B. Banner del restaurante (Cabecera panorámica)</span>
                     </h4>
                     <div className="mt-1 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                       <p className="font-bold text-slate-700 dark:text-slate-300">
-                        Dimensiones recomendadas: 1200 × 600 píxeles.
+                        Dimensiones recomendadas: 1200 × 500 píxeles (~2.4:1 Panorámica).
                       </p>
                       <p>
-                        • Proporción 2:1 (Panorámica ideal para celulares) • Formatos JPG, PNG o WebP • Tamaño máximo: 3 MB
+                        • Formatos JPG, PNG o WebP • Ajuste visual armónico para pantallas móviles sin deformar tu fotografía • Auto-optimizado en la nube.
                       </p>
                     </div>
                   </div>
@@ -924,7 +951,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </div>
 
-                {/* Vista Previa Banner 3:1 */}
+                {/* Vista Previa Banner Panorámica */}
                 <div className="space-y-2">
                   <div className="w-full h-24 sm:h-28 rounded-xl overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 relative flex items-center justify-center shadow-inner">
                     {qrBannerUrl ? (
@@ -936,7 +963,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         />
                         <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                           <span className="text-white text-xs font-bold px-3 py-1 rounded-md bg-black/60">
-                            Vista previa 3:1
+                            Vista previa cabecera
                           </span>
                         </div>
                       </div>
@@ -944,7 +971,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <div className="text-center p-3 text-slate-400">
                         <ImageIcon className="w-6 h-6 mx-auto mb-1 opacity-70" />
                         <span className="text-[11px] font-semibold block">Sin banner horizontal configurado</span>
-                        <span className="text-[10px] opacity-75">Se mostrará un encabezado minimalista y elegante sin espacios vacíos</span>
+                        <span className="text-[10px] opacity-75">Se mostrará una cabecera minimalista y elegante sin espacios vacíos</span>
                       </div>
                     )}
                   </div>
@@ -952,25 +979,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     <label className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700 hover:bg-stone-200 dark:hover:bg-stone-700 font-bold text-xs cursor-pointer transition shadow-xs">
                       <Upload className="w-3.5 h-3.5 text-stone-700 dark:text-stone-300" />
-                      <span>{qrBannerUrl ? 'Reemplazar banner' : 'Subir imagen de banner'}</span>
+                      <span>{isCompressingBanner ? 'Optimizando...' : qrBannerUrl ? 'Reemplazar banner' : 'Subir imagen de banner'}</span>
                       <input
                         type="file"
                         accept="image/png,image/jpeg,image/webp"
                         className="hidden"
+                        disabled={isCompressingBanner}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) {
-                            if (file.size > 3 * 1024 * 1024) {
-                              alert('El tamaño del banner supera los 3 MB recomendados.');
-                            }
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              if (reader.result) {
-                                setQrBannerUrl(reader.result as string);
-                              }
-                            };
-                            reader.readAsDataURL(file);
-                          }
+                          if (file) handleUploadBanner(file);
                         }}
                       />
                     </label>
@@ -1098,20 +1115,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center gap-2">
                     <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 text-xs font-bold cursor-pointer hover:bg-stone-200 shrink-0">
                       <Upload className="w-3.5 h-3.5" />
-                      <span>Subir fondo</span>
+                      <span>{isCompressingBg ? 'Optimizando...' : 'Subir fondo'}</span>
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/png,image/jpeg,image/webp"
                         className="hidden"
+                        disabled={isCompressingBg}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              if (reader.result) setBgImageUrl(reader.result as string);
-                            };
-                            reader.readAsDataURL(file);
-                          }
+                          if (file) handleUploadBg(file);
                         }}
                       />
                     </label>

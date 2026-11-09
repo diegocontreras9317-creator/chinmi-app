@@ -30,7 +30,7 @@ interface InventoryModuleProps {
 }
 
 export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscription }) => {
-  const { config, products, addProduct, deleteProduct, adjustProductStock, canAddProduct, perishables } = useApp();
+  const { config, products, addProduct, deleteProduct, adjustProductStock, canAddProduct, perishables, reorderProducts } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas las categorías');
@@ -61,8 +61,16 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
 
+  // Sort products by displayOrder ascending (fallback to alphabetical by category, then name)
+  const sortedProducts = [...products].sort((a, b) => {
+    const orderA = a.displayOrder ?? 9999;
+    const orderB = b.displayOrder ?? 9999;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.name.localeCompare(b.name);
+  });
+
   // Filters
-  const filteredProducts = products.filter(prod => {
+  const filteredProducts = sortedProducts.filter(prod => {
     const prodTax = resolveProductTax(prod, config.defaultTaxRate);
     const matchesCat = selectedCategory === 'Todas las categorías' || prod.category === selectedCategory;
     const term = searchQuery.toLowerCase();
@@ -98,19 +106,46 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
   };
 
   const handleMoveProduct = (product: Product, direction: 'up' | 'down') => {
-    const sorted = [...products].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
-    const idx = sorted.findIndex(p => p.id === product.id);
-    if (idx === -1) return;
-    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (targetIdx < 0 || targetIdx >= sorted.length) return;
+    const visibleIdx = filteredProducts.findIndex(p => p.id === product.id);
+    if (visibleIdx === -1) return;
 
-    const temp = sorted[idx].displayOrder ?? idx;
-    sorted[idx].displayOrder = sorted[targetIdx].displayOrder ?? targetIdx;
-    sorted[targetIdx].displayOrder = temp;
+    const targetVisibleIdx = direction === 'up' ? visibleIdx - 1 : visibleIdx + 1;
+    if (targetVisibleIdx < 0 || targetVisibleIdx >= filteredProducts.length) return;
 
-    sorted.forEach((p, index) => {
-      addProduct({ ...p, displayOrder: index });
-    });
+    const targetProduct = filteredProducts[targetVisibleIdx];
+
+    // Swap positions in master list
+    const masterList = [...sortedProducts];
+    const idxA = masterList.findIndex(p => p.id === product.id);
+    const idxB = masterList.findIndex(p => p.id === targetProduct.id);
+    if (idxA === -1 || idxB === -1) return;
+
+    const temp = masterList[idxA];
+    masterList[idxA] = masterList[idxB];
+    masterList[idxB] = temp;
+
+    const reordered = masterList.map((p, index) => ({
+      ...p,
+      displayOrder: index
+    }));
+
+    reorderProducts(reordered);
+  };
+
+  const handleGroupByCategory = () => {
+    // Organiza automáticamente todos los platos agrupándolos por su categoría
+    const grouped = [...products].sort((a, b) => {
+      const catA = (a.category || '').trim();
+      const catB = (b.category || '').trim();
+      const catDiff = catA.localeCompare(catB);
+      if (catDiff !== 0) return catDiff;
+      const orderA = a.displayOrder ?? 9999;
+      const orderB = b.displayOrder ?? 9999;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.name.localeCompare(b.name);
+    }).map((p, idx) => ({ ...p, displayOrder: idx }));
+
+    reorderProducts(grouped);
   };
 
   const handleDelete = (item: Product | string, e?: React.MouseEvent) => {
@@ -282,6 +317,18 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                 </button>
               </div>
             )}
+
+            {/* Group by category button */}
+            <button
+              type="button"
+              onClick={handleGroupByCategory}
+              title="Organiza automáticamente todos los platos agrupándolos por su categoría para que no se mezclen carnes con bebidas"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition cursor-pointer"
+            >
+              <Layers className="w-4 h-4 text-orange-600" />
+              <span className="hidden sm:inline">Agrupar por categorías</span>
+              <span className="sm:hidden">Agrupar</span>
+            </button>
 
             {/* Add Product Button */}
             <button
@@ -508,7 +555,21 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-0.5">
+                      <button
+                        onClick={() => handleMoveProduct(product, 'up')}
+                        className="p-1 rounded text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        title="Subir plato en el menú"
+                      >
+                        <ArrowUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => handleMoveProduct(product, 'down')}
+                        className="p-1 rounded text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        title="Bajar plato en el menú"
+                      >
+                        <ArrowDown className="w-3 h-3" />
+                      </button>
                       <button
                         onClick={() => handleEdit(product)}
                         className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
@@ -663,7 +724,21 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       Stock mínimo de alerta: <strong>{product.minStock} uds</strong>
                     </span>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleMoveProduct(product, 'up')}
+                        className="p-2 rounded-xl text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        title="Subir plato en el menú"
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleMoveProduct(product, 'down')}
+                        className="p-2 rounded-xl text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                        title="Bajar plato en el menú"
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => handleEdit(product)}
                         className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
@@ -961,6 +1036,20 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleMoveProduct(prod, 'up')}
+                          className="p-1 rounded text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          title="Subir plato en el menú"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleMoveProduct(prod, 'down')}
+                          className="p-1 rounded text-slate-400 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          title="Bajar plato en el menú"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={() => handleEdit(prod)}
                           className="p-1 rounded text-slate-400 hover:text-slate-700 cursor-pointer"

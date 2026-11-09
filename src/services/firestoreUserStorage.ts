@@ -36,8 +36,13 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  if (errMsg.includes('resource-exhausted') || errMsg.includes('Quota')) {
+    console.warn(`[Firestore Quota Exceeded] Operación ${operationType} en ${path || 'desconocido'}: Límite de cuota diaria gratuita alcanzado. Los datos continúan guardándose localmente.`);
+    return;
+  }
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email
@@ -834,10 +839,12 @@ export async function saveProductToFirestore(product: Product, targetUid?: strin
   try {
     const cleanProd = sanitizeForFirestore({ ...product, userId: uid });
     await setDoc(doc(db, 'users', uid, 'menu', product.id), cleanProd, { merge: true });
-    await setDoc(doc(db, 'users', uid, 'productos', product.id), cleanProd, { merge: true });
-  } catch (err) {
+  } catch (err: any) {
     handleFirestoreError(err, OperationType.WRITE, path);
-    throw err;
+    // Don't crash if quota is exceeded; data is already stored in local storage
+    if (err?.code !== 'resource-exhausted' && !String(err?.message || '').includes('Quota')) {
+      throw err;
+    }
   }
 }
 
@@ -847,10 +854,11 @@ export async function deleteProductFromFirestore(productId: string, targetUid?: 
   const path = `users/${uid}/menu/${productId}`;
   try {
     await deleteDoc(doc(db, 'users', uid, 'menu', productId));
-    await deleteDoc(doc(db, 'users', uid, 'productos', productId));
-  } catch (err) {
+  } catch (err: any) {
     handleFirestoreError(err, OperationType.DELETE, path);
-    throw err;
+    if (err?.code !== 'resource-exhausted' && !String(err?.message || '').includes('Quota')) {
+      throw err;
+    }
   }
 }
 

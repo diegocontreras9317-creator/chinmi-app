@@ -879,7 +879,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <img
                   src={restaurantLogo}
                   alt={restaurantName}
-                  className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl border-2 border-white/90 shadow-lg object-cover bg-white shrink-0"
+                  className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl border-2 border-white/90 shadow-lg object-contain bg-white shrink-0 p-0.5"
                 />
               ) : (
                 <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl border-2 border-white/90 shadow-lg qr-accent-bg text-white font-black text-lg sm:text-xl flex items-center justify-center shrink-0">
@@ -907,7 +907,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <img
                   src={restaurantLogo}
                   alt={restaurantName}
-                  className="w-12 h-12 rounded-xl border border-slate-200/80 dark:border-slate-700 object-cover bg-white shrink-0 shadow-2xs"
+                  className="w-12 h-12 rounded-xl border border-slate-200/80 dark:border-slate-700 object-contain bg-white shrink-0 shadow-2xs p-0.5"
                 />
               ) : (
                 <div className="w-12 h-12 rounded-xl qr-accent-bg text-white font-black text-base flex items-center justify-center shrink-0 shadow-2xs">

@@ -799,6 +799,16 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const bgImage = firestoreQrSettings?.bgImageUrl || qrSettings.bgImageUrl;
   const customTextColor = firestoreQrSettings?.textColor || qrSettings.textColor || '';
   const customAccentColor = firestoreQrSettings?.accentColor || qrSettings.accentColor || '#e11d48';
+  const restaurantLogo = firestoreQrSettings?.logoUrl || qrSettings.logoUrl || config.logoUrl || '';
+  const restaurantBanner = firestoreQrSettings?.bannerUrl || qrSettings.bannerUrl || '';
+  const restaurantName = config.businessName || 'Restaurante';
+  const restaurantInitials = restaurantName
+    .split(' ')
+    .filter(Boolean)
+    .map((w: string) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || 'R';
 
   return (
     <div 
@@ -814,28 +824,38 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       }}
     >
       <style>{`
-        .qr-accent-bg { background-color: ${customAccentColor} !important; }
+        .qr-accent-bg { background-color: ${customAccentColor} !important; color: #ffffff !important; }
         .qr-accent-text { color: ${customAccentColor} !important; }
         .qr-accent-border { border-color: ${customAccentColor} !important; }
       `}</style>
       
       {/* Brand & Table Header */}
-      <header className={`sticky top-0 z-30 ${theme.headerBg} backdrop-blur border-b ${theme.headerBorder} shadow-xs`}>
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <ChinmiLogo size="md" variant="icon" logoUrl={config.logoUrl} />
-            <div>
-              <h1 className={`font-extrabold text-sm sm:text-base leading-tight ${theme.textClass} flex items-center gap-1.5`}>
-                <span>{config.businessName}</span>
+      <header className={`sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-xs`}>
+        <div className="max-w-3xl mx-auto px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {restaurantLogo ? (
+              <img
+                src={restaurantLogo}
+                alt={restaurantName}
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl border border-slate-200/80 dark:border-slate-700 object-cover bg-white shrink-0 shadow-2xs"
+              />
+            ) : (
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl qr-accent-bg text-white font-black text-sm flex items-center justify-center shrink-0 shadow-2xs">
+                {restaurantInitials}
+              </div>
+            )}
+            <div className="min-w-0">
+              <h1 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white leading-tight truncate">
+                {restaurantName}
               </h1>
-              <div className="flex items-center gap-1.5 text-xs opacity-90">
-                <span className={`font-bold ${theme.accentText}`}>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                <span className="font-bold qr-accent-text">
                   📍 Mesa {table.number}
                 </span>
                 <span>·</span>
-                <span>{table.zone}</span>
+                <span className="truncate">{table.zone}</span>
                 <span>·</span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${theme.badgeBg}`}>
+                <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                   Impuestos incl.
                 </span>
               </div>
@@ -843,7 +863,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
           </div>
 
           {/* Quick Top Actions: Call Waiter & Request Bill */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {canCallWaiter && (
               <button
                 type="button"
@@ -881,7 +901,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 type="button"
                 onClick={handleExitPortal}
                 title="Volver al panel principal"
-                className="p-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer opacity-70 hover:opacity-100 ml-1"
+                className="p-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer opacity-70 hover:opacity-100 ml-1 text-slate-700 dark:text-slate-300"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -892,6 +912,43 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
       {/* Main Container */}
       <main className="max-w-3xl mx-auto px-4 py-4 w-full space-y-4">
+        
+        {/* Restaurant Brand Banner (1200 x 400 - 3:1 ratio) */}
+        {restaurantBanner && (
+          <div className="relative w-full aspect-[3/1] max-h-48 sm:max-h-60 rounded-2xl overflow-hidden bg-slate-900 shadow-md border border-slate-200/60 dark:border-slate-800">
+            <img
+              src={restaurantBanner}
+              alt={restaurantName}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10" />
+            <div className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 right-3 flex items-end gap-3">
+              {restaurantLogo ? (
+                <img
+                  src={restaurantLogo}
+                  alt={restaurantName}
+                  className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl border-2 border-white/90 shadow-lg object-cover bg-white shrink-0"
+                />
+              ) : (
+                <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl border-2 border-white/90 shadow-lg qr-accent-bg text-white font-black text-lg sm:text-xl flex items-center justify-center shrink-0">
+                  {restaurantInitials}
+                </div>
+              )}
+              <div className="min-w-0 flex-1 drop-shadow-sm pb-0.5">
+                <h2 className="font-extrabold text-base sm:text-xl text-white leading-tight truncate">
+                  {restaurantName}
+                </h2>
+                <div className="flex items-center gap-1.5 text-xs text-white/90 font-medium mt-0.5">
+                  <span className="font-bold text-white px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-xs text-[11px] border border-white/20">
+                    📍 Mesa {table.number}
+                  </span>
+                  <span>·</span>
+                  <span className="truncate">{table.zone}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Active Waiter Call Banner */}
         {isWaiterCurrentlyCalled && (
@@ -1005,21 +1062,22 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         )}
 
         {/* Search & Category Filter Navigation */}
-        <div className={`${theme.cardBg} p-4 rounded-md border ${theme.cardBorder} shadow-xs space-y-3`}>
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
           {/* Search Box */}
           <div className="relative">
-            <Search className="w-4 h-4 opacity-50 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar platos, bebidas, cócteles o ingredientes..."
-              className={`w-full pl-9 pr-4 py-2.5 text-xs rounded-md ${theme.cardBg} border ${theme.cardBorder} ${theme.textClass} placeholder:opacity-50 focus:outline-hidden focus:ring-2 focus:ring-rose-900/50`}
+              className="w-full pl-10 pr-9 py-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20"
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100 p-1"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1031,32 +1089,32 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             categories={categoriesList}
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
-            activeClass={theme.categoryActiveBg}
-            inactiveClass={`${theme.cardBg} ${theme.cardBorder} border ${theme.textClass} opacity-80 hover:opacity-100`}
+            activeClass="qr-accent-bg text-white shadow-xs font-extrabold"
+            inactiveClass="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-200/60 dark:hover:bg-slate-700/80 font-semibold shadow-2xs"
           />
         </div>
 
         {/* Products List & View Mode Switcher */}
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1 flex-wrap gap-2">
-            <h3 className={`font-extrabold text-sm ${theme.textClass} flex items-center gap-1.5`}>
+            <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-1.5">
               <span>{selectedCategory}</span>
-              <span className="text-xs opacity-60 font-normal">
+              <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
                 ({filteredProducts.length} {filteredProducts.length === 1 ? 'producto' : 'productos'})
               </span>
             </h3>
 
             {/* View Mode Selector */}
-            <div className="flex items-center gap-1 bg-slate-200/60 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-[11px]">
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs">
               {(['list', 'medium'] as const).map(mode => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setMenuViewMode(mode)}
-                  className={`px-3 py-1 rounded-md font-bold transition cursor-pointer capitalize ${
+                  className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer capitalize ${
                     menuViewMode === mode
-                      ? `${theme.accentBg} text-white shadow-xs`
-                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                      ? 'qr-accent-bg text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                   title={`Vista ${mode}`}
                 >
@@ -1080,7 +1138,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             <div
               className={
                 menuViewMode === 'list'
-                  ? 'space-y-2'
+                  ? 'space-y-2.5'
                   : 'grid grid-cols-1 sm:grid-cols-2 gap-3.5'
               }
             >
@@ -1093,14 +1151,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   return (
                     <div
                       key={product.id}
-                      className={`p-2.5 sm:p-3 rounded-md ${theme.cardBg} border transition flex items-center justify-between gap-3 ${
-                        isOutOfStock ? 'opacity-65 border-slate-200 dark:border-slate-800' : `${theme.cardBorder} shadow-xs ${theme.cardHoverBorder}`
+                      className={`p-3 sm:p-3.5 rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 flex items-center justify-between gap-3 ${
+                        isOutOfStock ? 'opacity-65 border-slate-200 dark:border-slate-800' : 'border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-md'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div
                           onClick={() => openProductDetail(product)}
-                          className="w-14 h-14 rounded-md overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 relative cursor-pointer border border-slate-200/60 dark:border-slate-700/60"
+                          className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 relative cursor-pointer border border-slate-100 dark:border-slate-800"
                         >
                           <img
                             src={product.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=200&q=80'}
@@ -1118,15 +1176,15 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                         <div className="min-w-0 flex-1">
                           <h4
                             onClick={() => openProductDetail(product)}
-                            className={`font-bold text-xs sm:text-sm ${theme.textClass} truncate cursor-pointer hover:opacity-80`}
+                            className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:opacity-85 transition-colors"
                           >
                             {product.name}
                           </h4>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className={`font-mono font-bold text-xs ${theme.priceText}`}>
+                            <span className="font-mono font-black text-xs sm:text-sm qr-accent-text tracking-tight">
                               {formatCOP(product.price)}
                             </span>
-                            <span className="text-[10px] opacity-60">({resolveProductTax(product, taxRate).shortLabel} incl.)</span>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">({resolveProductTax(product, taxRate).shortLabel} incl.)</span>
                           </div>
                         </div>
                       </div>
@@ -1134,22 +1192,22 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       {canOrder && (
                         <div className="shrink-0">
                           {inCartItem ? (
-                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-md border border-slate-200 dark:border-slate-700">
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700">
                               <button
                                 type="button"
                                 onClick={() => {
                                   const idx = cart.findIndex(c => c.product.id === product.id);
                                   if (idx > -1) handleUpdateCartQuantity(idx, -1);
                                 }}
-                                className="w-5 h-5 rounded bg-white dark:bg-slate-700 flex items-center justify-center text-xs"
+                                className="w-6 h-6 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold flex items-center justify-center hover:bg-slate-200 transition shadow-xs text-xs"
                               >
                                 -
                               </button>
-                              <span className="w-4 text-center font-bold text-xs">{inCartItem.quantity}</span>
+                              <span className="w-5 text-center font-bold text-xs">{inCartItem.quantity}</span>
                               <button
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
-                                className={`w-5 h-5 rounded ${theme.accentBg} text-white flex items-center justify-center text-xs`}
+                                className="w-6 h-6 rounded-lg qr-accent-bg text-white font-bold flex items-center justify-center hover:opacity-90 transition shadow-xs text-xs"
                               >
                                 +
                               </button>
@@ -1159,7 +1217,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                               type="button"
                               onClick={() => handleAddToCart(product)}
                               disabled={isOutOfStock}
-                              className={`px-3 py-1.5 rounded-md ${theme.accentBg} font-bold text-xs shadow-xs disabled:opacity-40 cursor-pointer`}
+                              className="px-3.5 py-1.5 rounded-xl qr-accent-bg text-white font-extrabold text-xs shadow-xs hover:opacity-90 active:scale-95 transition-all disabled:opacity-40 cursor-pointer"
                             >
                               Añadir
                             </button>
@@ -1174,10 +1232,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 return (
                   <div
                     key={product.id}
-                    className={`p-3 sm:p-3.5 rounded-md ${theme.cardBg} border transition flex flex-col justify-between overflow-hidden relative group ${
+                    className={`p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 flex flex-col justify-between overflow-hidden relative group ${
                       isOutOfStock
                         ? 'opacity-65 border-slate-200 dark:border-slate-800'
-                        : `${theme.cardBorder} shadow-xs ${theme.cardHoverBorder}`
+                        : 'border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-md'
                     }`}
                   >
                     <div className="flex gap-3 items-start">
@@ -1185,7 +1243,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       <div
                         onClick={() => openProductDetail(product)}
                         title="Toca para ver foto ampliada y detalles"
-                        className="w-24 h-24 sm:w-28 sm:h-28 rounded-md overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 relative cursor-pointer group/img border border-slate-200/60 dark:border-slate-700/60"
+                        className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 relative cursor-pointer group/img border border-slate-100 dark:border-slate-800"
                       >
                         <img
                           src={product.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80'}
@@ -1210,28 +1268,28 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
                         <div>
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider block truncate">
+                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
                               {product.category}
                             </span>
                           </div>
                           <h4
                             onClick={() => openProductDetail(product)}
-                            className={`font-bold text-sm text-slate-900 dark:text-white leading-snug cursor-pointer hover:opacity-80 transition-colors line-clamp-2 mt-0.5`}
+                            className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white leading-snug cursor-pointer hover:opacity-85 transition-colors line-clamp-2 mt-0.5"
                           >
                             {product.name}
                           </h4>
                           {product.description && (
-                            <p className="text-xs opacity-75 mt-1 line-clamp-2 leading-relaxed">
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed font-normal">
                               {product.description}
                             </p>
                           )}
                         </div>
 
                         <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
-                          <span className={`font-mono font-black text-sm sm:text-base qr-accent-text`}>
+                          <span className="font-mono font-black text-sm sm:text-base qr-accent-text tracking-tight">
                             {formatCOP(product.price)}
                           </span>
-                          <span className="text-[10px] opacity-70 font-semibold">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">
                             ({resolveProductTax(product, taxRate).shortLabel} incl.)
                           </span>
                         </div>
@@ -1239,7 +1297,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     </div>
 
                     {/* Action Bar for Product */}
-                    <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                    <div className="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
                       <span className="text-[10px] font-medium opacity-70">
                         {isOutOfStock ? (
                           <span className="text-rose-500 font-bold">Agotado hoy</span>
@@ -1252,14 +1310,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       {canOrder ? (
                         <div className="flex items-center gap-1.5">
                           {inCartItem ? (
-                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-md border border-slate-200 dark:border-slate-700">
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                               <button
                                 type="button"
                                 onClick={() => {
                                   const idx = cart.findIndex(c => c.product.id === product.id);
                                   if (idx > -1) handleUpdateCartQuantity(idx, -1);
                                 }}
-                                className="w-6 h-6 rounded-md bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-xs hover:bg-slate-100"
+                                className="w-6 h-6 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 shadow-xs hover:bg-slate-100 text-xs font-bold"
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
@@ -1269,13 +1327,13 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
-                                className={`w-6 h-6 rounded-md qr-accent-bg flex items-center justify-center shadow-xs`}
+                                className="w-6 h-6 rounded-lg qr-accent-bg text-white flex items-center justify-center shadow-xs text-xs font-bold"
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1284,7 +1342,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                                 }}
                                 disabled={isOutOfStock}
                                 title="Añadir nota especial (ej. sin cebolla)"
-                                className="p-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700/80 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
                               >
                                 <MessageSquare className="w-3.5 h-3.5" />
                               </button>
@@ -1292,7 +1350,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
                                 disabled={isOutOfStock}
-                                className={`flex items-center gap-1 px-3 py-1.5 rounded-md qr-accent-bg disabled:bg-slate-200 dark:disabled:bg-slate-800 font-bold text-xs shadow-xs transition cursor-pointer`}
+                                className="flex items-center gap-1 px-3.5 py-2 rounded-xl qr-accent-bg text-white font-extrabold text-xs shadow-xs hover:opacity-95 active:scale-95 transition-all cursor-pointer"
                               >
                                 <Plus className="w-3.5 h-3.5" />
                                 <span>Añadir</span>
@@ -1419,7 +1477,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       </main>
 
       {/* Floating Bottom Sticky Bar */}
-      <div className={`fixed bottom-0 inset-x-0 z-40 ${theme.headerBg} backdrop-blur border-t ${theme.headerBorder} p-3 shadow-lg`}>
+      <div className="fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800 p-3 sm:py-3.5 shadow-xl">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-2.5">
           
           {/* If ordering is enabled and there are items in cart */}
@@ -1427,31 +1485,31 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             <button
               type="button"
               onClick={() => setIsCartOpen(true)}
-              className={`flex-1 py-3 px-4 rounded-md ${theme.floatingBarBg} ${theme.floatingBarText} font-extrabold text-sm shadow-xs flex items-center justify-between transition cursor-pointer`}
+              className="flex-1 py-3.5 px-4 rounded-2xl qr-accent-bg text-white font-extrabold text-sm shadow-md flex items-center justify-between hover:opacity-95 active:scale-[0.99] transition-all cursor-pointer"
             >
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-md bg-white/20 flex items-center justify-center font-bold text-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-white/25 backdrop-blur-xs flex items-center justify-center font-black text-xs text-white">
                   {cartItemsCount}
                 </div>
                 <span>Ver Mi Pedido ({cartItemsCount})</span>
               </div>
-              <span className="font-mono font-black">{formatCOP(cartTaxInclusiveTotal)}</span>
+              <span className="font-mono font-black text-base text-white">{formatCOP(cartTaxInclusiveTotal)}</span>
             </button>
           ) : (
             /* If no items in cart or in menuOnly mode: Provide prominent Waiter & Bill buttons */
-            <div className="flex-1 grid grid-cols-2 gap-2">
+            <div className="flex-1 grid grid-cols-2 gap-2.5">
               {canCallWaiter && (
                 <button
                   type="button"
                   onClick={() => setIsCallWaiterModalOpen(true)}
-                  className={`py-2.5 px-3 rounded-md font-bold text-xs flex items-center justify-center gap-1.5 border transition cursor-pointer shadow-xs ${
+                  className={`py-3 px-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer shadow-xs ${
                     isWaiterCurrentlyCalled
                       ? 'bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
                       : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-900/70 hover:bg-amber-100'
                   }`}
                 >
                   <BellRing className="w-4 h-4" />
-                  <span>{isWaiterCurrentlyCalled ? 'Mesero en camino...' : 'Llamar al Mesero'}</span>
+                  <span className="truncate">{isWaiterCurrentlyCalled ? 'Mesero en camino...' : 'Llamar al Mesero'}</span>
                 </button>
               )}
 
@@ -1459,14 +1517,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsRequestBillModalOpen(true)}
-                  className={`py-2.5 px-3 rounded-md font-bold text-xs flex items-center justify-center gap-1.5 border transition cursor-pointer shadow-xs ${
+                  className={`py-3 px-3.5 rounded-2xl font-extrabold text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer shadow-xs ${
                     isBillCurrentlyRequested
-                      ? 'bg-stone-200 text-stone-900 border-stone-400 animate-pulse'
-                      : 'bg-stone-900 text-white border-stone-800 hover:bg-stone-800'
+                      ? 'bg-purple-100 text-purple-900 border-purple-300 animate-pulse'
+                      : 'bg-slate-900 text-white dark:bg-slate-800 border-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700'
                   }`}
                 >
                   <CreditCard className="w-4 h-4" />
-                  <span>{isBillCurrentlyRequested ? 'Cuenta pedida' : 'Pedir la Cuenta'}</span>
+                  <span className="truncate">{isBillCurrentlyRequested ? 'Cuenta pedida' : 'Pedir la Cuenta'}</span>
                 </button>
               )}
             </div>
@@ -1478,7 +1536,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               type="button"
               onClick={() => setIsCallWaiterModalOpen(true)}
               title="Llamar al mesero"
-              className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100 transition cursor-pointer shrink-0"
+              className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100 transition cursor-pointer shrink-0"
             >
               <BellRing className="w-5 h-5" />
             </button>

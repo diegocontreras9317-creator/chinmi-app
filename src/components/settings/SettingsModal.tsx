@@ -97,6 +97,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [bgImageUrl, setBgImageUrl] = useState(config.qrSettings?.bgImageUrl || '');
   const [textColor, setTextColor] = useState(config.qrSettings?.textColor || '#0f172a');
   const [accentColor, setAccentColor] = useState(config.qrSettings?.accentColor || '#e11d48');
+  const [qrLogoUrl, setQrLogoUrl] = useState(config.qrSettings?.logoUrl || config.logoUrl || '');
+  const [qrBannerUrl, setQrBannerUrl] = useState(config.qrSettings?.bannerUrl || '');
 
   useEffect(() => {
     if (isOpen) {
@@ -107,7 +109,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBusinessPhone(config.businessPhone);
       setCurrency(config.currency);
       setDefaultTaxRate(String(config.defaultTaxRate));
-      setLogoUrl(config.logoUrl || '/src/assets/images/restaurant_logo_1790194934242.jpg');
+      const currentLogo = config.logoUrl || '/src/assets/images/restaurant_logo_1790194934242.jpg';
+      setLogoUrl(currentLogo);
       setAllowOrdering(config.qrSettings?.allowOrdering ?? true);
       setAllowCallWaiter(config.qrSettings?.allowCallWaiter ?? true);
       setAllowRequestBill(config.qrSettings?.allowRequestBill ?? true);
@@ -117,6 +120,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBgImageUrl(config.qrSettings?.bgImageUrl || '');
       setTextColor(config.qrSettings?.textColor || '#0f172a');
       setAccentColor(config.qrSettings?.accentColor || '#e11d48');
+      setQrLogoUrl(config.qrSettings?.logoUrl || currentLogo);
+      setQrBannerUrl(config.qrSettings?.bannerUrl || '');
     }
   }, [isOpen, config]);
 
@@ -140,6 +145,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    const effectiveLogo = qrLogoUrl.trim() || logoUrl.trim();
     updateConfig({
       appName: appName.trim() || 'AppGenerica',
       businessName: businessName.trim() || 'Mi Negocio',
@@ -148,7 +154,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       businessPhone: businessPhone.trim(),
       currency: currency.trim() || '€',
       defaultTaxRate: Number(defaultTaxRate) || 10,
-      logoUrl: logoUrl.trim(),
+      logoUrl: effectiveLogo,
       categories: categories.filter(Boolean),
       qrSettings: {
         allowOrdering: menuOnlyMode ? false : allowOrdering,
@@ -156,6 +162,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         allowRequestBill,
         menuOnlyMode,
         menuViewMode,
+        logoUrl: effectiveLogo,
+        bannerUrl: qrBannerUrl.trim(),
         bgImageUrl: bgImageUrl.trim(),
         textColor: textColor.trim(),
         accentColor: accentColor.trim()
@@ -779,48 +787,91 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Imagen de Fondo Personalizada, Color de Texto y Color de Acento (Wallpaper Móvil) */}
-            <div className="space-y-4 pt-2">
-              <div className="flex items-center gap-2">
-                <Palette className="w-4 h-4 text-rose-900 dark:text-rose-400" />
-                <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
-                  Personalización Visual (Carta QR Móvil)
-                </h4>
+            {/* === SECCIÓN REQUERIDA: Personalización del Menú QR === */}
+            <div className="space-y-5 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-900 dark:text-rose-300 flex items-center justify-center font-bold">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                      Personalización del Menú QR
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Configura la identidad visual propia de tu restaurante para la carta digital que verán tus comensales al escanear el QR.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                Personaliza la apariencia de tu carta digital.
-                <span className="block font-bold text-rose-950 dark:text-rose-300 mt-1">
-                  📐 Tamaño fondo recomendado: 1080 x 1920 px
-                </span>
-              </p>
 
-              <div className="space-y-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800">
-                {/* Fondo */}
-                <div className="flex items-center gap-3">
-                  <div className="w-16 h-24 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 bg-slate-200 dark:bg-slate-800 shrink-0 flex items-center justify-center relative">
-                    {bgImageUrl ? (
-                      <img src={bgImageUrl} alt="Fondo QR" className="w-full h-full object-cover" />
+              {/* A. Logo del restaurante */}
+              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>A. Logo del restaurante</span>
+                    </h4>
+                    <div className="mt-1 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="font-bold text-slate-700 dark:text-slate-300">
+                        Dimensiones recomendadas: 512 × 512 píxeles.
+                      </p>
+                      <p>
+                        • Proporción 1:1 • Formatos PNG, JPG o WebP • Tamaño máximo recomendado: 2 MB
+                      </p>
+                    </div>
+                  </div>
+                  {qrLogoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setQrLogoUrl('')}
+                      className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline font-semibold cursor-pointer shrink-0"
+                    >
+                      Eliminar logo
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3.5 pt-1">
+                  {/* Vista Previa Logo 1:1 */}
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 shrink-0 flex items-center justify-center p-1 relative shadow-inner">
+                    {qrLogoUrl ? (
+                      <img
+                        src={qrLogoUrl}
+                        alt="Vista previa logo"
+                        className="w-full h-full object-cover rounded-lg"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = '/src/assets/images/regenerated_image_1790196085462.png';
+                        }}
+                      />
                     ) : (
-                      <ImageIcon className="w-6 h-6 text-slate-400" />
+                      <div className="text-center p-1">
+                        <Store className="w-6 h-6 text-slate-400 mx-auto mb-0.5" />
+                        <span className="text-[9px] text-slate-400 font-bold block leading-tight">Sin logo</span>
+                      </div>
                     )}
                   </div>
 
                   <div className="flex-1 space-y-2">
                     <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-100 dark:bg-stone-900 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-800 hover:bg-stone-200 dark:hover:bg-stone-800 font-bold text-xs cursor-pointer transition">
+                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700 hover:bg-stone-200 dark:hover:bg-stone-700 font-bold text-xs cursor-pointer transition shadow-xs">
                         <Upload className="w-3.5 h-3.5 text-stone-700 dark:text-stone-300" />
-                        <span>Subir fondo</span>
+                        <span>{qrLogoUrl ? 'Reemplazar logo' : 'Subir logo'}</span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/png,image/jpeg,image/webp,image/svg+xml"
                           className="hidden"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
                             if (file) {
+                              if (file.size > 2 * 1024 * 1024) {
+                                alert('El tamaño del logo supera los 2 MB recomendados.');
+                              }
                               const reader = new FileReader();
                               reader.onloadend = () => {
                                 if (reader.result) {
-                                  setBgImageUrl(reader.result as string);
+                                  setQrLogoUrl(reader.result as string);
+                                  setLogoUrl(reader.result as string);
                                 }
                               };
                               reader.readAsDataURL(file);
@@ -828,68 +879,251 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           }}
                         />
                       </label>
-                      {bgImageUrl && (
-                        <button
-                          type="button"
-                          onClick={() => setBgImageUrl('')}
-                          className="text-[10px] text-rose-600 hover:underline font-semibold cursor-pointer"
-                        >
-                          Quitar fondo
-                        </button>
-                      )}
+                      <span className="text-[10px] text-slate-400 hidden sm:inline">512 × 512 px (1:1)</span>
                     </div>
 
                     <input
                       type="text"
+                      value={qrLogoUrl}
+                      onChange={(e) => {
+                        setQrLogoUrl(e.target.value);
+                        setLogoUrl(e.target.value);
+                      }}
+                      placeholder="O introduce una URL de logo (https://...)"
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* B. Banner del restaurante */}
+              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>B. Banner del restaurante (Encabezado Horizontal)</span>
+                    </h4>
+                    <div className="mt-1 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="font-bold text-slate-700 dark:text-slate-300">
+                        Dimensiones recomendadas: 1200 × 400 píxeles.
+                      </p>
+                      <p>
+                        • Proporción 3:1 • Formatos JPG, PNG o WebP • Tamaño máximo recomendado: 3 MB
+                      </p>
+                    </div>
+                  </div>
+                  {qrBannerUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setQrBannerUrl('')}
+                      className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline font-semibold cursor-pointer shrink-0"
+                    >
+                      Eliminar banner
+                    </button>
+                  )}
+                </div>
+
+                {/* Vista Previa Banner 3:1 */}
+                <div className="space-y-2">
+                  <div className="w-full h-24 sm:h-28 rounded-xl overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 relative flex items-center justify-center shadow-inner">
+                    {qrBannerUrl ? (
+                      <div className="w-full h-full relative group">
+                        <img
+                          src={qrBannerUrl}
+                          alt="Vista previa banner"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="text-white text-xs font-bold px-3 py-1 rounded-md bg-black/60">
+                            Vista previa 3:1
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center p-3 text-slate-400">
+                        <ImageIcon className="w-6 h-6 mx-auto mb-1 opacity-70" />
+                        <span className="text-[11px] font-semibold block">Sin banner horizontal configurado</span>
+                        <span className="text-[10px] opacity-75">Se mostrará un encabezado minimalista y elegante sin espacios vacíos</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <label className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700 hover:bg-stone-200 dark:hover:bg-stone-700 font-bold text-xs cursor-pointer transition shadow-xs">
+                      <Upload className="w-3.5 h-3.5 text-stone-700 dark:text-stone-300" />
+                      <span>{qrBannerUrl ? 'Reemplazar banner' : 'Subir imagen de banner'}</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 3 * 1024 * 1024) {
+                              alert('El tamaño del banner supera los 3 MB recomendados.');
+                            }
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              if (reader.result) {
+                                setQrBannerUrl(reader.result as string);
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+
+                    <input
+                      type="text"
+                      value={qrBannerUrl}
+                      onChange={(e) => setQrBannerUrl(e.target.value)}
+                      placeholder="O introduce URL del banner (https://...)"
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* C. Colores del restaurante */}
+              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                <div>
+                  <h4 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <Palette className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
+                    <span>C. Colores del restaurante</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                    Personaliza el color principal de tu marca. Se aplica directamente a los botones de acción, categorías seleccionadas, precios e indicadores.
+                  </p>
+                </div>
+
+                {/* Paleta rápida de colores gastronómicos */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Paleta de estilos gastronómicos recomendados:
+                  </label>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    {[
+                      { name: 'Vino Tinto', color: '#881337' },
+                      { name: 'Rubí Pasión', color: '#e11d48' },
+                      { name: 'Ámbar Cálido', color: '#d97706' },
+                      { name: 'Esmeralda', color: '#059669' },
+                      { name: 'Índigo Bar', color: '#4f46e5' },
+                      { name: 'Carbón Luxe', color: '#18181b' }
+                    ].map((palette) => (
+                      <button
+                        key={palette.color}
+                        type="button"
+                        onClick={() => setAccentColor(palette.color)}
+                        className={`p-2 rounded-lg border text-left transition flex items-center gap-2 cursor-pointer ${
+                          accentColor.toLowerCase() === palette.color.toLowerCase()
+                            ? 'border-slate-900 dark:border-white ring-2 ring-slate-900/30 font-bold bg-slate-50 dark:bg-slate-800'
+                            : 'border-slate-200 dark:border-slate-700 hover:border-slate-400'
+                        }`}
+                      >
+                        <span
+                          className="w-4 h-4 rounded-full shrink-0 shadow-xs border border-black/10"
+                          style={{ backgroundColor: palette.color }}
+                        />
+                        <span className="text-[10px] truncate text-slate-800 dark:text-slate-200">
+                          {palette.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Selector fino de color de acento y texto */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Color Principal / Acento (Botones, Selección y Precios)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={accentColor || '#e11d48'}
+                        onChange={(e) => setAccentColor(e.target.value)}
+                        className="w-9 h-9 rounded-lg border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={accentColor || '#e11d48'}
+                        onChange={(e) => setAccentColor(e.target.value)}
+                        placeholder="#e11d48"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 font-mono text-xs text-center bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Color de Texto de la Carta
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={textColor || '#0f172a'}
+                        onChange={(e) => setTextColor(e.target.value)}
+                        className="w-9 h-9 rounded-lg border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={textColor || '#0f172a'}
+                        onChange={(e) => setTextColor(e.target.value)}
+                        placeholder="#0f172a"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 font-mono text-xs text-center bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fondo opcional de la carta */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                      Imagen de Fondo Opcional para la Pantalla (Wallpaper móvil)
+                    </label>
+                    {bgImageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setBgImageUrl('')}
+                        className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                      >
+                        Quitar fondo
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 text-xs font-bold cursor-pointer hover:bg-stone-200 shrink-0">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Subir fondo</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              if (reader.result) setBgImageUrl(reader.result as string);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                    <input
+                      type="text"
                       value={bgImageUrl}
                       onChange={(e) => setBgImageUrl(e.target.value)}
-                      placeholder="O introduce URL de imagen (https://...)"
-                      className="w-full px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
+                      placeholder="O URL de fondo (1080 × 1920 px)..."
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
                     />
                   </div>
                 </div>
 
-                {/* Color de Letra y Acento */}
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                      Color de Texto
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={textColor}
-                        onChange={(e) => setTextColor(e.target.value)}
-                        className="w-8 h-8 rounded border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent"
-                      />
-                      <input
-                        type="text"
-                        value={textColor}
-                        onChange={(e) => setTextColor(e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs text-center bg-white dark:bg-slate-900"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
-                      Color de Acento (Botones/Precios)
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={accentColor || '#e11d48'}
-                        onChange={(e) => setAccentColor(e.target.value)}
-                        className="w-8 h-8 rounded border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent"
-                      />
-                      <input
-                        type="text"
-                        value={accentColor || '#e11d48'}
-                        onChange={(e) => setAccentColor(e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 font-mono text-xs text-center bg-white dark:bg-slate-900"
-                      />
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
 

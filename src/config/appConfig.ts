@@ -14,7 +14,9 @@ export interface QrMenuSettings {
   menuViewMode?: 'list' | 'medium'; // Modo de visualización de productos
   bgImageUrl?: string;        // Imagen de fondo personalizada subida por el admin
   textColor?: string;         // Color de texto personalizado
-  accentColor?: string;       // Color de acento para botones y precios
+  accentColor?: string;       // Color de acento para botones, precios y selección
+  logoUrl?: string;           // Logo personalizado del restaurante para el menú QR (512x512)
+  bannerUrl?: string;         // Banner horizontal del encabezado (1200x400)
 }
 
 export interface AppConfig {

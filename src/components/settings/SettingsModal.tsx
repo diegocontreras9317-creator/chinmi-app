@@ -166,7 +166,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         bannerUrl: qrBannerUrl.trim(),
         bgImageUrl: bgImageUrl.trim(),
         textColor: textColor.trim(),
-        accentColor: accentColor.trim()
+        accentColor: accentColor.trim(),
+        categories: categories.filter(Boolean)
       }
     });
 

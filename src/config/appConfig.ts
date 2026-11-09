@@ -17,6 +17,7 @@ export interface QrMenuSettings {
   accentColor?: string;       // Color de acento para botones, precios y selección
   logoUrl?: string;           // Logo personalizado del restaurante para el menú QR (512x512)
   bannerUrl?: string;         // Banner horizontal del encabezado (1200x400)
+  categories?: string[];      // Categorías configuradas para el menú QR
 }
 
 export interface AppConfig {

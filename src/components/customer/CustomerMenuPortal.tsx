@@ -156,20 +156,35 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   }, [qrSettings.menuViewMode]);
 
   const categoriesList = useMemo(() => {
-    const base = config.categories && config.categories.length > 0 ? config.categories : [
-      'Todas las categorías',
-      'Cervezas & Vinos',
-      'Bebidas & Refrescos',
-      'Tapas & Entrantes',
-      'Platos Principales',
-      'Cafés & Postres',
-      'Licores & Cócteles'
-    ];
-    if (!base.includes('Todas las categorías')) {
-      return ['Todas las categorías', ...base];
+    const set = new Set<string>();
+    set.add('Todas las categorías');
+
+    if (firestoreQrSettings?.categories && Array.isArray(firestoreQrSettings.categories)) {
+      firestoreQrSettings.categories.forEach((c: string) => {
+        if (c && c !== 'Todas las categorías') set.add(c);
+      });
     }
-    return base;
-  }, [config.categories]);
+
+    if (activeProducts && activeProducts.length > 0) {
+      activeProducts.forEach(p => {
+        if (p.category && p.category.trim() && p.category !== 'Todas las categorías') {
+          set.add(p.category.trim());
+        }
+      });
+    }
+
+    if (set.size <= 1 && config.categories && config.categories.length > 0) {
+      config.categories.forEach(c => {
+        if (c && c !== 'Todas las categorías') set.add(c);
+      });
+    }
+
+    if (set.size <= 1) {
+      ['Cervezas & Vinos', 'Bebidas & Refrescos', 'Tapas & Entrantes', 'Platos Principales', 'Cafés & Postres', 'Licores & Cócteles'].forEach(c => set.add(c));
+    }
+
+    return Array.from(set);
+  }, [firestoreQrSettings?.categories, activeProducts, config.categories]);
 
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas las categorías');
   const [searchQuery, setSearchQuery] = useState('');

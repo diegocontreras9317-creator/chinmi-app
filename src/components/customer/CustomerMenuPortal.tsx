@@ -844,92 +844,11 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         .qr-accent-border { border-color: ${customAccentColor} !important; }
       `}</style>
       
-      {/* Brand & Table Header */}
-      <header className={`sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-xs`}>
-        <div className="max-w-3xl mx-auto px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            {restaurantLogo ? (
-              <img
-                src={restaurantLogo}
-                alt={restaurantName}
-                className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl border border-slate-200/80 dark:border-slate-700 object-cover bg-white shrink-0 shadow-2xs"
-              />
-            ) : (
-              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl qr-accent-bg text-white font-black text-sm flex items-center justify-center shrink-0 shadow-2xs">
-                {restaurantInitials}
-              </div>
-            )}
-            <div className="min-w-0">
-              <h1 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white leading-tight truncate">
-                {restaurantName}
-              </h1>
-              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
-                <span className="font-bold qr-accent-text">
-                  📍 Mesa {table.number}
-                </span>
-                <span>·</span>
-                <span className="truncate">{table.zone}</span>
-                <span>·</span>
-                <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                  Impuestos incl.
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Top Actions: Call Waiter & Request Bill */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {canCallWaiter && (
-              <button
-                type="button"
-                onClick={() => setIsCallWaiterModalOpen(true)}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                  isWaiterCurrentlyCalled
-                    ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 animate-pulse'
-                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/60 hover:bg-amber-100'
-                }`}
-                title="Llamar al mesero a la mesa"
-              >
-                <BellRing className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Llamar Mesero</span>
-              </button>
-            )}
-
-            {canRequestBill && (
-              <button
-                type="button"
-                onClick={() => setIsRequestBillModalOpen(true)}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-                  isBillCurrentlyRequested
-                    ? 'bg-purple-100 text-purple-900 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-300 animate-pulse'
-                    : 'bg-purple-50 dark:bg-purple-950/40 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-900/60 hover:bg-purple-100'
-                }`}
-                title="Pedir la cuenta"
-              >
-                <CreditCard className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Pedir Cuenta</span>
-              </button>
-            )}
-
-            {onExit && (
-              <button
-                type="button"
-                onClick={handleExitPortal}
-                title="Volver al panel principal"
-                className="p-1.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer opacity-70 hover:opacity-100 ml-1 text-slate-700 dark:text-slate-300"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
-
       {/* Main Container */}
       <main className="max-w-3xl mx-auto px-4 py-4 w-full space-y-4">
         
-        {/* Restaurant Brand Banner (1200 x 400 - 3:1 ratio) */}
-        {restaurantBanner && (
+        {/* Restaurant Brand Banner (1200 x 400 - 3:1 ratio) or Minimalist Header */}
+        {restaurantBanner ? (
           <div className="relative w-full aspect-[3/1] max-h-48 sm:max-h-60 rounded-2xl overflow-hidden bg-slate-900 shadow-md border border-slate-200/60 dark:border-slate-800">
             <img
               src={restaurantBanner}
@@ -937,6 +856,18 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/10" />
+            
+            {onExit && (
+              <button
+                type="button"
+                onClick={handleExitPortal}
+                title="Volver al panel principal"
+                className="absolute top-3 right-3 p-2 rounded-xl bg-black/60 hover:bg-black/80 text-white backdrop-blur-md transition cursor-pointer z-10 border border-white/20"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+
             <div className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 right-3 flex items-end gap-3">
               {restaurantLogo ? (
                 <img
@@ -962,6 +893,43 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+        ) : (
+          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              {restaurantLogo ? (
+                <img
+                  src={restaurantLogo}
+                  alt={restaurantName}
+                  className="w-12 h-12 rounded-xl border border-slate-200/80 dark:border-slate-700 object-cover bg-white shrink-0 shadow-2xs"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl qr-accent-bg text-white font-black text-base flex items-center justify-center shrink-0 shadow-2xs">
+                  {restaurantInitials}
+                </div>
+              )}
+              <div className="min-w-0">
+                <h2 className="font-extrabold text-base text-slate-900 dark:text-white leading-tight truncate">
+                  {restaurantName}
+                </h2>
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                  <span className="font-bold qr-accent-text">📍 Mesa {table.number}</span>
+                  <span>·</span>
+                  <span className="truncate">{table.zone}</span>
+                </div>
+              </div>
+            </div>
+
+            {onExit && (
+              <button
+                type="button"
+                onClick={handleExitPortal}
+                title="Volver al panel principal"
+                className="p-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer text-slate-700 dark:text-slate-300 shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
         
@@ -1111,11 +1079,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
         {/* Products List & View Mode Switcher */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between px-1 flex-wrap gap-2">
-            <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-1.5">
+          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between flex-wrap gap-3">
+            <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full qr-accent-bg shrink-0" />
               <span>{selectedCategory}</span>
-              <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                ({filteredProducts.length} {filteredProducts.length === 1 ? 'producto' : 'productos'})
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-full">
+                {filteredProducts.length} {filteredProducts.length === 1 ? 'producto' : 'productos'}
               </span>
             </h3>
 
@@ -1126,7 +1095,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   key={mode}
                   type="button"
                   onClick={() => setMenuViewMode(mode)}
-                  className={`px-3 py-1 rounded-lg font-bold transition cursor-pointer capitalize ${
+                  className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer capitalize ${
                     menuViewMode === mode
                       ? 'qr-accent-bg text-white shadow-xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'

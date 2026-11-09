@@ -10,7 +10,9 @@ import {
   getDoc,
   query,
   where,
-  writeBatch
+  writeBatch,
+  orderBy,
+  limit
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, OrderItem, Empleado, Supplier, SupplierOrder } from '../types';
@@ -104,6 +106,48 @@ export function subscribeUserTables(uid: string, onUpdate: (tables: Table[]) => 
 }
 
 /**
+ * Escucha en tiempo real una sola mesa específica en users/${uid}/mesas/${tableId}
+ * Optimización de QR: El cliente escanea su código QR y solo escucha los cambios de su mesa.
+ */
+export function subscribeSingleTable(uid: string, tableId: string, onUpdate: (table: Table | null) => void): Unsubscribe {
+  if (!uid || !tableId) {
+    onUpdate(null);
+    return () => {};
+  }
+  const path = `users/${uid}/mesas/${tableId}`;
+  const tableRef = doc(db, 'users', uid, 'mesas', tableId);
+
+  return onSnapshot(tableRef, (docSnap) => {
+    if (!docSnap.exists()) {
+      onUpdate(null);
+      return;
+    }
+    const data = docSnap.data() as Table;
+    const order = data.order;
+    const isOrderActive = Boolean(
+      order &&
+      (order as any).estado === 'activa' &&
+      !(order as any).closed &&
+      (order as any).status !== 'pagada' &&
+      (order as any).status !== 'cobrado' &&
+      Array.isArray(order.items) &&
+      order.items.length > 0
+    );
+
+    onUpdate({
+      ...data,
+      id: docSnap.id,
+      order: isOrderActive ? order : undefined,
+      status: isOrderActive ? (data.status === 'libre' ? 'ocupada' : data.status) : (data.status === 'ocupada' ? 'libre' : data.status)
+    } as Table);
+  }, (err) => {
+    console.error("ERROR CRÍTICO EN FIREBASE al escuchar mesa individual (onSnapshot):", err);
+    handleFirestoreError(err, OperationType.GET, path);
+    onUpdate(null);
+  });
+}
+
+/**
  * Escucha en tiempo real el menú/productos de users/${uid}/menu
  */
 export function subscribeUserMenu(uid: string, onUpdate: (products: Product[]) => void): Unsubscribe {
@@ -115,19 +159,8 @@ export function subscribeUserMenu(uid: string, onUpdate: (products: Product[]) =
   const colRefMenu = collection(db, 'users', uid, 'menu');
 
   return onSnapshot(colRefMenu, (snap) => {
-    if (!snap.empty) {
-      const products = snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
-      onUpdate(products);
-    } else {
-      const colRefProds = collection(db, 'users', uid, 'productos');
-      getDocs(colRefProds).then(prodSnap => {
-        const products = prodSnap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
-        onUpdate(products);
-      }).catch(err => {
-        handleFirestoreError(err, OperationType.LIST, `users/${uid}/productos`);
-        onUpdate([]);
-      });
-    }
+    const products = snap.docs.map(d => ({ id: d.id, ...d.data() } as Product));
+    onUpdate(products);
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);
     onUpdate([]);
@@ -238,22 +271,33 @@ export function subscribeUserOrders(uid: string, onUpdate: (orders: Order[]) => 
 }
 
 /**
- * Escucha en tiempo real el historial de ventas de users/${uid}/ventas
+ * Escucha en tiempo real el historial de ventas recientes de users/${uid}/ventas.
+ * Limita el listener en tiempo real a las 100 ventas más recientes para evitar lecturas masivas.
  */
-export function subscribeUserSales(uid: string, onUpdate: (sales: SaleReceipt[]) => void): Unsubscribe {
+export function subscribeUserSales(uid: string, onUpdate: (sales: SaleReceipt[]) => void, limitCount = 100): Unsubscribe {
   if (!uid) {
     onUpdate([]);
     return () => {};
   }
   const path = `users/${uid}/ventas`;
   const colRef = collection(db, 'users', uid, 'ventas');
+  const q = query(colRef, orderBy('timestamp', 'desc'), limit(limitCount));
 
-  return onSnapshot(colRef, (snap) => {
+  return onSnapshot(q, (snap) => {
     const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as SaleReceipt));
     onUpdate(sales);
   }, (err) => {
-    handleFirestoreError(err, OperationType.LIST, path);
-    onUpdate([]);
+    console.warn('[subscribeUserSales] Fallback listener por falta de índice u ordenamiento:', err);
+    const qFallback = query(colRef, limit(limitCount));
+    return onSnapshot(qFallback, (snap) => {
+      const sales = snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as SaleReceipt))
+        .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+      onUpdate(sales);
+    }, (err2) => {
+      handleFirestoreError(err2, OperationType.LIST, path);
+      onUpdate([]);
+    });
   });
 }
 

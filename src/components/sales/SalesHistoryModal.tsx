@@ -94,7 +94,8 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
     products,
     updateElectronicInvoiceStatus,
     bulkUpdateElectronicInvoiceStatus,
-    updateSaleBillingInfo
+    updateSaleBillingInfo,
+    loadFullSalesHistory
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -112,6 +113,12 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   });
   const [selectedReceipt, setSelectedReceipt] = useState<SaleReceipt | null>(null);
   const calendarContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && loadFullSalesHistory) {
+      loadFullSalesHistory();
+    }
+  }, [isOpen, loadFullSalesHistory]);
 
   useEffect(() => {
     if (!isCalendarOpen) return;

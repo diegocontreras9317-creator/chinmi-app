@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem, CustomerBillingInfo, ElectronicInvoiceStatus } from '../types';
+import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem, CustomerBillingInfo, ElectronicInvoiceStatus, AppStateData } from '../types';
 import { extractTableBillingInfo, normalizeBillingInfo, hasCustomBillingData } from '../utils/billing';
 import { resolveProductTax, resolveOrderItemTax, calculateOrderTaxBreakdown } from '../utils/taxes';
 import { defaultAppConfig, AppConfig } from '../config/appConfig';
@@ -14,6 +14,7 @@ import {
   subscribeUserSuppliers,
   subscribeUserSupplierOrders,
   subscribeUserSales,
+  getUserSales,
   saveTableToFirestore,
   saveOrderToFirestore,
   syncTableOrderToFirestore,
@@ -180,6 +181,7 @@ interface AppContextType {
   canAddProduct: () => boolean;
 
   // Manual Cloud Sync Trigger
+  loadFullSalesHistory: () => Promise<void>;
   syncNow: () => void;
   resetToDemoData: () => void;
 }
@@ -513,7 +515,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [activeUid]);
 
-  // Helper to persist to Firestore
+  /**
+   * Carga on-demand el historial completo de ventas desde Firestore cuando se abre el módulo
+   * de ventas, informes o exportación a Excel, evitando mantener listeners en tiempo real sobre miles de documentos.
+   */
+  const loadFullSalesHistory = useCallback(async () => {
+    if (!activeUid || activeUid === 'default') return;
+    try {
+      const fullSales = await getUserSales(activeUid);
+      if (fullSales && fullSales.length > 0) {
+        setSales(prev => {
+          const salesMap = new Map<string, SaleReceipt>();
+          prev.forEach(s => salesMap.set(s.id, s));
+          fullSales.forEach(s => salesMap.set(s.id, s));
+          const merged = Array.from(salesMap.values()).sort((a, b) =>
+            (b.timestamp || '').localeCompare(a.timestamp || '')
+          );
+          salesRef.current = merged;
+          return merged;
+        });
+      }
+    } catch (err) {
+      console.error("Error al cargar historial completo de ventas en demanda:", err);
+    }
+  }, [activeUid]);
+
+  // Helper to persist local cache and update status without bulk loop rewrites
   const persistChanges = useCallback((
     newTables: Table[],
     newProducts: Product[],
@@ -522,17 +549,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     newSuppliers?: Supplier[]
   ) => {
     if (!activeUid || activeUid === 'default') return;
-    setCloudStatus('syncing');
-    saveUserFirestoreData(activeUid, {
-      tables: newTables,
-      products: newProducts,
-      perishables: newPerishables ?? perishablesRef.current,
-      suppliers: newSuppliers ?? suppliersRef.current,
-      sales: newSales,
-      version: 2,
-      lastModified: new Date().toISOString()
-    }).catch(() => {});
-    setTimeout(() => { setCloudStatus('synced'); }, 300);
+    try {
+      const stateToStore: AppStateData = {
+        tables: newTables,
+        products: newProducts,
+        perishables: newPerishables ?? perishablesRef.current,
+        suppliers: newSuppliers ?? suppliersRef.current,
+        sales: newSales,
+        version: 2,
+        lastModified: new Date().toISOString()
+      };
+      localStorage.setItem(`appgenerica_data_${activeUid}`, JSON.stringify(stateToStore));
+    } catch {
+      // ignore local storage quota limit
+    }
+    setCloudStatus('synced');
   }, [activeUid]);
 
   // Sync registered businessName & businessAddress from authenticated user into config
@@ -641,14 +672,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const nextTables = [...tablesRef.current, newTable];
     tablesRef.current = nextTables;
     setTables(nextTables);
+    if (activeUid && activeUid !== 'default') {
+      saveTableToFirestore(newTable, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
     return { success: true };
   };
 
   const updateTable = (id: string, partial: Partial<Table>) => {
-    const nextTables = tablesRef.current.map(tbl => tbl.id === id ? { ...tbl, ...partial } : tbl);
+    let updatedTarget: Table | undefined;
+    const nextTables = tablesRef.current.map(tbl => {
+      if (tbl.id === id) {
+        updatedTarget = { ...tbl, ...partial };
+        return updatedTarget;
+      }
+      return tbl;
+    });
     tablesRef.current = nextTables;
     setTables(nextTables);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveTableToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 
@@ -662,16 +706,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const setTableStatus = (tableId: string, status: TableStatus) => {
+    let updatedTarget: Table | undefined;
     const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
-      return {
+      updatedTarget = {
         ...tbl,
         status,
         updatedAt: new Date().toISOString()
       };
+      return updatedTarget;
     });
     tablesRef.current = nextTables;
     setTables(nextTables);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveTableToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 
@@ -696,6 +745,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? normalizeBillingInfo(extra.billingInfo)
         : undefined;
 
+    let updatedTarget: Table | undefined;
     const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
       const nextOrder =
@@ -709,7 +759,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           : tbl.order;
 
-      return {
+      updatedTarget = {
         ...tbl,
         status: type === 'bill' ? ('cuenta' as TableStatus) : tbl.status,
         updatedAt: nowIso,
@@ -722,25 +772,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...(normalizedBilling ? { billingInfo: normalizedBilling } : {})
         }
       };
+      return updatedTarget;
     });
     tablesRef.current = nextTables;
     setTables(nextTables);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveTableToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 
   const dismissWaiterCall = (tableId: string) => {
     delete prevWaiterCallsRef.current[tableId];
 
+    let updatedTarget: Table | undefined;
     const nextTables = tablesRef.current.map(tbl => {
       if (tbl.id !== tableId) return tbl;
-      return {
+      updatedTarget = {
         ...tbl,
         waiterCall: null,
         updatedAt: new Date().toISOString()
       };
+      return updatedTarget;
     });
     tablesRef.current = nextTables;
     setTables(nextTables);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveTableToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(nextTables, products, sales);
   };
 
@@ -1419,13 +1478,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const adjustProductStock = (id: string, delta: number) => {
+    let updatedTarget: Product | undefined;
     const nextProducts = products.map(p => {
       if (p.id === id) {
-        return { ...p, stock: Math.max(0, p.stock + delta) };
+        updatedTarget = { ...p, stock: Math.max(0, p.stock + delta) };
+        return updatedTarget;
       }
       return p;
     });
     setProducts(nextProducts);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveProductToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(tables, nextProducts, sales);
   };
 
@@ -1437,13 +1501,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     const nextPerishables = [newPerishable, ...perishables];
     setPerishables(nextPerishables);
+    if (activeUid && activeUid !== 'default') {
+      saveInventoryItemToFirestore(newPerishable, activeUid).catch(console.error);
+    }
     persistChanges(tables, products, sales, nextPerishables);
     return { success: true };
   };
 
   const updatePerishable = (id: string, partial: Partial<PerishableItem>) => {
-    const nextPerishables = perishables.map(p => p.id === id ? { ...p, ...partial } : p);
+    let updatedTarget: PerishableItem | undefined;
+    const nextPerishables = perishables.map(p => {
+      if (p.id === id) {
+        updatedTarget = { ...p, ...partial };
+        return updatedTarget;
+      }
+      return p;
+    });
     setPerishables(nextPerishables);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(tables, products, sales, nextPerishables);
   };
 
@@ -1455,46 +1532,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const adjustPerishableQuantity = (id: string, newQuantity: number) => {
+    let updatedTarget: PerishableItem | undefined;
     const nextPerishables = perishables.map(p => {
       if (p.id === id) {
-        return { ...p, quantity: Math.max(0, Number(newQuantity.toFixed(2))) };
+        updatedTarget = { ...p, quantity: Math.max(0, Number(newQuantity.toFixed(2))) };
+        return updatedTarget;
       }
       return p;
     });
     setPerishables(nextPerishables);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(tables, products, sales, nextPerishables);
   };
 
   const recordPerishableWaste = (id: string, amount: number, reason: string) => {
+    let updatedTarget: PerishableItem | undefined;
     const nextPerishables = perishables.map(p => {
       if (p.id === id) {
         const nextQty = Math.max(0, Number((p.quantity - amount).toFixed(2)));
         const noteAddition = ` [Merma: -${amount} ${p.unit} (${reason})]`;
-        return {
+        updatedTarget = {
           ...p,
           quantity: nextQty,
           notes: (p.notes ? p.notes + noteAddition : noteAddition)
         };
+        return updatedTarget;
       }
       return p;
     });
     setPerishables(nextPerishables);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(tables, products, sales, nextPerishables);
   };
 
   const recordPerishableRestock = (id: string, addedAmount: number, newEntryDate?: string, newExpiryDate?: string) => {
+    let updatedTarget: PerishableItem | undefined;
     const nextPerishables = perishables.map(p => {
       if (p.id === id) {
-        return {
+        updatedTarget = {
           ...p,
           quantity: Number((p.quantity + addedAmount).toFixed(2)),
           entryDate: newEntryDate || p.entryDate,
           expiryDate: newExpiryDate || p.expiryDate
         };
+        return updatedTarget;
       }
       return p;
     });
     setPerishables(nextPerishables);
+    if (updatedTarget && activeUid && activeUid !== 'default') {
+      saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
+    }
     persistChanges(tables, products, sales, nextPerishables);
   };
 
@@ -1930,6 +2022,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         dismissNewOrderNotification,
         canAddTable,
         canAddProduct,
+        loadFullSalesHistory,
         syncNow,
         resetToDemoData
       }}

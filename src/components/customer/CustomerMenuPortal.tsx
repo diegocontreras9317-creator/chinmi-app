@@ -19,7 +19,7 @@ import { auth, db } from '../../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import {
   subscribeUserMenu,
-  subscribeUserTables,
+  subscribeSingleTable,
   subscribeUserQrConfig,
   saveTableToFirestore,
   sanitizeForFirestore
@@ -100,9 +100,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
         setQrMenuProducts(prods);
         setIsQrLoading(false);
       });
-      const unsubTables = subscribeUserTables(urlUid, (tbls) => {
-        const found = tbls.find(t => t.id === urlMesa) || null;
-        setQrTable(found);
+      const unsubTable = subscribeSingleTable(urlUid, urlMesa, (table) => {
+        setQrTable(table);
       });
       const unsubQrSettings = subscribeUserQrConfig(urlUid, (settings) => {
         if (settings) {
@@ -111,7 +110,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       });
       return () => {
         unsubMenu();
-        unsubTables();
+        unsubTable();
         unsubQrSettings();
       };
     } else {

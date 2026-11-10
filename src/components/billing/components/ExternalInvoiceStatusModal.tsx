@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NormalizedExportSale, ExternalFilingStatus } from '../adapters/types';
 import { updateSaleBillingMetadata } from '../billingStorageService';
 import { X, Save, AlertCircle, CheckCircle2, FileCheck2, ExternalLink } from 'lucide-react';
@@ -7,7 +7,14 @@ interface ExternalInvoiceStatusModalProps {
   sale: NormalizedExportSale | null;
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (updatedSaleId: string, filingStatus: ExternalFilingStatus, invoiceNumber?: string) => void;
+  onSuccess: (
+    updatedSaleId: string,
+    filingStatus: ExternalFilingStatus,
+    invoiceNumber?: string,
+    providerUsed?: string,
+    filingDate?: string,
+    filingNotes?: string
+  ) => void;
 }
 
 const COMMON_PROVIDERS = [
@@ -25,17 +32,27 @@ export const ExternalInvoiceStatusModal: React.FC<ExternalInvoiceStatusModalProp
   onClose,
   onSuccess
 }) => {
-  if (!isOpen || !sale) return null;
-
-  const [filingStatus, setFilingStatus] = useState<ExternalFilingStatus>(sale.filingStatus || 'pendiente');
-  const [invoiceNumber, setInvoiceNumber] = useState(sale.externalInvoiceNumber || '');
+  const [filingStatus, setFilingStatus] = useState<ExternalFilingStatus>('pendiente');
+  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [providerUsed, setProviderUsed] = useState('siigo');
-  const [filingDate, setFilingDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [filingDate, setFilingDate] = useState('');
   const [filingNotes, setFilingNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Preservar y restaurar fidedignamente proveedor, fecha e información guardada previamente al reabrir el formulario
+  useEffect(() => {
+    if (sale && isOpen) {
+      setFilingStatus(sale.filingStatus || 'pendiente');
+      setInvoiceNumber(sale.externalInvoiceNumber || '');
+      setProviderUsed(sale.externalProviderUsed || 'siigo');
+      setFilingDate(sale.filingDate || new Date().toISOString().slice(0, 10));
+      setFilingNotes(sale.filingNotes || '');
+      setErrorMsg(null);
+    }
+  }, [sale, isOpen]);
+
+  if (!isOpen || !sale) return null;
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,7 +73,14 @@ export const ExternalInvoiceStatusModal: React.FC<ExternalInvoiceStatusModalProp
         filingNotes: filingNotes.trim() || undefined
       });
 
-      onSuccess(sale.saleId, filingStatus, invoiceNumber.trim());
+      onSuccess(
+        sale.saleId,
+        filingStatus,
+        invoiceNumber.trim(),
+        providerUsed,
+        filingDate,
+        filingNotes.trim()
+      );
       onClose();
     } catch (err: any) {
       console.error('Error guardando estado de emisión externa:', err);
@@ -65,6 +89,7 @@ export const ExternalInvoiceStatusModal: React.FC<ExternalInvoiceStatusModalProp
       setIsSaving(false);
     }
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in">

@@ -26,8 +26,17 @@ export class GeneralCsvExportAdapter implements IAccountingExportAdapter {
 
     const escapeCsv = (val: unknown): string => {
       if (val === null || val === undefined) return '""';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
+      let str = String(val);
+
+      // Protege los campos de texto contra fórmulas maliciosas en hojas de cálculo (=, +, -, @, \t, \r, \n)
+      // incluyendo variaciones precedidas por espacios o caracteres de control
+      const leadingClean = str.replace(/^[\s\x00-\x1F\x7F]+/, '');
+      if (/^[=+\-@\t\r\n]/.test(leadingClean)) {
+        str = "'" + str;
+      }
+
+      const escaped = str.replace(/"/g, '""');
+      return `"${escaped}"`;
     };
 
     const headers = [
@@ -84,7 +93,7 @@ export class GeneralCsvExportAdapter implements IAccountingExportAdapter {
         escapeCsv(sale.cashierName),
         escapeCsv(sale.customerName),
         escapeCsv(sale.documentType),
-        escapeCsv(`\t${sale.documentNumber}`), // Prefijo tabulación para forzar texto en importadores CSV sin truncar ceros
+        escapeCsv(sale.documentNumber),
         escapeCsv(sale.dv || ''),
         escapeCsv(sale.email || ''),
         escapeCsv(sale.phone || ''),

@@ -318,8 +318,8 @@ export function normalizeSalesForExport(
     const rawImpoconsumo = Math.max(0, Number(sale.impoconsumoAmount) || 0);
 
     const items = sale.items || [];
-    const isIncompatible = items.length === 0 && rawTotal > 0;
-    const incompatibilityReason = isIncompatible
+    let isIncompatible = items.length === 0 && rawTotal > 0;
+    let incompatibilityReason: string | undefined = isIncompatible
       ? 'Comprobante histórico sin detalle de productos registrados; no es posible determinar la base gravable por línea de forma fidedigna.'
       : undefined;
 
@@ -445,8 +445,32 @@ export function normalizeSalesForExport(
       };
     });
 
-    // 4. Conciliación de redondeos con importes históricos del recibo (IVA e INC)
-    // Garantiza que la suma de Detalle_Productos concilie exactamente con los totales históricos de la cabecera
+    // 4. Conciliación de redondeos con importes históricos del recibo (Neto, IVA e INC)
+    // Garantiza que la suma del detalle concilie exactamente con los totales históricos de la cabecera
+    const targetNetTotal = rawTotal > 0 ? Math.max(0, rawTotal - rawTip) : Math.max(0, effectiveSubtotal - rawDiscount);
+    const sumLineNet = preLines.reduce((acc, l) => acc + l.netTotal, 0);
+    const deltaNet = targetNetTotal - sumLineNet;
+
+    if (deltaNet !== 0 && Math.abs(deltaNet) <= 5) {
+      // Ajustar determinísticamente en la línea con mayor importe bruto
+      const targetLine = preLines.slice().sort((a, b) => b.raw.grossTotal - a.raw.grossTotal)[0];
+      if (targetLine) {
+        targetLine.netTotal += deltaNet;
+        targetLine.discount = Math.max(0, targetLine.raw.grossTotal - targetLine.netTotal);
+        if (targetLine.raw.taxRate > 0 && targetLine.raw.taxType !== 'exento') {
+          const exactBase = targetLine.netTotal / (1 + targetLine.raw.taxRate / 100);
+          targetLine.taxableBase = Math.round(exactBase);
+          targetLine.taxAmount = targetLine.netTotal - targetLine.taxableBase;
+        } else {
+          targetLine.taxableBase = targetLine.netTotal;
+          targetLine.taxAmount = 0;
+        }
+      }
+    } else if (deltaNet !== 0 && Math.abs(deltaNet) > 5) {
+      isIncompatible = true;
+      incompatibilityReason = `Descuadre de redondeo de ${deltaNet} COP entre el total del comprobante y la suma del detalle.`;
+    }
+
     const sumLineIva = preLines
       .filter((l) => l.raw.taxType === 'iva')
       .reduce((acc, l) => acc + l.taxAmount, 0);
@@ -545,17 +569,20 @@ export function normalizeSalesForExport(
 
     // Si la venta no tenía ítems pero tenía ivaAmount/impoconsumoAmount consolidados:
     if (lines.length > 0) {
-      if (iva19Amount === 0 && iva5Amount === 0 && rawIva > 0) {
-        iva19Amount = rawIva; // Atribución estándar si no había tarifa explícita
+      if (iva19Amount === 0 && iva5Amount === 0 && ivaOtherAmount === 0 && rawIva > 0) {
+        iva19Amount = rawIva; // Atribución estándar solo si no había ninguna otra tarifa explicita
       }
-      if (inc8Amount === 0 && rawImpoconsumo > 0) {
+      if (inc8Amount === 0 && incOtherAmount === 0 && rawImpoconsumo > 0) {
         inc8Amount = rawImpoconsumo;
       }
     }
 
-    const totalTaxableBase = lines.filter((l) => l.taxRate > 0).reduce((acc, l) => acc + l.taxableBase, 0);
-    const calculatedBase = totalTaxableBase > 0 ? totalTaxableBase : Math.max(0, effectiveSubtotal - rawDiscount - finalTaxAmount);
-    const netProductsTotal = Math.max(0, effectiveSubtotal - rawDiscount);
+    const totalTaxableBase = lines.filter((l) => l.taxType !== 'exento' && l.taxRate > 0).reduce((acc, l) => acc + l.taxableBase, 0);
+    const calculatedBase = totalTaxableBase > 0
+      ? totalTaxableBase
+      : (finalTaxAmount > 0 ? Math.max(0, effectiveSubtotal - rawDiscount - finalTaxAmount) : 0);
+    const netProductsTotal = targetNetTotal;
+
 
     return {
       saleId: sale.id,
@@ -599,6 +626,9 @@ export function normalizeSalesForExport(
       exportStatus,
       filingStatus,
       externalInvoiceNumber: meta?.externalInvoiceNumber,
+      externalProviderUsed: meta?.externalProviderUsed,
+      filingDate: meta?.filingDate,
+      filingNotes: meta?.filingNotes,
       isIncompatible,
       incompatibilityReason,
       lines,

@@ -24,23 +24,37 @@ export const CustomerFiscalEditModal: React.FC<CustomerFiscalEditModalProps> = (
   onClose,
   onSuccess
 }) => {
-  if (!isOpen || !sale) return null;
-
-  const [customerName, setCustomerName] = useState(sale.customerName || '');
+  const [customerName, setCustomerName] = useState(sale?.customerName || '');
   const [docType, setDocType] = useState<CustomerDocumentType>(
-    (sale.documentType as CustomerDocumentType) || 'CONSUMIDOR_FINAL'
+    (sale?.documentType as CustomerDocumentType) || 'CONSUMIDOR_FINAL'
   );
-  const [docNumber, setDocNumber] = useState(sale.documentNumber || '');
-  const [dv, setDv] = useState(sale.dv || '');
-  const [email, setEmail] = useState(sale.email || '');
-  const [phone, setPhone] = useState(sale.phone || '');
-  const [address, setAddress] = useState(sale.address || '');
-  const [city, setCity] = useState(sale.city || 'Bogotá D.C.');
-  const [department, setDepartment] = useState(sale.department || 'Bogotá D.C.');
+  const [docNumber, setDocNumber] = useState(sale?.documentNumber || '');
+  const [dv, setDv] = useState(sale?.dv || '');
+  const [email, setEmail] = useState(sale?.email || '');
+  const [phone, setPhone] = useState(sale?.phone || '');
+  const [address, setAddress] = useState(sale?.address || '');
+  const [city, setCity] = useState(sale?.city || 'Bogotá D.C.');
+  const [department, setDepartment] = useState(sale?.department || 'Bogotá D.C.');
   const [taxRegime, setTaxRegime] = useState<CustomerTaxRegime>('no_responsable_iva');
-  
+
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Sincronizar datos cuando cambia el comprobante o abre el modal
+  useEffect(() => {
+    if (sale && isOpen) {
+      setCustomerName(sale.customerName || '');
+      setDocType((sale.documentType as CustomerDocumentType) || 'CONSUMIDOR_FINAL');
+      setDocNumber(sale.documentNumber || '');
+      setDv(sale.dv || '');
+      setEmail(sale.email || '');
+      setPhone(sale.phone || '');
+      setAddress(sale.address || '');
+      setCity(sale.city || 'Bogotá D.C.');
+      setDepartment(sale.department || 'Bogotá D.C.');
+      setErrorMsg(null);
+    }
+  }, [sale, isOpen]);
 
   // Recalcular DV automáticamente si el documento es NIT
   useEffect(() => {
@@ -51,6 +65,8 @@ export const CustomerFiscalEditModal: React.FC<CustomerFiscalEditModalProps> = (
       setDv('');
     }
   }, [docNumber, docType]);
+
+  if (!isOpen || !sale) return null;
 
   const handleCityChange = (cityName: string) => {
     setCity(cityName);
@@ -88,13 +104,13 @@ export const CustomerFiscalEditModal: React.FC<CustomerFiscalEditModalProps> = (
         city: city || undefined,
         department: department || undefined,
         taxRegime,
-        requiresElectronicInvoice: true
+        requiresElectronicInvoice: sale.requestStatus === 'solicitada'
       };
 
-      // Guardar en metadatos desacoplados sin alterar el documento de venta histórico
+      // Guardar en metadatos desacoplados sin alterar el documento de venta histórico ni forzar solicitud si no existía
       await updateSaleBillingMetadata(sale.saleId, {
         customerFiscalOverride: billingPayload,
-        requestStatus: 'solicitada'
+        requestStatus: sale.requestStatus
       });
 
       onSuccess(sale.saleId, billingPayload);
@@ -106,6 +122,7 @@ export const CustomerFiscalEditModal: React.FC<CustomerFiscalEditModalProps> = (
       setIsSaving(false);
     }
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in">

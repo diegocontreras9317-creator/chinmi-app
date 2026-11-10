@@ -28,7 +28,7 @@ interface ExportWizardSectionProps {
   allSales: NormalizedExportSale[];
   restaurantProfile: RestaurantFiscalProfile;
   preSelectedSales?: NormalizedExportSale[];
-  onExportSuccess?: (exportedCount: number, provider: AccountingExportProvider) => void;
+  onExportSuccess?: (exportedCount: number, provider: AccountingExportProvider, wasMarkedAsExported: boolean) => void;
 }
 
 export const ExportWizardSection: React.FC<ExportWizardSectionProps> = ({
@@ -74,14 +74,9 @@ export const ExportWizardSection: React.FC<ExportWizardSectionProps> = ({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   }, []);
 
-  // Lista de ventas elegibles para la exportación
+  // Lista de ventas elegibles para la exportación (Aplica estrictamente todos los filtros activos)
   const candidateSales = useMemo(() => {
-    // Si se enviaron pre-seleccionadas desde otra sección y estamos en fe_only
-    if (preSelectedSales && preSelectedSales.length > 0 && scopeType === 'fe_only') {
-      return preSelectedSales;
-    }
-
-    let list = allSales;
+    let list = preSelectedSales && preSelectedSales.length > 0 ? preSelectedSales : allSales;
 
     if (scopeType === 'fe_only') {
       list = list.filter((s) => s.requestStatus === 'solicitada');
@@ -219,8 +214,9 @@ export const ExportWizardSection: React.FC<ExportWizardSectionProps> = ({
 
       setDownloadSuccessMessage(`Archivo generado y descargado exitosamente: ${result.filename}`);
       if (onExportSuccess) {
-        onExportSuccess(candidateSales.length, selectedProvider);
+        onExportSuccess(candidateSales.length, selectedProvider, markAsExported);
       }
+
     } catch (err: any) {
       console.error('Error durante la exportación contable:', err);
       alert(`Error al generar la exportación: ${err?.message || 'Error desconocido'}`);

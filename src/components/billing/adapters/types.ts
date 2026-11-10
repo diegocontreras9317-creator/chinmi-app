@@ -151,6 +151,9 @@ export interface NormalizedExportSale {
   exportStatus: InvoiceExportStatus;
   filingStatus: ExternalFilingStatus;
   externalInvoiceNumber?: string;
+  externalProviderUsed?: string;
+  filingDate?: string | null;
+  filingNotes?: string;
   isIncompatible?: boolean;
   incompatibilityReason?: string;
   lines: NormalizedExportLine[];

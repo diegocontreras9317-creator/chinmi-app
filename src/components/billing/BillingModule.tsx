@@ -124,8 +124,8 @@ export const BillingModule: React.FC<BillingModuleProps> = ({ onBackToTables }) 
             phone: updatedInfo.phone,
             address: updatedInfo.address,
             city: updatedInfo.city,
-            department: updatedInfo.department,
-            requestStatus: 'solicitada'
+            department: updatedInfo.department
+            // Conserva el requestStatus original sin forzar 'solicitada' automáticamente
           };
         }
         return s;
@@ -137,7 +137,10 @@ export const BillingModule: React.FC<BillingModuleProps> = ({ onBackToTables }) 
   const handleExternalFilingSuccess = (
     updatedSaleId: string,
     filingStatus: ExternalFilingStatus,
-    invoiceNumber?: string
+    invoiceNumber?: string,
+    providerUsed?: string,
+    filingDate?: string,
+    filingNotes?: string
   ) => {
     setSales((prev) =>
       prev.map((s) => {
@@ -145,7 +148,10 @@ export const BillingModule: React.FC<BillingModuleProps> = ({ onBackToTables }) 
           return {
             ...s,
             filingStatus,
-            externalInvoiceNumber: invoiceNumber || s.externalInvoiceNumber
+            externalInvoiceNumber: invoiceNumber || s.externalInvoiceNumber,
+            externalProviderUsed: providerUsed || s.externalProviderUsed,
+            filingDate: filingDate || s.filingDate,
+            filingNotes: filingNotes || s.filingNotes
           };
         }
         return s;
@@ -306,22 +312,24 @@ export const BillingModule: React.FC<BillingModuleProps> = ({ onBackToTables }) 
           allSales={sales}
           restaurantProfile={restaurantProfile}
           preSelectedSales={preSelectedSalesForWizard}
-          onExportSuccess={(count, provider) => {
-            // Actualizar metadatos locales para reflejar la exportación inmediatamente
-            setSales((prev) =>
-              prev.map((s) => {
-                if (preSelectedSalesForWizard.some((p) => p.saleId === s.saleId)) {
-                  return {
-                    ...s,
-                    exportStatus: 'exportado'
-                  };
-                }
-                return s;
-              })
-            );
+          onExportSuccess={(count, provider, wasMarkedAsExported) => {
+            if (wasMarkedAsExported) {
+              setSales((prev) =>
+                prev.map((s) => {
+                  if (preSelectedSalesForWizard.some((p) => p.saleId === s.saleId)) {
+                    return {
+                      ...s,
+                      exportStatus: 'exportado'
+                    };
+                  }
+                  return s;
+                })
+              );
+            }
           }}
         />
       )}
+
 
       {activeTab === 'settings' && (
         <FiscalSettingsSection

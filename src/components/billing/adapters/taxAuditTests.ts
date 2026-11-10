@@ -995,9 +995,200 @@ export async function runTaxAuditSuite(): Promise<{
     });
   }
 
+  // -------------------------------------------------------------
+  // REGRESION ERROR 1: Ausencia de duplicación de impuestos (IVA 10% no duplica IVA 19%, Exento $12k no duplica base)
+  // -------------------------------------------------------------
+  {
+    const items: OrderItem[] = [
+      {
+        id: 'it-err1-1',
+        productId: 'prod-iva10',
+        name: 'Producto IVA 10%',
+        unitPrice: 11000,
+        quantity: 1,
+        addedAt: isoDate,
+        taxType: 'iva',
+        taxRate: 10
+      },
+      {
+        id: 'it-err1-2',
+        productId: 'prod-ex12',
+        name: 'Producto Exento',
+        unitPrice: 12000,
+        quantity: 1,
+        addedAt: isoDate,
+        taxType: 'exento',
+        taxRate: 0
+      }
+    ];
+
+    const saleReceipt: SaleReceipt = {
+      id: 'tick-reg-err1',
+      orderId: 'ord-r1',
+      tableName: 'Mesa R1',
+      items,
+      subtotal: 23000,
+      taxAmount: 1000,
+      taxPercent: 10,
+      ivaAmount: 1000,
+      impoconsumoAmount: 0,
+      discountAmount: 0,
+      discountPercent: 0,
+      tipAmount: 0,
+      total: 23000,
+      paymentMethod: 'efectivo',
+      timestamp: isoDate,
+      cashierName: 'Cajero Regresion'
+    };
+
+    const norm = normalizeSalesForExport([saleReceipt], new Map())[0];
+    const passed =
+      norm.iva19Amount === 0 &&
+      norm.ivaOtherAmount === 1000 &&
+      norm.exemptBase === 12000 &&
+      norm.taxableBase === 10000 &&
+      norm.taxableBase + norm.exemptBase === 22000;
+
+    results.push({
+      id: 'REGRESION_ERROR_1',
+      name: 'Verificación contra duplicación de impuestos (IVA otras tarifas y Base Exenta)',
+      passed,
+      expected: { iva19Amount: 0, ivaOtherAmount: 1000, taxableBase: 10000, exemptBase: 12000 },
+      actual: {
+        iva19Amount: norm.iva19Amount,
+        ivaOtherAmount: norm.ivaOtherAmount,
+        taxableBase: norm.taxableBase,
+        exemptBase: norm.exemptBase
+      },
+      observations: [
+        'IVA al 10% registrado en ivaOtherAmount ($1.000) sin duplicar en iva19Amount ($0).',
+        'Venta exenta de $12.000 clasificada en exemptBase sin contaminar taxableBase ($10.000).'
+      ]
+    });
+  }
+
+  // -------------------------------------------------------------
+  // REGRESION ERROR 2: Conciliación exacta de venta de $22.700 con 12.5% de descuento ($19.863 en caja)
+  // Subtotal: $22.700
+  // Descuento registrado: $2.838
+  // Total registrado en caja: $19.863
+  // -------------------------------------------------------------
+  {
+    const items: OrderItem[] = [
+      {
+        id: 'it-err2',
+        productId: 'prod-227',
+        name: 'Combo Almuerzo Especial',
+        unitPrice: 22700,
+        quantity: 1,
+        addedAt: isoDate,
+        taxType: 'impoconsumo',
+        taxRate: 8
+      }
+    ];
+
+    const saleReceipt: SaleReceipt = {
+      id: 'tick-reg-err2',
+      orderId: 'ord-r2',
+      tableName: 'Mesa R2',
+      items,
+      subtotal: 22700,
+      taxAmount: 1471,
+      taxPercent: 8,
+      impoconsumoAmount: 1471,
+      discountAmount: 2838,
+      discountPercent: 12.5,
+      tipAmount: 0,
+      total: 19863,
+      paymentMethod: 'tarjeta',
+      timestamp: isoDate,
+      cashierName: 'Cajero Regresion'
+    };
+
+    const norm = normalizeSalesForExport([saleReceipt], new Map())[0];
+    const sumLineNet = norm.lines.reduce((acc, l) => acc + (l.netTotal || 0), 0);
+
+    const passed =
+      sumLineNet === 19863 &&
+      norm.total === 19863 &&
+      norm.lines[0].netTotal === 19863 &&
+      norm.lines[0].discount === 2837 &&
+      norm.netProductsTotal === 19863;
+
+    results.push({
+      id: 'REGRESION_ERROR_2',
+      name: 'Conciliación exacta del caso $22.700 con 12,5% descuento ($19.863)',
+      passed,
+      expected: { lineNetSum: 19863, headerTotal: 19863, lineDiscount: 2837 },
+      actual: {
+        lineNetSum: sumLineNet,
+        headerTotal: norm.total,
+        lineDiscount: norm.lines[0].discount
+      },
+      observations: [
+        'Suma del detalle ($19.863) concilia exactamente con la cabecera del comprobante ($19.863).',
+        'Descuento imputado a la línea ($2.837) ajustado determinísticamente al centavo.'
+      ]
+    });
+  }
+
+  // -------------------------------------------------------------
+  // REGRESION ERROR 6: Protección contra Inyección CSV (Neutralización de fórmulas)
+  // -------------------------------------------------------------
+  {
+    const malformedSale: NormalizedExportSale = {
+      saleId: 'sal-csv-inject',
+      ticketNumber: '=1+2',
+      timestamp: isoDate,
+      dateKey: isoDate.slice(0, 10),
+      tableName: '  +MesaCMD',
+      cashierName: '@CajeroAdmin',
+      paymentMethod: 'efectivo',
+      customerName: ' =cmd| /C calc!A1',
+      documentType: 'NIT',
+      documentNumber: '900123456',
+      subtotal: 10000,
+      discountAmount: 0,
+      discountPercent: 0,
+      netProductsTotal: 10000,
+      taxableBase: 9259,
+      taxAmount: 741,
+      ivaAmount: 0,
+      impoconsumoAmount: 741,
+      tipAmount: 0,
+      total: 10000,
+      requestStatus: 'no_solicitada',
+      exportStatus: 'no_exportado',
+      filingStatus: 'pendiente',
+      lines: [],
+      originalReceipt: {} as any
+    };
+
+    const csvOutput = await generalCsvExportAdapter.generate([malformedSale], {
+      restaurant: { businessName: 'Test', nit: '123', dv: '0', address: '', city: '', department: '', email: '', phone: '', taxRegime: 'no_responsable_iva', fiscalResponsibilities: [], defaultTaxType: 'impoconsumo', defaultTaxRate: 8 }
+    });
+
+    const hasFormulaExec =
+      csvOutput.data.includes('"' + "'=1+2" + '"') &&
+      csvOutput.data.includes('"' + "' =cmd| /C calc!A1" + '"') &&
+      csvOutput.data.includes('"' + "'  +MesaCMD" + '"');
+
+    results.push({
+      id: 'REGRESION_ERROR_6',
+      name: 'Verificación de seguridad contra Inyección CSV (Fórmulas maliciosas)',
+      passed: hasFormulaExec,
+      expected: { sanitizedFormulas: true },
+      actual: { sanitizedFormulas: hasFormulaExec },
+      observations: [
+        'Fórmulas que inician con =, +, -, @, incluso precedidas de espacios, fueron neutralizadas con comilla simple.'
+      ]
+    });
+  }
+
   const allPassed = results.every((r) => r.passed);
   return { allPassed, results };
 }
+
 
 // Self-invoking runner for automated CLI execution
 if (process.argv[1]?.includes('taxAuditTests')) {

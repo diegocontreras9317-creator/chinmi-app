@@ -18,12 +18,13 @@ import { EmployeeManagementModal } from './components/settings/EmployeeManagemen
 import { FloatingProWhatsappSupport } from './components/common/FloatingProWhatsappSupport';
 import { EpaycoReturnHandler } from './components/pricing/EpaycoReturnHandler';
 import { UnverifiedEmailBanner } from './components/common/UnverifiedEmailBanner';
+import { BillingModule } from './components/billing/BillingModule';
 
 const MainLayout: React.FC = () => {
   const { isGerente, empleadoActivo } = useAuth();
   const { theme, customerViewTableId, setCustomerViewTableId } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'tables' | 'inventory' | 'perishables' | 'sales'>('tables');
+  const [activeTab, setActiveTab] = useState<'tables' | 'inventory' | 'perishables' | 'sales' | 'billing'>('tables');
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
@@ -74,6 +75,8 @@ const MainLayout: React.FC = () => {
             setActiveTab={(tab) => {
               if (tab === 'sales') {
                 if (isGerente) setIsSalesModalOpen(true);
+              } else if (tab === 'billing') {
+                if (isGerente) setActiveTab('billing');
               } else if (tab === 'inventory') {
                 if (isGerente) setActiveTab('inventory');
               } else if (tab === 'perishables') {
@@ -112,6 +115,12 @@ const MainLayout: React.FC = () => {
             {isGerente && activeTab === 'perishables' && (
               <PerishablesModule
                 onOpenSubscription={() => setIsSubscriptionOpen(true)}
+              />
+            )}
+
+            {isGerente && activeTab === 'billing' && (
+              <BillingModule
+                onBackToTables={() => setActiveTab('tables')}
               />
             )}
           </main>

@@ -23,12 +23,13 @@ import {
   Trash2,
   Upload,
   Lock,
-  X
+  X,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'tables' | 'inventory' | 'perishables' | 'sales';
-  setActiveTab: (tab: 'tables' | 'inventory' | 'perishables' | 'sales') => void;
+  activeTab: 'tables' | 'inventory' | 'perishables' | 'sales' | 'billing';
+  setActiveTab: (tab: 'tables' | 'inventory' | 'perishables' | 'sales' | 'billing') => void;
   onOpenSubscription: () => void;
   onOpenSettings: () => void;
   onOpenEmployees?: () => void;
@@ -459,10 +460,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* FILA INFERIOR: Control de Mesas, Carta, Despensa e Historial (Visible en MÓVIL, TABLET y DESKTOP) */}
+          {/* FILA INFERIOR: Control de Mesas, Carta, Despensa, Historial y Facturación (Beta) */}
           <div className="py-1.5 sm:py-2 flex items-center justify-center w-full">
             {isGerente ? (
-              <nav className="grid grid-cols-4 w-full md:w-auto md:flex md:items-center gap-1 md:gap-2 bg-zinc-100 dark:bg-zinc-900 p-1 rounded-md border border-zinc-200 dark:border-zinc-800">
+              <nav className="grid grid-cols-5 w-full md:w-auto md:flex md:items-center gap-1 md:gap-2 bg-zinc-100 dark:bg-zinc-900 p-1 rounded-md border border-zinc-200 dark:border-zinc-800">
                 
                 {/* 1. Control de Mesas */}
                 <button
@@ -521,7 +522,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   )}
                 </button>
 
-                {/* 4. Historial */}
+                {/* 4. Historial (Mantiene el módulo anterior) */}
                 <button
                   id="nav-tab-sales"
                   onClick={() => setActiveTab('sales')}
@@ -534,6 +535,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                   <span className="hidden md:inline">Historial Ventas</span>
                   <span className="md:hidden truncate">Ventas</span>
+                </button>
+
+                {/* 5. Facturación y Exportaciones (Beta) */}
+                <button
+                  id="nav-tab-billing"
+                  onClick={() => setActiveTab('billing')}
+                  className={`flex flex-col md:flex-row items-center justify-center gap-1 px-2 md:px-4 py-2 rounded-md text-[10px] sm:text-xs md:text-sm font-bold transition-all cursor-pointer w-full md:w-auto relative ${
+                    activeTab === 'billing'
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 font-bold'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                  }`}
+                  title="Facturación y Exportaciones (Beta)"
+                >
+                  <div className="relative flex items-center justify-center">
+                    <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 text-amber-500" />
+                  </div>
+                  <span className="hidden lg:inline whitespace-nowrap">Facturación & Exportaciones</span>
+                  <span className="hidden md:inline lg:hidden">Facturación</span>
+                  <span className="md:hidden truncate">Facturación</span>
+                  <span className="px-1 py-0.2 rounded-xs text-[8px] sm:text-[9px] font-extrabold bg-amber-500 text-slate-950 uppercase tracking-wider shrink-0">
+                    Beta
+                  </span>
                 </button>
               </nav>
             ) : (

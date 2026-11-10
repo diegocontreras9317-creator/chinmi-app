@@ -74,6 +74,15 @@ export interface RestaurantFiscalProfile {
   defaultTaxRate: number;           // Ej: 8 para impoconsumo, 19 para IVA, 0 para exento
   economicActivityCode?: string;    // Código CIIU principal (ej: 5611 para restaurantes)
   notes?: string;
+  // Equivalencias y códigos para software contables (Fase 3)
+  siigoVoucherType?: string;        // Tipo de comprobante en Siigo (ej: 'FV-1')
+  siigoPaymentMethodCash?: string;  // Nombre/Código de pago efectivo en Siigo
+  siigoPaymentMethodCard?: string;  // Nombre/Código de pago tarjeta en Siigo
+  siigoPaymentMethodTransfer?: string; // Nombre/Código de pago transferencia en Siigo
+  loggroVoucherType?: string;       // Tipo de comprobante en Loggro (ej: 'FV')
+  loggroPaymentMethodCash?: string; // Nombre/Código de pago efectivo en Loggro
+  loggroPaymentMethodCard?: string; // Nombre/Código de pago tarjeta en Loggro
+  loggroPaymentMethodTransfer?: string; // Nombre/Código de pago transferencia en Loggro
 }
 
 /**

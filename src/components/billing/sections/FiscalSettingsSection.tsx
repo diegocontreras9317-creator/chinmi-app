@@ -390,6 +390,116 @@ export const FiscalSettingsSection: React.FC<FiscalSettingsSectionProps> = ({
           </div>
         </div>
 
+        {/* Equivalencias de Software Contable (Siigo y Loggro) */}
+        <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div>
+            <span className="block font-semibold text-slate-800 dark:text-slate-200">
+              Equivalencias y Códigos de Software Contable (Siigo y Loggro)
+            </span>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Configura los códigos internos de comprobante y nombres de medio de pago asignados en tu plataforma contable.
+            </p>
+          </div>
+
+          {/* Seccion Siigo */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-2">
+            <span className="font-bold text-slate-900 dark:text-white text-xs block">
+              Siigo Nube
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <div>
+                <label className="block text-[10px] text-slate-500">Tipo Comprobante</label>
+                <input
+                  type="text"
+                  value={profile.siigoVoucherType || 'FV-1'}
+                  onChange={(e) => setProfile({ ...profile, siigoVoucherType: e.target.value })}
+                  placeholder="Ej. FV-1"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500">Pago Efectivo</label>
+                <input
+                  type="text"
+                  value={profile.siigoPaymentMethodCash || 'Efectivo'}
+                  onChange={(e) => setProfile({ ...profile, siigoPaymentMethodCash: e.target.value })}
+                  placeholder="Ej. Efectivo"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500">Pago Tarjeta</label>
+                <input
+                  type="text"
+                  value={profile.siigoPaymentMethodCard || 'Tarjeta'}
+                  onChange={(e) => setProfile({ ...profile, siigoPaymentMethodCard: e.target.value })}
+                  placeholder="Ej. Tarjeta"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500">Pago Transferencia</label>
+                <input
+                  type="text"
+                  value={profile.siigoPaymentMethodTransfer || 'Transferencia Bancaria'}
+                  onChange={(e) => setProfile({ ...profile, siigoPaymentMethodTransfer: e.target.value })}
+                  placeholder="Ej. Transferencia"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Seccion Loggro */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-2">
+            <span className="font-bold text-slate-900 dark:text-white text-xs block">
+              Loggro ERP
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <div>
+                <label className="block text-[10px] text-slate-500">Tipo Comprobante</label>
+                <input
+                  type="text"
+                  value={profile.loggroVoucherType || 'FV'}
+                  onChange={(e) => setProfile({ ...profile, loggroVoucherType: e.target.value })}
+                  placeholder="Ej. FV"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500">Pago Efectivo</label>
+                <input
+                  type="text"
+                  value={profile.loggroPaymentMethodCash || 'EFECTIVO'}
+                  onChange={(e) => setProfile({ ...profile, loggroPaymentMethodCash: e.target.value })}
+                  placeholder="Ej. EFECTIVO"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500">Pago Tarjeta</label>
+                <input
+                  type="text"
+                  value={profile.loggroPaymentMethodCard || 'TARJETA'}
+                  onChange={(e) => setProfile({ ...profile, loggroPaymentMethodCard: e.target.value })}
+                  placeholder="Ej. TARJETA"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-500">Pago Transferencia</label>
+                <input
+                  type="text"
+                  value={profile.loggroPaymentMethodTransfer || 'TRANSFERENCIA'}
+                  onChange={(e) => setProfile({ ...profile, loggroPaymentMethodTransfer: e.target.value })}
+                  placeholder="Ej. TRANSFERENCIA"
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Botón de Guardado */}
         <div className="flex justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
           <button

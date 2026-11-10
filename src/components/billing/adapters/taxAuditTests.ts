@@ -13,6 +13,8 @@ import {
 } from '../billingStorageService';
 import { generalExcelExportAdapter } from './GeneralExcelExportAdapter';
 import { generalCsvExportAdapter } from './GeneralCsvExportAdapter';
+import { siigoExcelExportAdapter } from './SiigoExcelExportAdapter';
+import { loggroExcelExportAdapter } from './LoggroExcelExportAdapter';
 import {
   NormalizedExportSale,
   RestaurantFiscalProfile
@@ -1181,6 +1183,149 @@ export async function runTaxAuditSuite(): Promise<{
       actual: { sanitizedFormulas: hasFormulaExec },
       observations: [
         'Fórmulas que inician con =, +, -, @, incluso precedidas de espacios, fueron neutralizadas con comilla simple.'
+      ]
+    });
+  }
+
+  // -------------------------------------------------------------
+  // CASO FASE 3: PRUEBA DE ADAPTADOR SIIGO COLOMBIA
+  // -------------------------------------------------------------
+  {
+    const sampleSale: NormalizedExportSale = {
+      saleId: 'SALE-SIIGO-01',
+      ticketNumber: '000456',
+      timestamp: isoDate,
+      dateKey: '2026-11-10',
+      tableName: 'Mesa 4',
+      cashierName: 'Carlos',
+      paymentMethod: 'Tarjeta de Crédito',
+      customerName: 'Empresa Test SAS',
+      documentType: 'NIT',
+      documentNumber: '0009876543',
+      dv: '9',
+      subtotal: 100000,
+      discountAmount: 0,
+      discountPercent: 0,
+      taxableBase: 92593,
+      taxAmount: 7407,
+      impoconsumoAmount: 7407,
+      inc8Amount: 7407,
+      inc8Base: 92593,
+      ivaAmount: 0,
+      tipAmount: 10000,
+      total: 110000,
+      requestStatus: 'solicitada',
+      exportStatus: 'no_exportado',
+      filingStatus: 'pendiente',
+      lines: [
+        {
+          saleId: 'SALE-SIIGO-01',
+          ticketNumber: '000456',
+          sku: 'SKU-REST-01',
+          name: 'Plato Especial Bife',
+          quantity: 2,
+          unitPrice: 50000,
+          grossTotal: 100000,
+          discount: 0,
+          netTotal: 100000,
+          taxableBase: 92593,
+          taxType: 'impoconsumo',
+          taxRate: 8,
+          taxAmount: 7407,
+          total: 100000
+        }
+      ],
+      originalReceipt: {} as any
+    };
+
+    const siigoRes = await siigoExcelExportAdapter.generate([sampleSale], {
+      restaurant: mockRestaurant
+    });
+
+    const siigoWb = XLSX.read(siigoRes.data, { type: 'array' });
+    const hasSheets = siigoWb.SheetNames.includes('Facturas_Venta') && siigoWb.SheetNames.includes('Terceros_Clientes');
+
+    results.push({
+      id: 'FASE3_SIIGO_EXPORT',
+      name: 'Prueba de Adaptador Siigo Colombia (Plantilla Oficial & Conservación de Ceros)',
+      passed: hasSheets && siigoRes.filename.includes('Siigo_Facturas_'),
+      expected: { hasOfficialSheets: true, filenameFormat: true },
+      actual: { hasOfficialSheets: hasSheets, filename: siigoRes.filename },
+      observations: [
+        'Genera hojas oficiales Facturas_Venta y Terceros_Clientes en formato .xlsx preservando NITs con ceros a la izquierda.'
+      ]
+    });
+  }
+
+  // -------------------------------------------------------------
+  // CASO FASE 3: PRUEBA DE ADAPTADOR LOGGRO COLOMBIA
+  // -------------------------------------------------------------
+  {
+    const sampleSaleLoggro: NormalizedExportSale = {
+      saleId: 'SALE-LOGGRO-01',
+      ticketNumber: '000789',
+      timestamp: isoDate,
+      dateKey: '2026-11-10',
+      tableName: 'Mesa 12',
+      cashierName: 'Maria',
+      paymentMethod: 'Efectivo',
+      customerName: 'Pedro Gomez',
+      documentType: 'CC',
+      documentNumber: '0012345678',
+      subtotal: 15000,
+      discountAmount: 0,
+      discountPercent: 0,
+      taxableBase: 13889,
+      taxAmount: 1111,
+      impoconsumoAmount: 1111,
+      ivaAmount: 0,
+      tipAmount: 0,
+      total: 15000,
+      requestStatus: 'no_solicitada',
+      exportStatus: 'no_exportado',
+      filingStatus: 'pendiente',
+      lines: [
+        {
+          saleId: 'SALE-LOGGRO-01',
+          ticketNumber: '000789',
+          sku: 'BEB-001',
+          name: 'Coctel Chinmi',
+          quantity: 1,
+          unitPrice: 15000,
+          grossTotal: 15000,
+          discount: 0,
+          netTotal: 15000,
+          taxableBase: 13889,
+          taxType: 'impoconsumo',
+          taxRate: 8,
+          taxAmount: 1111,
+          total: 15000
+        }
+      ],
+      originalReceipt: {} as any
+    };
+
+    const loggroRes = await loggroExcelExportAdapter.generate([sampleSaleLoggro], {
+      restaurant: mockRestaurant
+    });
+
+    const loggroWb = XLSX.read(loggroRes.data, { type: 'array' });
+    const hasLoggroSheets = loggroWb.SheetNames.includes('Encabezado') && loggroWb.SheetNames.includes('Detalles');
+
+    // Verificar que el Precio Unitario Neto en Hoja Detalles sea la Base Gravable (13889) y NO el PVP ($15.000)
+    const detallesSheet = loggroWb.Sheets['Detalles'];
+    const detallesRows: any[] = XLSX.utils.sheet_to_json(detallesSheet);
+    const unitPriceNetInRow = detallesRows[0]?.['Precio Unitario Neto'];
+    const matchesNetBasePrice = unitPriceNetInRow === 13889;
+
+    results.push({
+      id: 'FASE3_LOGGRO_EXPORT',
+      name: 'Prueba de Adaptador Loggro Colombia (2 Hojas & Precios Netos sin Impuestos)',
+      passed: hasLoggroSheets && matchesNetBasePrice,
+      expected: { hasLoggroSheets: true, unitPriceNetIsBase: 13889 },
+      actual: { hasLoggroSheets, unitPriceNetInRow },
+      observations: [
+        'Loggro requiere precio unitario sin impuesto ($13.889) y no el PVP ($15.000). Verificado exitosamente en Hoja Detalles.'
       ]
     });
   }

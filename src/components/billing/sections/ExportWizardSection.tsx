@@ -6,6 +6,9 @@ import {
 } from '../adapters/types';
 import { generalExcelExportAdapter } from '../adapters/GeneralExcelExportAdapter';
 import { generalCsvExportAdapter } from '../adapters/GeneralCsvExportAdapter';
+import { siigoExcelExportAdapter } from '../adapters/SiigoExcelExportAdapter';
+import { loggroExcelExportAdapter } from '../adapters/LoggroExcelExportAdapter';
+import { alegraExportAdapter } from '../adapters/AlegraExportAdapter';
 import { bulkMarkSalesAsExported } from '../billingStorageService';
 import { formatCOP } from '../../../utils/currency';
 import { isValidEmailFormat } from '../../../utils/billing';
@@ -174,7 +177,18 @@ export const ExportWizardSection: React.FC<ExportWizardSectionProps> = ({
     setDownloadSuccessMessage(null);
 
     try {
-      let adapter = selectedProvider === 'chinmi_csv' ? generalCsvExportAdapter : generalExcelExportAdapter;
+      let adapter;
+      if (selectedProvider === 'chinmi_csv') {
+        adapter = generalCsvExportAdapter;
+      } else if (selectedProvider === 'siigo') {
+        adapter = siigoExcelExportAdapter;
+      } else if (selectedProvider === 'loggro') {
+        adapter = loggroExcelExportAdapter;
+      } else if (selectedProvider === 'alegra') {
+        adapter = alegraExportAdapter;
+      } else {
+        adapter = generalExcelExportAdapter;
+      }
 
       const dateRangeLabel =
         datePreset === 'today'
@@ -527,51 +541,67 @@ export const ExportWizardSection: React.FC<ExportWizardSectionProps> = ({
               </p>
             </div>
 
-            {/* Siigo Nube - Deshabilitado con tag informativo */}
-            <div className="p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-800/30 opacity-75">
+            {/* Siigo Nube Colombia */}
+            <div
+              onClick={() => setSelectedProvider('siigo')}
+              role="button"
+              className={`p-4 rounded-xl border cursor-pointer transition ${
+                selectedProvider === 'siigo'
+                  ? 'border-rose-900 bg-rose-50/40 dark:border-rose-700 dark:bg-rose-950/20 shadow-xs'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
+              }`}
+            >
               <div className="flex items-center gap-2 mb-1.5">
-                <Layers className="w-5 h-5 text-slate-400 shrink-0" />
-                <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">
-                  Siigo Nube (.xlsx)
+                <Layers className="w-5 h-5 text-purple-600 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white text-sm">
+                  Siigo Colombia (.xlsx)
                 </span>
-                <span className="ml-auto text-[10px] font-medium text-amber-700 bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 px-2 py-0.5 rounded-full">
-                  Fase 3: En Desarrollo
+                <span className="ml-auto text-[10px] font-bold text-purple-700 bg-purple-100 dark:bg-purple-950/60 dark:text-purple-300 px-2 py-0.5 rounded-full">
+                  Oficial Siigo Nube
                 </span>
               </div>
-              <p className="text-slate-400 text-[11px]">
-                Adaptador específico para plantilla de importación masiva de facturación de Siigo Nube. Se habilitará en la siguiente fase con la plantilla oficial.
+              <p className="text-slate-500 dark:text-slate-400">
+                Plantilla oficial de importación masiva de Facturas de Venta para Siigo Nube con hojas de Comprobantes FV y Terceros Clientes.
               </p>
             </div>
 
-            {/* Alegra - Deshabilitado con tag informativo */}
-            <div className="p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-800/30 opacity-75">
+            {/* Loggro Colombia */}
+            <div
+              onClick={() => setSelectedProvider('loggro')}
+              role="button"
+              className={`p-4 rounded-xl border cursor-pointer transition ${
+                selectedProvider === 'loggro'
+                  ? 'border-rose-900 bg-rose-50/40 dark:border-rose-700 dark:bg-rose-950/20 shadow-xs'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
+              }`}
+            >
               <div className="flex items-center gap-2 mb-1.5">
-                <Layers className="w-5 h-5 text-slate-400 shrink-0" />
-                <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">
-                  Alegra (.xlsx)
+                <Layers className="w-5 h-5 text-amber-600 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white text-sm">
+                  Loggro Colombia (.xlsx)
                 </span>
-                <span className="ml-auto text-[10px] font-medium text-amber-700 bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 px-2 py-0.5 rounded-full">
-                  Fase 3: En Desarrollo
+                <span className="ml-auto text-[10px] font-bold text-amber-700 bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 px-2 py-0.5 rounded-full">
+                  Estructura Loggro ERP
                 </span>
               </div>
-              <p className="text-slate-400 text-[11px]">
-                Plantilla para importación directa de facturas y contactos en Alegra Colombia.
+              <p className="text-slate-500 dark:text-slate-400">
+                Archivo en 2 hojas (Encabezado y Detalles) con precios unitarios netos sin impuestos para liquidación automática en Loggro ERP.
               </p>
             </div>
 
-            {/* Loggro - Deshabilitado con tag informativo */}
-            <div className="p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-800/30 opacity-75">
+            {/* Alegra Colombia - Deshabilitado con tag explicativo */}
+            <div className="p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-800/30 opacity-75 select-none">
               <div className="flex items-center gap-2 mb-1.5">
                 <Layers className="w-5 h-5 text-slate-400 shrink-0" />
                 <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">
-                  Loggro (.xlsx)
+                  Alegra Colombia (.xlsx)
                 </span>
-                <span className="ml-auto text-[10px] font-medium text-amber-700 bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 px-2 py-0.5 rounded-full">
-                  Fase 3: En Desarrollo
+                <span className="ml-auto text-[10px] font-medium text-slate-600 bg-slate-200 dark:bg-slate-800 dark:text-slate-400 px-2 py-0.5 rounded-full">
+                  Deshabilitado (Requiere API / Plantilla)
                 </span>
               </div>
               <p className="text-slate-400 text-[11px]">
-                Estructura de importación contable y fiscal para Loggro ERP.
+                Alegra no posee plantilla Excel pública estandarizada para ventas. Requiere API REST de Alegra Nube o confirmación de plantilla oficial.
               </p>
             </div>
           </div>

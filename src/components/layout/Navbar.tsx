@@ -24,7 +24,8 @@ import {
   Upload,
   Lock,
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  LogOut
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -48,7 +49,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     empleadoActivo,
     bloquearPantalla,
     updateUserAvatar,
-    removeUserAvatar
+    removeUserAvatar,
+    logout
   } = useAuth();
   const { config, theme, toggleTheme, cloudStatus, syncNow, tables, perishables, dismissWaiterCall, setSelectedTableId } = useApp();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -396,7 +398,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
 
                     <div className="space-y-2">
-                      {/* Botón Principal: Bloquear pantalla / Cambiar de empleado (acción original del botón) */}
+                      {/* Botón Principal: Cambiar de perfil */}
                       <button
                         type="button"
                         id="btn-menu-bloquear-pantalla"
@@ -408,7 +410,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       >
                         <div className="flex items-center gap-2">
                           <Lock className="w-4 h-4 text-rose-300" />
-                          <span>Cambiar de perfil / Bloquear</span>
+                          <span>Cambiar de perfil</span>
                         </div>
                         <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold">🔒 POS</span>
                       </button>
@@ -443,6 +445,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                           <span>Quitar foto (usar inicial)</span>
                         </button>
                       )}
+
+                      {/* Botón: Cerrar sesión */}
+                      <button
+                        type="button"
+                        id="btn-menu-cerrar-sesion"
+                        onClick={() => {
+                          setAvatarMenuOpen(false);
+                          logout();
+                        }}
+                        className="w-full flex items-center justify-between p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-bold text-xs transition cursor-pointer border border-rose-200 dark:border-rose-900/50 mt-1"
+                      >
+                        <div className="flex items-center gap-2">
+                          <LogOut className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                          <span>Cerrar sesión</span>
+                        </div>
+                      </button>
                     </div>
                   </div>
                 )}

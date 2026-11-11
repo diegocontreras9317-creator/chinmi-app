@@ -70,7 +70,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [businessPhone, setBusinessPhone] = useState(config.businessPhone);
   const [currency, setCurrency] = useState(config.currency);
   const [defaultTaxRate, setDefaultTaxRate] = useState(String(config.defaultTaxRate));
-  const [logoUrl, setLogoUrl] = useState(config.logoUrl || '/src/assets/images/restaurant_logo_1790194934242.jpg');
+  const [logoUrl, setLogoUrl] = useState(config.logoUrl || config.qrSettings?.logoUrl || '');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBusinessPhone(config.businessPhone);
       setCurrency(config.currency);
       setDefaultTaxRate(String(config.defaultTaxRate));
-      setLogoUrl(config.logoUrl || '/src/assets/images/restaurant_logo_1790194934242.jpg');
+      setLogoUrl(config.logoUrl || config.qrSettings?.logoUrl || '');
     }
   }, [isOpen, config]);
 
@@ -110,7 +110,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setBusinessPhone(config.businessPhone);
       setCurrency(config.currency);
       setDefaultTaxRate(String(config.defaultTaxRate));
-      const currentLogo = config.logoUrl || '/src/assets/images/restaurant_logo_1790194934242.jpg';
+      const currentLogo = config.logoUrl || config.qrSettings?.logoUrl || '';
       setLogoUrl(currentLogo);
       setAllowOrdering(config.qrSettings?.allowOrdering ?? true);
       setAllowCallWaiter(config.qrSettings?.allowCallWaiter ?? true);
@@ -440,25 +440,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     Se muestra en la cabecera superior, en las cartas QR móviles de los clientes y en los tickets.
                   </p>
                 </div>
-                {logoUrl !== '/src/assets/images/regenerated_image_1790196085462.png' && (
+                {logoUrl ? (
                   <button
                     type="button"
-                    onClick={() => setLogoUrl('/src/assets/images/regenerated_image_1790196085462.png')}
-                    className="text-[10px] text-rose-900 dark:text-rose-400 hover:underline font-semibold cursor-pointer"
+                    onClick={() => {
+                      setLogoUrl('');
+                      setQrLogoUrl('');
+                    }}
+                    className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline font-semibold cursor-pointer"
                   >
-                    Restablecer original
+                    Quitar logo
                   </button>
-                )}
+                ) : null}
               </div>
 
               <div className="flex items-center gap-3.5">
                 <div className="w-16 h-16 rounded-md overflow-hidden border border-slate-300 dark:border-slate-700 shadow-xs bg-white dark:bg-slate-900 shrink-0 flex items-center justify-center p-0.5">
-                  <img
-                    src={logoUrl || '/src/assets/images/regenerated_image_1790196085462.png'}
-                    alt="Logo actual"
-                    className="w-full h-full object-cover rounded-md"
-                    referrerPolicy="no-referrer"
-                  />
+                  {logoUrl ? (
+                    <img
+                      src={logoUrl}
+                      alt="Logo actual"
+                      className="w-full h-full object-contain rounded-md"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-slate-400 text-center">
+                      <Store className="w-6 h-6 stroke-[1.5]" />
+                      <span className="text-[9px] mt-0.5 font-medium">Sin logo</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex-1 space-y-2">
@@ -879,8 +889,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         src={qrLogoUrl}
                         alt="Vista previa logo"
                         className="w-full h-full object-contain rounded-lg"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = '/src/assets/images/regenerated_image_1790196085462.png';
+                        onError={() => {
+                          setQrLogoUrl('');
                         }}
                       />
                     ) : (

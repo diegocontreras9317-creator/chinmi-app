@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem, CustomerBillingInfo, ElectronicInvoiceStatus, AppStateData } from '../types';
+import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem, CustomerBillingInfo, ElectronicInvoiceStatus, AppStateData, User } from '../types';
 import { extractTableBillingInfo, normalizeBillingInfo, hasCustomBillingData } from '../utils/billing';
 import { resolveProductTax, resolveOrderItemTax, calculateOrderTaxBreakdown } from '../utils/taxes';
-import { defaultAppConfig, AppConfig } from '../config/appConfig';
+import { defaultAppConfig, AppConfig, QrMenuSettings } from '../config/appConfig';
 import { loadStoredData, saveStoredData, subscribeToSyncChannel, fetchCloudState, pushCloudState, mergeAppState } from '../services/storage';
 import {
   fetchUserFirestoreData,
@@ -31,12 +31,80 @@ import {
   releaseTableInFirestore,
   executeSaleCheckoutBatch,
   saveUserQrConfig,
+  saveUserAppConfig,
+  subscribeUserAppConfig,
+  getUserAppConfig,
   getActiveUserId
 } from '../services/firestoreUserStorage';
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
 import { playServiceBell, playNewOrderAlert } from '../utils/audioAlert';
 import { getUnitConversionFactor } from '../utils/recipeUnits';
+
+/**
+ * Construye una configuración limpia y aislada por cuenta/restaurante.
+ * Garantiza que ninguna cuenta herede el logo, banner, wallpaper o categorías de otra cuenta.
+ */
+export function buildAccountConfig(
+  savedCustom?: Partial<AppConfig> | null,
+  userObj?: User | null,
+  uid?: string | null
+): AppConfig {
+  const base: AppConfig = {
+    ...defaultAppConfig,
+    logoUrl: '',
+    categories: [...defaultAppConfig.categories],
+    qrSettings: {
+      ...defaultAppConfig.qrSettings,
+      logoUrl: '',
+      bannerUrl: '',
+      bgImageUrl: '',
+      categories: [...defaultAppConfig.categories]
+    }
+  };
+
+  if (!uid && !userObj) {
+    return base;
+  }
+
+  const effectiveBusinessName = userObj?.businessName || savedCustom?.businessName || base.businessName;
+  const effectiveBusinessAddress =
+    userObj?.businessAddress !== undefined
+      ? userObj.businessAddress
+      : (savedCustom?.businessAddress ?? base.businessAddress);
+
+  const mergedQrSettings: QrMenuSettings = {
+    ...base.qrSettings,
+    ...(savedCustom?.qrSettings || {})
+  };
+
+  const effectiveLogoUrl = savedCustom?.logoUrl !== undefined
+    ? savedCustom.logoUrl
+    : (savedCustom?.qrSettings?.logoUrl || '');
+
+  if (effectiveLogoUrl && !mergedQrSettings.logoUrl) {
+    mergedQrSettings.logoUrl = effectiveLogoUrl;
+  }
+
+  const effectiveCategories = Array.isArray(savedCustom?.categories) && savedCustom.categories.length > 0
+    ? savedCustom.categories
+    : (Array.isArray(savedCustom?.qrSettings?.categories) && savedCustom.qrSettings.categories.length > 0
+      ? savedCustom.qrSettings.categories
+      : base.categories);
+
+  return {
+    ...base,
+    ...(savedCustom || {}),
+    businessName: effectiveBusinessName,
+    businessAddress: effectiveBusinessAddress,
+    logoUrl: effectiveLogoUrl,
+    categories: effectiveCategories,
+    qrSettings: {
+      ...mergedQrSettings,
+      categories: effectiveCategories
+    }
+  };
+}
 
 export interface NewOrderNotification {
   id: string;
@@ -200,19 +268,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const activeOperatorId = empleadoActivo?.id || user?.id || '';
   const [config, setConfig] = useState<AppConfig>(() => {
     try {
-      const savedConfig = localStorage.getItem('appgenerica_custom_config');
-      if (savedConfig) {
-        const parsed = JSON.parse(savedConfig);
-        return {
-          ...defaultAppConfig,
-          ...parsed,
-          qrSettings: { ...defaultAppConfig.qrSettings, ...(parsed.qrSettings || {}) }
-        };
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('appgenerica_custom_config'); // Purge legacy shared key
+      }
+      const initialUid = auth.currentUser?.uid || user?.id;
+      if (initialUid) {
+        const savedConfig = localStorage.getItem(`appgenerica_custom_config_${initialUid}`);
+        if (savedConfig) {
+          const parsed = JSON.parse(savedConfig);
+          return buildAccountConfig(parsed, user, initialUid);
+        }
       }
     } catch (e) {
       console.error(e);
     }
-    return defaultAppConfig;
+    return buildAccountConfig(null, user, auth.currentUser?.uid || user?.id);
   });
 
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -303,6 +373,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Real-time Firestore Subscriptions for authenticated UID
   useEffect(() => {
     if (!activeUid || activeUid === 'default') {
+      setConfig(buildAccountConfig(null, null, null));
       setTables([]);
       setProducts([]);
       setPerishables([]);
@@ -312,7 +383,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    // Immediately isolate state for new activeUid: clear arrays from previous session
+    setTables([]);
+    setProducts([]);
+    setPerishables([]);
+    setSuppliers([]);
+    setSupplierOrders([]);
+    setSales([]);
+
+    // Load account-specific cached config or start fresh
+    try {
+      const savedUserConfig = localStorage.getItem(`appgenerica_custom_config_${activeUid}`);
+      if (savedUserConfig) {
+        const parsed = JSON.parse(savedUserConfig);
+        setConfig(buildAccountConfig(parsed, user, activeUid));
+      } else {
+        setConfig(buildAccountConfig(null, user, activeUid));
+      }
+    } catch {
+      setConfig(buildAccountConfig(null, user, activeUid));
+    }
+
     setCloudStatus('syncing');
+
+    // Subscribe to remote account config in Firestore
+    const unsubAppConfig = subscribeUserAppConfig(activeUid, (remoteConfig) => {
+      if (remoteConfig) {
+        setConfig(prev => {
+          const merged = buildAccountConfig({ ...prev, ...remoteConfig }, user, activeUid);
+          try {
+            localStorage.setItem(`appgenerica_custom_config_${activeUid}`, JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+      }
+    });
 
     const unsubTables = subscribeUserTables(activeUid, (newTables) => {
       // Audio chime check for new waiter/bill calls
@@ -514,6 +619,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return () => {
+      if (unsubAppConfig) unsubAppConfig();
       unsubTables();
       unsubOrders();
       unsubMenu();
@@ -578,26 +684,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Sync registered businessName & businessAddress from authenticated user into config
   useEffect(() => {
     if (!user) return;
+    const currentUid = getActiveUserId(user.id);
     setConfig(prev => {
       let nextName = prev.businessName;
       let nextAddr = prev.businessAddress;
 
       // Prefer user-specific saved config if available
       try {
-        const userSaved = localStorage.getItem(`appgenerica_custom_config_${user.id}`);
-        if (userSaved) {
-          const parsed = JSON.parse(userSaved);
-          const merged = {
-            ...defaultAppConfig,
-            ...parsed,
-            businessName: user.businessName || parsed.businessName || defaultAppConfig.businessName,
-            businessAddress:
-              user.businessAddress !== undefined
-                ? user.businessAddress
-                : (parsed.businessAddress ?? ''),
-            qrSettings: { ...defaultAppConfig.qrSettings, ...(parsed.qrSettings || {}) }
-          };
-          return merged;
+        if (currentUid) {
+          const userSaved = localStorage.getItem(`appgenerica_custom_config_${currentUid}`);
+          if (userSaved) {
+            const parsed = JSON.parse(userSaved);
+            return buildAccountConfig({
+              ...parsed,
+              businessName: user.businessName || parsed.businessName || defaultAppConfig.businessName,
+              businessAddress:
+                user.businessAddress !== undefined
+                  ? user.businessAddress
+                  : (parsed.businessAddress ?? '')
+            }, user, currentUid);
+          }
         }
       } catch {
         // ignore
@@ -627,12 +733,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [user?.id, user?.businessName, user?.businessAddress]);
 
   const updateConfig = (partial: Partial<AppConfig>) => {
+    const currentUid = getActiveUserId(user?.id);
     setConfig(prev => {
       const updated = { ...prev, ...partial };
       try {
-        localStorage.setItem('appgenerica_custom_config', JSON.stringify(updated));
-        if (user?.id) {
-          localStorage.setItem(`appgenerica_custom_config_${user.id}`, JSON.stringify(updated));
+        if (currentUid && currentUid !== 'default') {
+          localStorage.setItem(`appgenerica_custom_config_${currentUid}`, JSON.stringify(updated));
         }
       } catch {
         // ignore
@@ -640,11 +746,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (partial.businessName !== undefined || partial.businessAddress !== undefined) {
         updateUserBusinessInfo(updated.businessName, updated.businessAddress);
       }
-      if (partial.qrSettings !== undefined) {
-        const activeUid = getActiveUserId(user?.id);
-        if (activeUid) {
-          saveUserQrConfig(activeUid, updated.qrSettings);
-        }
+      if (currentUid && currentUid !== 'default') {
+        saveUserAppConfig(currentUid, updated).catch(err => {
+          console.error("Error al guardar la configuración del restaurante en Firestore:", err);
+        });
       }
       return updated;
     });

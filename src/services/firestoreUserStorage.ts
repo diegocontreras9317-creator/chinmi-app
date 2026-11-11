@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, OrderItem, Empleado, Supplier, SupplierOrder } from '../types';
+import { AppConfig } from '../config/appConfig';
 import { getUnitConversionFactor } from '../utils/recipeUnits';
 
 export enum OperationType {
@@ -1374,3 +1375,120 @@ export function subscribeUserQrConfig(uid: string, onUpdate: (settings: any) => 
     handleFirestoreError(err, OperationType.GET, `users/${uid}/config/qrSettings`);
   });
 }
+
+/**
+ * Guarda la configuración general y visual del restaurante (logo, banner, wallpaper, categorías, etc.)
+ * en la subcolección users/${uid}/config/appConfig y en users/${uid} para aislamiento multi-empresa estricto.
+ */
+export async function saveUserAppConfig(uid: string, config: Partial<AppConfig>): Promise<void> {
+  if (!uid) return;
+  const path = `users/${uid}/config/appConfig`;
+  try {
+    const cleanConfig = sanitizeForFirestore({
+      ...config,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Guardar en subcolección config/appConfig
+    const configDocRef = doc(db, 'users', uid, 'config', 'appConfig');
+    await setDoc(configDocRef, cleanConfig, { merge: true });
+
+    // Si viene qrSettings, actualizar también config/qrSettings
+    if (config.qrSettings) {
+      const qrDocRef = doc(db, 'users', uid, 'config', 'qrSettings');
+      await setDoc(qrDocRef, sanitizeForFirestore({ ...config.qrSettings, updatedAt: new Date().toISOString() }), { merge: true });
+    }
+
+    // Guardar en documento raíz users/${uid} para redundancia y consultas directas
+    const userDocRef = doc(db, 'users', uid);
+    const userPayload: any = {
+      updatedAt: new Date().toISOString()
+    };
+    if (config.businessName) userPayload.businessName = config.businessName;
+    if (config.businessAddress !== undefined) userPayload.businessAddress = config.businessAddress;
+    if (config.businessPhone !== undefined) userPayload.businessPhone = config.businessPhone;
+    if (config.businessTaxId !== undefined) userPayload.businessTaxId = config.businessTaxId;
+    if (config.logoUrl !== undefined) userPayload.logoUrl = config.logoUrl;
+    if (config.categories !== undefined) userPayload.categories = config.categories;
+    if (config.qrSettings !== undefined) userPayload.qrSettings = config.qrSettings;
+
+    await setDoc(userDocRef, userPayload, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Escucha en tiempo real la configuración completa del restaurante desde users/${uid}/config/appConfig.
+ */
+export function subscribeUserAppConfig(uid: string, onUpdate: (config: Partial<AppConfig> | null) => void): Unsubscribe {
+  if (!uid) {
+    onUpdate(null);
+    return () => {};
+  }
+  const path = `users/${uid}/config/appConfig`;
+  const configDocRef = doc(db, 'users', uid, 'config', 'appConfig');
+
+  return onSnapshot(configDocRef, async (snap) => {
+    if (snap.exists()) {
+      onUpdate(snap.data() as Partial<AppConfig>);
+    } else {
+      // Fallback a users/${uid} o subcolección qrSettings si aún no existe appConfig
+      try {
+        const userDocRef = doc(db, 'users', uid);
+        const uSnap = await getDoc(userDocRef);
+        if (uSnap.exists()) {
+          const uData = uSnap.data();
+          const fallbackConfig: Partial<AppConfig> = {};
+          if (uData.businessName) fallbackConfig.businessName = uData.businessName;
+          if (uData.businessAddress !== undefined) fallbackConfig.businessAddress = uData.businessAddress;
+          if (uData.businessPhone !== undefined) fallbackConfig.businessPhone = uData.businessPhone;
+          if (uData.businessTaxId !== undefined) fallbackConfig.businessTaxId = uData.businessTaxId;
+          if (uData.logoUrl !== undefined) fallbackConfig.logoUrl = uData.logoUrl;
+          if (uData.categories !== undefined) fallbackConfig.categories = uData.categories;
+          if (uData.qrSettings !== undefined) fallbackConfig.qrSettings = uData.qrSettings;
+          onUpdate(Object.keys(fallbackConfig).length > 0 ? fallbackConfig : null);
+        } else {
+          onUpdate(null);
+        }
+      } catch {
+        onUpdate(null);
+      }
+    }
+  }, (err) => {
+    handleFirestoreError(err, OperationType.GET, path);
+    onUpdate(null);
+  });
+}
+
+/**
+ * Obtiene la configuración del restaurante una sola vez.
+ */
+export async function getUserAppConfig(uid: string): Promise<Partial<AppConfig> | null> {
+  if (!uid) return null;
+  const path = `users/${uid}/config/appConfig`;
+  try {
+    const configDocRef = doc(db, 'users', uid, 'config', 'appConfig');
+    const snap = await getDoc(configDocRef);
+    if (snap.exists()) {
+      return snap.data() as Partial<AppConfig>;
+    }
+    const userDocRef = doc(db, 'users', uid);
+    const uSnap = await getDoc(userDocRef);
+    if (uSnap.exists()) {
+      const uData = uSnap.data();
+      const fallbackConfig: Partial<AppConfig> = {};
+      if (uData.businessName) fallbackConfig.businessName = uData.businessName;
+      if (uData.businessAddress !== undefined) fallbackConfig.businessAddress = uData.businessAddress;
+      if (uData.logoUrl !== undefined) fallbackConfig.logoUrl = uData.logoUrl;
+      if (uData.categories !== undefined) fallbackConfig.categories = uData.categories;
+      if (uData.qrSettings !== undefined) fallbackConfig.qrSettings = uData.qrSettings;
+      return Object.keys(fallbackConfig).length > 0 ? fallbackConfig : null;
+    }
+    return null;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+    return null;
+  }
+}
+

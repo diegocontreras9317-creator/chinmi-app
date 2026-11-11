@@ -118,8 +118,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     }
   }, [urlUid, urlMesa]);
 
-  const activeTable = qrTable || tables.find(t => t.id === urlMesa || t.id === tableId) || null;
-  const activeProducts = qrMenuProducts.length > 0 ? qrMenuProducts : products;
+  const activeTable = qrTable || (urlUid ? null : tables.find(t => t.id === urlMesa || t.id === tableId)) || null;
+  const activeProducts = urlUid ? qrMenuProducts : (qrMenuProducts.length > 0 ? qrMenuProducts : products);
 
   const table = activeTable;
 
@@ -172,7 +172,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       });
     }
 
-    if (set.size <= 1 && config.categories && config.categories.length > 0) {
+    if (!urlUid && set.size <= 1 && config.categories && config.categories.length > 0) {
       config.categories.forEach(c => {
         if (c && c !== 'Todas las categorías') set.add(c);
       });
@@ -183,7 +183,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     }
 
     return Array.from(set);
-  }, [firestoreQrSettings?.categories, activeProducts, config.categories]);
+  }, [firestoreQrSettings?.categories, activeProducts, config.categories, urlUid]);
 
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas las categorías');
   const [searchQuery, setSearchQuery] = useState('');
@@ -829,12 +829,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const isWaiterCurrentlyCalled = table.waiterCall?.type === 'waiter';
   const isBillCurrentlyRequested = table.status === 'cuenta' || table.waiterCall?.type === 'bill';
 
-  const bgImage = firestoreQrSettings?.bgImageUrl || qrSettings.bgImageUrl;
-  const customTextColor = firestoreQrSettings?.textColor || qrSettings.textColor || '';
-  const customAccentColor = firestoreQrSettings?.accentColor || qrSettings.accentColor || '#e11d48';
-  const restaurantLogo = firestoreQrSettings?.logoUrl || qrSettings.logoUrl || config.logoUrl || '';
-  const restaurantBanner = firestoreQrSettings?.bannerUrl || qrSettings.bannerUrl || '';
-  const restaurantName = config.businessName || 'Restaurante';
+  const bgImage = urlUid ? (firestoreQrSettings?.bgImageUrl || '') : (firestoreQrSettings?.bgImageUrl || qrSettings.bgImageUrl || '');
+  const customTextColor = urlUid ? (firestoreQrSettings?.textColor || '') : (firestoreQrSettings?.textColor || qrSettings.textColor || '');
+  const customAccentColor = urlUid ? (firestoreQrSettings?.accentColor || '#e11d48') : (firestoreQrSettings?.accentColor || qrSettings.accentColor || '#e11d48');
+  const restaurantLogo = urlUid ? (firestoreQrSettings?.logoUrl || '') : (firestoreQrSettings?.logoUrl || qrSettings.logoUrl || config.logoUrl || '');
+  const restaurantBanner = urlUid ? (firestoreQrSettings?.bannerUrl || '') : (firestoreQrSettings?.bannerUrl || qrSettings.bannerUrl || '');
+  const restaurantName = (urlUid ? (firestoreQrSettings?.businessName || '') : '') || config.businessName || 'Restaurante';
   const restaurantInitials = restaurantName
     .split(' ')
     .filter(Boolean)

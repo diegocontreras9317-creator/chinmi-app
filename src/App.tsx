@@ -21,10 +21,13 @@ import { UnverifiedEmailBanner } from './components/common/UnverifiedEmailBanner
 import { BillingModule } from './components/billing/BillingModule';
 
 const MainLayout: React.FC = () => {
-  const { isGerente, empleadoActivo } = useAuth();
+  const { isGerente, isContabilidad, empleadoActivo } = useAuth();
   const { theme, customerViewTableId, setCustomerViewTableId } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'tables' | 'inventory' | 'perishables' | 'sales' | 'billing'>('tables');
+  const [activeTab, setActiveTab] = useState<'tables' | 'inventory' | 'perishables' | 'sales' | 'billing'>(() => {
+    if (empleadoActivo?.rol === 'Contabilidad') return 'sales';
+    return 'tables';
+  });
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
@@ -38,12 +41,14 @@ const MainLayout: React.FC = () => {
     customerViewTableId !== null
   );
 
-  // Enforce: Cajero and Camarero ONLY have access to tables and orders
+  // Enforce role-based access
   React.useEffect(() => {
-    if (!isGerente && activeTab !== 'tables') {
+    if (isContabilidad && activeTab !== 'sales' && activeTab !== 'billing') {
+      setActiveTab('sales');
+    } else if (!isGerente && !isContabilidad && activeTab !== 'tables') {
       setActiveTab('tables');
     }
-  }, [isGerente, activeTab]);
+  }, [isGerente, isContabilidad, activeTab]);
 
   // If viewing customer digital menu / QR order portal, display it directly (NO staff login required)
   if (isPublicMenuRoute) {
@@ -75,14 +80,15 @@ const MainLayout: React.FC = () => {
             setActiveTab={(tab) => {
               if (tab === 'sales') {
                 if (isGerente) setIsSalesModalOpen(true);
+                else if (isContabilidad) setActiveTab('sales');
               } else if (tab === 'billing') {
-                if (isGerente) setActiveTab('billing');
+                if (isGerente || isContabilidad) setActiveTab('billing');
               } else if (tab === 'inventory') {
                 if (isGerente) setActiveTab('inventory');
               } else if (tab === 'perishables') {
                 if (isGerente) setActiveTab('perishables');
               } else {
-                setActiveTab('tables');
+                if (isGerente || (!isGerente && !isContabilidad)) setActiveTab('tables');
               }
             }}
             onOpenSubscription={() => {
@@ -98,12 +104,22 @@ const MainLayout: React.FC = () => {
 
           {/* Main Content Area */}
           <main className="flex-1 pb-12">
-            {activeTab === 'tables' && (
+            {!isContabilidad && activeTab === 'tables' && (
               <TablesModule
                 onOpenSubscription={() => {
                   if (isGerente) setIsSubscriptionOpen(true);
                 }}
               />
+            )}
+
+            {isContabilidad && activeTab === 'sales' && (
+              <div className="p-4 sm:p-6 max-w-7xl mx-auto w-full">
+                <SalesHistoryModal
+                  isOpen={true}
+                  onClose={() => {}}
+                  embedded={true}
+                />
+              </div>
             )}
 
             {isGerente && activeTab === 'inventory' && (
@@ -118,9 +134,9 @@ const MainLayout: React.FC = () => {
               />
             )}
 
-            {isGerente && activeTab === 'billing' && (
+            {(isGerente || isContabilidad) && activeTab === 'billing' && (
               <BillingModule
-                onBackToTables={() => setActiveTab('tables')}
+                onBackToTables={() => setActiveTab(isContabilidad ? 'sales' : 'tables')}
               />
             )}
           </main>

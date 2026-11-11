@@ -39,6 +39,7 @@ import { ExportGroupingMode } from '../../utils/excelBillingExport';
 interface SalesHistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
+  embedded?: boolean;
 }
 
 const MONTH_NAMES_ES = [
@@ -86,7 +87,8 @@ function shiftDateKey(dateKey: string, deltaDays: number): string {
 
 export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   isOpen,
-  onClose
+  onClose,
+  embedded = false
 }) => {
   const {
     config,
@@ -115,10 +117,10 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
   const calendarContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isOpen && loadFullSalesHistory) {
+    if ((isOpen || embedded) && loadFullSalesHistory) {
       loadFullSalesHistory();
     }
-  }, [isOpen, loadFullSalesHistory]);
+  }, [isOpen, embedded, loadFullSalesHistory]);
 
   useEffect(() => {
     if (!isCalendarOpen) return;
@@ -177,7 +179,7 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
     return cells;
   }, [viewMonthDate]);
 
-  if (!isOpen) return null;
+  if (!isOpen && !embedded) return null;
 
   const todayKey = toLocalDateKey(new Date());
 
@@ -298,10 +300,10 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
+  const modalContent = (
+    <>
       <div
-        className={`w-full max-w-6xl bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden max-h-[94vh] flex flex-col ${
+        className={`w-full ${embedded ? 'max-w-none shadow-sm' : 'max-w-6xl shadow-2xl'} bg-white dark:bg-slate-900 ${embedded ? 'rounded-xl border border-slate-200 dark:border-slate-800' : 'rounded-2xl sm:rounded-3xl border border-slate-200 dark:border-slate-800'} overflow-hidden ${embedded ? '' : 'max-h-[94vh]'} flex flex-col ${
           isCalendarOpen ? 'min-h-[580px]' : ''
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -353,13 +355,15 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
               <span className="sm:hidden">Excel FE</span>
             </button>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {!embedded && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1085,6 +1089,16 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
         onSaveSaleBilling={updateSaleBillingInfo}
         onBulkMarkIssued={bulkUpdateElectronicInvoiceStatus}
       />
+    </>
+  );
+
+  if (embedded) {
+    return modalContent;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in">
+      {modalContent}
     </div>
   );
 };

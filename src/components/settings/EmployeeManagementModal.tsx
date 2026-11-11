@@ -17,7 +17,8 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface EmployeeManagementModalProps {
@@ -38,7 +39,8 @@ const ROLE_ICONS: Record<EmpleadoRol, React.ReactNode> = {
   Admin: <ShieldCheck className="w-4 h-4 text-stone-700 dark:text-stone-300" />,
   Cajero: <CreditCard className="w-4 h-4 text-slate-700 dark:text-slate-300" />,
   Mesero: <UtensilsCrossed className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />,
-  Barman: <Wine className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+  Barman: <Wine className="w-4 h-4 text-amber-700 dark:text-amber-400" />,
+  Contabilidad: <FileSpreadsheet className="w-4 h-4 text-indigo-700 dark:text-indigo-400" />
 };
 
 export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = ({
@@ -250,6 +252,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                       <option value="Mesero">Mesero (Mesas, comandas y platos)</option>
                       <option value="Cajero">Cajero (Mesas, comandas y cobro)</option>
                       <option value="Barman">Barman (Barra y pedidos de bebidas)</option>
+                      <option value="Contabilidad">Contabilidad (Informes de ventas y facturación)</option>
                       <option value="Admin">Admin (Control total, reportes e inventario)</option>
                     </select>
                   </div>

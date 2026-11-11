@@ -1355,6 +1355,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <option value="cajero">💳 Cajero (Mesas y Cobro)</option>
                   <option value="camarero">👩‍🍳 Camarero (Mesas y Pedidos)</option>
                   <option value="barman">🍸 Barman (Barra y Bebidas)</option>
+                  <option value="contabilidad">📊 Contabilidad (Historial y Facturación)</option>
                   <option value="gerente">👑 Gerente (Control Total)</option>
                 </select>
               </div>
@@ -1419,6 +1420,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <option value="cajero">💳 Cajero (Mesas y Cobro)</option>
                           <option value="camarero">👩‍🍳 Camarero (Mesas y Pedidos)</option>
                           <option value="barman">🍸 Barman (Barra)</option>
+                          <option value="contabilidad">📊 Contabilidad (Informes)</option>
                         </select>
 
                         {!isCurrentLogged && (

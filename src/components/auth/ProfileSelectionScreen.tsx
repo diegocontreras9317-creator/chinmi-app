@@ -15,7 +15,8 @@ import {
   Wine,
   Sparkles,
   KeyRound,
-  Check
+  Check,
+  FileSpreadsheet
 } from 'lucide-react';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 
@@ -82,6 +83,11 @@ const ROLE_BADGES: Record<EmpleadoRol, { label: string; badge: string; icon: Rea
     label: 'Barman / Barra',
     badge: 'bg-amber-950/60 text-amber-300 border-amber-800/60',
     icon: <Wine className="w-3.5 h-3.5" />
+  },
+  Contabilidad: {
+    label: 'Contabilidad',
+    badge: 'bg-indigo-950/60 text-indigo-300 border-indigo-800/60',
+    icon: <FileSpreadsheet className="w-3.5 h-3.5" />
   }
 };
 

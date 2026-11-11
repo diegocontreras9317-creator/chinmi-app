@@ -1,7 +1,7 @@
 export type PlanType = 'free' | 'pro';
 export type BillingFrequency = 'monthly' | 'quarterly' | 'annual';
 
-export type UserRole = 'gerente' | 'cajero' | 'camarero' | 'barman';
+export type UserRole = 'gerente' | 'cajero' | 'camarero' | 'barman' | 'contabilidad';
 
 export interface RolePermissionConfig {
   label: string;
@@ -55,6 +55,16 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissionConfig> = {
     canManageTableLayout: false,
     canAccessTablesAndOrders: true,
   },
+  contabilidad: {
+    label: 'Contabilidad',
+    badgeLabel: 'Solo Informes y Facturación',
+    description: 'Acceso exclusivo a informes de historial de ventas y facturación contable.',
+    canManageBusiness: false,
+    canManageInventory: false,
+    canViewSalesReports: true,
+    canManageTableLayout: false,
+    canAccessTablesAndOrders: false,
+  },
 };
 
 export interface User {
@@ -72,7 +82,7 @@ export interface User {
   createdAt: string;
 }
 
-export type EmpleadoRol = 'Admin' | 'Mesero' | 'Cajero' | 'Barman';
+export type EmpleadoRol = 'Admin' | 'Mesero' | 'Cajero' | 'Barman' | 'Contabilidad';
 
 export interface Empleado {
   id: string;

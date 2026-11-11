@@ -47,6 +47,7 @@ interface AuthContextType {
   actualizarEmpleado: (id: string, partial: Partial<Empleado>) => Promise<{ success: boolean; error?: string }>;
   eliminarEmpleado: (id: string) => Promise<{ success: boolean; error?: string }>;
   isGerente: boolean;
+  isContabilidad: boolean;
   canManageInventory: boolean;
   canManageBusiness: boolean;
   canViewSalesReports: boolean;
@@ -1005,9 +1006,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Si hay un perfil de empleado activo seleccionado, sus permisos mandan ("Admin", "Mesero", "Cajero", "Barman").
   // Si aún no se ha seleccionado perfil, usamos el rol global del dueño.
   const isGerente = empleadoActivo ? empleadoActivo.rol === 'Admin' : user?.role === 'gerente';
+  const isContabilidad = empleadoActivo ? empleadoActivo.rol === 'Contabilidad' : user?.role === 'contabilidad';
   const canManageInventory = isGerente;
   const canManageBusiness = isGerente;
-  const canViewSalesReports = isGerente;
+  const canViewSalesReports = isGerente || isContabilidad;
   const canManageTableLayout = isGerente;
 
   const hasActivePaidSubscription = (() => {
@@ -1034,6 +1036,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         actualizarEmpleado,
         eliminarEmpleado,
         isGerente,
+        isContabilidad,
         canManageInventory,
         canManageBusiness,
         canViewSalesReports,

@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
 import { compressImageFile } from '../../utils/imageCompressor';
+import { computeCustomContainerStyle } from '../../utils/qrCustomization';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -101,6 +102,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [qrLogoUrl, setQrLogoUrl] = useState(config.qrSettings?.logoUrl || config.logoUrl || '');
   const [qrBannerUrl, setQrBannerUrl] = useState(config.qrSettings?.bannerUrl || '');
 
+  // Personalización avanzada de Tarjetas de Productos
+  const [cardBgColor, setCardBgColor] = useState(config.qrSettings?.cardBgColor || '#ffffff');
+  const [cardBgOpacity, setCardBgOpacity] = useState<number>(config.qrSettings?.cardBgOpacity ?? 100);
+  const [cardBgImageUrl, setCardBgImageUrl] = useState(config.qrSettings?.cardBgImageUrl || '');
+  const [cardBgFit, setCardBgFit] = useState<'cover' | 'contain' | 'center'>(config.qrSettings?.cardBgFit || 'cover');
+  const [cardOverlayColor, setCardOverlayColor] = useState(config.qrSettings?.cardOverlayColor || '#000000');
+  const [cardOverlayOpacity, setCardOverlayOpacity] = useState<number>(config.qrSettings?.cardOverlayOpacity ?? 0);
+  const [cardTextColor, setCardTextColor] = useState(config.qrSettings?.cardTextColor || '');
+  const [cardAutoContrast, setCardAutoContrast] = useState<boolean>(config.qrSettings?.cardAutoContrast ?? true);
+
+  // Personalización avanzada del Contenedor de Categorías
+  const [catBgColor, setCatBgColor] = useState(config.qrSettings?.catBgColor || '#ffffff');
+  const [catBgOpacity, setCatBgOpacity] = useState<number>(config.qrSettings?.catBgOpacity ?? 100);
+  const [catBgImageUrl, setCatBgImageUrl] = useState(config.qrSettings?.catBgImageUrl || '');
+  const [catBgFit, setCatBgFit] = useState<'cover' | 'contain' | 'center'>(config.qrSettings?.catBgFit || 'cover');
+  const [catOverlayColor, setCatOverlayColor] = useState(config.qrSettings?.catOverlayColor || '#000000');
+  const [catOverlayOpacity, setCatOverlayOpacity] = useState<number>(config.qrSettings?.catOverlayOpacity ?? 0);
+  const [catTextColor, setCatTextColor] = useState(config.qrSettings?.catTextColor || '');
+  const [catAutoContrast, setCatAutoContrast] = useState<boolean>(config.qrSettings?.catAutoContrast ?? true);
+
   useEffect(() => {
     if (isOpen) {
       setAppName(config.appName);
@@ -123,12 +144,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setAccentColor(config.qrSettings?.accentColor || '#e11d48');
       setQrLogoUrl(config.qrSettings?.logoUrl || currentLogo);
       setQrBannerUrl(config.qrSettings?.bannerUrl || '');
+
+      setCardBgColor(config.qrSettings?.cardBgColor || '#ffffff');
+      setCardBgOpacity(config.qrSettings?.cardBgOpacity ?? 100);
+      setCardBgImageUrl(config.qrSettings?.cardBgImageUrl || '');
+      setCardBgFit(config.qrSettings?.cardBgFit || 'cover');
+      setCardOverlayColor(config.qrSettings?.cardOverlayColor || '#000000');
+      setCardOverlayOpacity(config.qrSettings?.cardOverlayOpacity ?? 0);
+      setCardTextColor(config.qrSettings?.cardTextColor || '');
+      setCardAutoContrast(config.qrSettings?.cardAutoContrast ?? true);
+
+      setCatBgColor(config.qrSettings?.catBgColor || '#ffffff');
+      setCatBgOpacity(config.qrSettings?.catBgOpacity ?? 100);
+      setCatBgImageUrl(config.qrSettings?.catBgImageUrl || '');
+      setCatBgFit(config.qrSettings?.catBgFit || 'cover');
+      setCatOverlayColor(config.qrSettings?.catOverlayColor || '#000000');
+      setCatOverlayOpacity(config.qrSettings?.catOverlayOpacity ?? 0);
+      setCatTextColor(config.qrSettings?.catTextColor || '');
+      setCatAutoContrast(config.qrSettings?.catAutoContrast ?? true);
     }
   }, [isOpen, config]);
 
   const [isCompressingLogo, setIsCompressingLogo] = useState(false);
   const [isCompressingBanner, setIsCompressingBanner] = useState(false);
   const [isCompressingBg, setIsCompressingBg] = useState(false);
+  const [isCompressingCardBg, setIsCompressingCardBg] = useState(false);
+  const [isCompressingCatBg, setIsCompressingCatBg] = useState(false);
 
   const handleUploadLogo = async (file: File) => {
     try {
@@ -165,6 +206,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } finally {
       setIsCompressingBg(false);
     }
+  };
+
+  const handleUploadCardBg = async (file: File) => {
+    try {
+      setIsCompressingCardBg(true);
+      const compressed = await compressImageFile(file, 1080, 1080, 0.8, false);
+      setCardBgImageUrl(compressed);
+    } catch (err) {
+      console.error('Error al comprimir fondo de tarjeta:', err);
+    } finally {
+      setIsCompressingCardBg(false);
+    }
+  };
+
+  const handleUploadCatBg = async (file: File) => {
+    try {
+      setIsCompressingCatBg(true);
+      const compressed = await compressImageFile(file, 1080, 500, 0.8, false);
+      setCatBgImageUrl(compressed);
+    } catch (err) {
+      console.error('Error al comprimir fondo de categoría:', err);
+    } finally {
+      setIsCompressingCatBg(false);
+    }
+  };
+
+  const handleResetCardStyle = () => {
+    setCardBgColor('#ffffff');
+    setCardBgOpacity(100);
+    setCardBgImageUrl('');
+    setCardBgFit('cover');
+    setCardOverlayColor('#000000');
+    setCardOverlayOpacity(0);
+    setCardTextColor('');
+    setCardAutoContrast(true);
+  };
+
+  const handleResetCatStyle = () => {
+    setCatBgColor('#ffffff');
+    setCatBgOpacity(100);
+    setCatBgImageUrl('');
+    setCatBgFit('cover');
+    setCatOverlayColor('#000000');
+    setCatOverlayOpacity(0);
+    setCatTextColor('');
+    setCatAutoContrast(true);
   };
 
   // New Team Member State
@@ -209,7 +296,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         bgImageUrl: bgImageUrl.trim(),
         textColor: textColor.trim(),
         accentColor: accentColor.trim(),
-        categories: categories.filter(Boolean)
+        categories: categories.filter(Boolean),
+        cardBgColor,
+        cardBgOpacity,
+        cardBgImageUrl: cardBgImageUrl.trim(),
+        cardBgFit,
+        cardOverlayColor,
+        cardOverlayOpacity,
+        cardTextColor: cardTextColor.trim(),
+        cardAutoContrast,
+        catBgColor,
+        catBgOpacity,
+        catBgImageUrl: catBgImageUrl.trim(),
+        catBgFit,
+        catOverlayColor,
+        catOverlayOpacity,
+        catTextColor: catTextColor.trim(),
+        catAutoContrast
       }
     });
 
@@ -1147,6 +1250,530 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 </div>
 
+              </div>
+
+              {/* === SECCIÓN A: APARIENCIA DE TARJETAS DE PRODUCTOS === */}
+              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
+                      <span>Sección A: Apariencia de Tarjetas de Productos</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Personaliza el fondo, transparencia, imágenes y texto de los cuadros de productos en el menú QR.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetCardStyle}
+                    className="text-[10px] text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 font-bold underline cursor-pointer shrink-0"
+                  >
+                    Restablecer tarjetas
+                  </button>
+                </div>
+
+                {/* Color de fondo & Opacidad */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Color de Fondo (HEX)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={cardBgColor || '#ffffff'}
+                        onChange={(e) => setCardBgColor(e.target.value)}
+                        className="w-8 h-8 rounded-md border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={cardBgColor}
+                        onChange={(e) => setCardBgColor(e.target.value)}
+                        placeholder="#ffffff"
+                        className="w-full px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-mono text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                        Transparencia del Fondo
+                      </label>
+                      <span className="text-[11px] font-mono font-bold text-rose-950 dark:text-rose-300">
+                        {cardBgOpacity}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={cardBgOpacity}
+                      onChange={(e) => setCardBgOpacity(Number(e.target.value))}
+                      className="w-full accent-rose-900 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Imagen de Fondo de Tarjeta */}
+                <div className="space-y-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                      Imagen de Fondo de las Tarjetas
+                    </label>
+                    {cardBgImageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setCardBgImageUrl('')}
+                        className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                      >
+                        Quitar imagen
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <label className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700 font-bold text-xs cursor-pointer hover:bg-stone-200 shrink-0">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{isCompressingCardBg ? 'Optimizando...' : 'Subir imagen'}</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        disabled={isCompressingCardBg}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleUploadCardBg(file);
+                        }}
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      value={cardBgImageUrl}
+                      onChange={(e) => setCardBgImageUrl(e.target.value)}
+                      placeholder="O URL de imagen (https://...)"
+                      className="flex-1 px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
+                    />
+                  </div>
+
+                  {cardBgImageUrl && (
+                    <div className="pt-1 flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                        Ajuste de Imagen:
+                      </span>
+                      <div className="flex gap-1">
+                        {(['cover', 'contain', 'center'] as const).map((fit) => (
+                          <button
+                            key={fit}
+                            type="button"
+                            onClick={() => setCardBgFit(fit)}
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold capitalize transition cursor-pointer ${
+                              cardBgFit === fit
+                                ? 'bg-rose-950 text-white'
+                                : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                            }`}
+                          >
+                            {fit === 'cover' ? 'Cubrir' : fit === 'contain' ? 'Contener' : 'Centrar'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Superposición (Overlay) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Color de Superposición
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={cardOverlayColor || '#000000'}
+                        onChange={(e) => setCardOverlayColor(e.target.value)}
+                        className="w-8 h-8 rounded-md border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={cardOverlayColor}
+                        onChange={(e) => setCardOverlayColor(e.target.value)}
+                        placeholder="#000000"
+                        className="w-full px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-mono text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                        Opacidad de Superposición
+                      </label>
+                      <span className="text-[11px] font-mono font-bold text-rose-950 dark:text-rose-300">
+                        {cardOverlayOpacity}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={cardOverlayOpacity}
+                      onChange={(e) => setCardOverlayOpacity(Number(e.target.value))}
+                      className="w-full accent-rose-900 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Color de Texto y Auto-contraste */}
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                      Auto-contraste inteligente de texto (Recomendado)
+                    </label>
+                    <input
+                      type="checkbox"
+                      checked={cardAutoContrast}
+                      onChange={(e) => {
+                        setCardAutoContrast(e.target.checked);
+                        if (e.target.checked) setCardTextColor('');
+                      }}
+                      className="w-4 h-4 accent-rose-900 cursor-pointer"
+                    />
+                  </div>
+
+                  {!cardAutoContrast && (
+                    <div className="pt-1">
+                      <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200 mb-1">
+                        Color Manual de Texto de la Tarjeta
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={cardTextColor || '#0f172a'}
+                          onChange={(e) => setCardTextColor(e.target.value)}
+                          className="w-8 h-8 rounded-md border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={cardTextColor}
+                          onChange={(e) => setCardTextColor(e.target.value)}
+                          placeholder="#0f172a"
+                          className="w-full px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-mono text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Live Interactive Preview Box para Tarjetas */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-300 block">
+                    Vista Previa Interactiva en Tiempo Real (Tarjeta de producto):
+                  </span>
+                  {(() => {
+                    const sampleStyle = computeCustomContainerStyle({
+                      bgColor: cardBgColor,
+                      bgOpacity: cardBgOpacity,
+                      bgImageUrl: cardBgImageUrl,
+                      bgFit: cardBgFit,
+                      overlayColor: cardOverlayColor,
+                      overlayOpacity: cardOverlayOpacity,
+                      textColor: cardTextColor,
+                      autoContrast: cardAutoContrast
+                    });
+                    return (
+                      <div
+                        style={sampleStyle.containerStyle}
+                        className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative flex items-center justify-between gap-3 min-h-[90px]"
+                      >
+                        {sampleStyle.overlayStyle && <div style={sampleStyle.overlayStyle} />}
+                        <div className="relative z-10 flex items-center gap-3 min-w-0">
+                          <div className="w-14 h-14 rounded-xl bg-slate-200 dark:bg-slate-800 shrink-0 overflow-hidden border border-slate-300 dark:border-slate-700 flex items-center justify-center">
+                            <Utensils className="w-6 h-6 text-slate-500" />
+                          </div>
+                          <div className="min-w-0">
+                            <h5 className="font-extrabold text-xs truncate" style={{ color: sampleStyle.computedTextColor }}>
+                              Hamburguesa Gourmet Doble
+                            </h5>
+                            <p className="text-[10px] opacity-80 line-clamp-1 mt-0.5" style={{ color: sampleStyle.computedTextColor }}>
+                              Carne angus, queso cheddar derretido y tocineta crujiente.
+                            </p>
+                            <span className="font-mono font-black text-xs block mt-1" style={{ color: accentColor }}>
+                              $32.000 COP
+                            </span>
+                          </div>
+                        </div>
+                        <div className="relative z-10 shrink-0">
+                          <span
+                            className="px-3 py-1 rounded-xl text-white font-extrabold text-[11px] shadow-xs"
+                            style={{ backgroundColor: accentColor }}
+                          >
+                            Añadir
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* === SECCIÓN B: APARIENCIA DEL CONTENEDOR DE CATEGORÍAS === */}
+              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-extrabold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
+                      <span>Sección B: Apariencia del Contenedor de Categorías</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Personaliza el contenedor donde aparecen el título de la categoría activa, el conteo de productos y los botones de vista.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetCatStyle}
+                    className="text-[10px] text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 font-bold underline cursor-pointer shrink-0"
+                  >
+                    Restablecer contenedor
+                  </button>
+                </div>
+
+                {/* Color de fondo & Opacidad */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Color de Fondo del Contenedor
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={catBgColor || '#ffffff'}
+                        onChange={(e) => setCatBgColor(e.target.value)}
+                        className="w-8 h-8 rounded-md border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={catBgColor}
+                        onChange={(e) => setCatBgColor(e.target.value)}
+                        placeholder="#ffffff"
+                        className="w-full px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-mono text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                        Transparencia del Contenedor
+                      </label>
+                      <span className="text-[11px] font-mono font-bold text-rose-950 dark:text-rose-300">
+                        {catBgOpacity}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={catBgOpacity}
+                      onChange={(e) => setCatBgOpacity(Number(e.target.value))}
+                      className="w-full accent-rose-900 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Imagen de Fondo de Contenedor */}
+                <div className="space-y-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                      Imagen de Fondo del Contenedor
+                    </label>
+                    {catBgImageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setCatBgImageUrl('')}
+                        className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                      >
+                        Quitar imagen
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <label className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 border border-stone-200 dark:border-stone-700 font-bold text-xs cursor-pointer hover:bg-stone-200 shrink-0">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{isCompressingCatBg ? 'Optimizando...' : 'Subir imagen'}</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        disabled={isCompressingCatBg}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleUploadCatBg(file);
+                        }}
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      value={catBgImageUrl}
+                      onChange={(e) => setCatBgImageUrl(e.target.value)}
+                      placeholder="O URL de imagen (https://...)"
+                      className="flex-1 px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs"
+                    />
+                  </div>
+
+                  {catBgImageUrl && (
+                    <div className="pt-1 flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                        Ajuste de Imagen:
+                      </span>
+                      <div className="flex gap-1">
+                        {(['cover', 'contain', 'center'] as const).map((fit) => (
+                          <button
+                            key={fit}
+                            type="button"
+                            onClick={() => setCatBgFit(fit)}
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold capitalize transition cursor-pointer ${
+                              catBgFit === fit
+                                ? 'bg-rose-950 text-white'
+                                : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                            }`}
+                          >
+                            {fit === 'cover' ? 'Cubrir' : fit === 'contain' ? 'Contener' : 'Centrar'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Superposición (Overlay) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200 mb-1">
+                      Color de Superposición
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={catOverlayColor || '#000000'}
+                        onChange={(e) => setCatOverlayColor(e.target.value)}
+                        className="w-8 h-8 rounded-md border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={catOverlayColor}
+                        onChange={(e) => setCatOverlayColor(e.target.value)}
+                        placeholder="#000000"
+                        className="w-full px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-mono text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                        Opacidad de Superposición
+                      </label>
+                      <span className="text-[11px] font-mono font-bold text-rose-950 dark:text-rose-300">
+                        {catOverlayOpacity}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={catOverlayOpacity}
+                      onChange={(e) => setCatOverlayOpacity(Number(e.target.value))}
+                      className="w-full accent-rose-900 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Color de Texto y Auto-contraste */}
+                <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                      Auto-contraste inteligente de texto (Recomendado)
+                    </label>
+                    <input
+                      type="checkbox"
+                      checked={catAutoContrast}
+                      onChange={(e) => {
+                        setCatAutoContrast(e.target.checked);
+                        if (e.target.checked) setCatTextColor('');
+                      }}
+                      className="w-4 h-4 accent-rose-900 cursor-pointer"
+                    />
+                  </div>
+
+                  {!catAutoContrast && (
+                    <div className="pt-1">
+                      <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200 mb-1">
+                        Color Manual de Texto del Contenedor
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={catTextColor || '#0f172a'}
+                          onChange={(e) => setCatTextColor(e.target.value)}
+                          className="w-8 h-8 rounded-md border border-slate-300 dark:border-slate-700 cursor-pointer p-0 bg-transparent shrink-0"
+                        />
+                        <input
+                          type="text"
+                          value={catTextColor}
+                          onChange={(e) => setCatTextColor(e.target.value)}
+                          placeholder="#0f172a"
+                          className="w-full px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-mono text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Live Interactive Preview Box para Contenedor de Categorías */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-300 block">
+                    Vista Previa Interactiva en Tiempo Real (Contenedor de Categorías):
+                  </span>
+                  {(() => {
+                    const sampleCatStyle = computeCustomContainerStyle({
+                      bgColor: catBgColor,
+                      bgOpacity: catBgOpacity,
+                      bgImageUrl: catBgImageUrl,
+                      bgFit: catBgFit,
+                      overlayColor: catOverlayColor,
+                      overlayOpacity: catOverlayOpacity,
+                      textColor: catTextColor,
+                      autoContrast: catAutoContrast
+                    });
+                    return (
+                      <div
+                        style={sampleCatStyle.containerStyle}
+                        className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative flex items-center justify-between flex-wrap gap-2"
+                      >
+                        {sampleCatStyle.overlayStyle && <div style={sampleCatStyle.overlayStyle} />}
+                        <h4
+                          className="font-extrabold text-xs sm:text-sm flex items-center gap-2 relative z-10"
+                          style={{ color: sampleCatStyle.computedTextColor }}
+                        >
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: accentColor }} />
+                          <span>Platos Principales</span>
+                          <span className="text-[10px] font-medium bg-black/10 dark:bg-white/10 px-2 py-0.5 rounded-full">
+                            12 productos
+                          </span>
+                        </h4>
+                        <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-xl relative z-10 text-[10px]">
+                          <span className="px-2 py-1 rounded-lg font-bold text-white shadow-xs" style={{ backgroundColor: accentColor }}>
+                            Mediano
+                          </span>
+                          <span className="px-2 py-1 rounded-lg opacity-70">
+                            Lista
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
 

@@ -18,6 +18,26 @@ export interface QrMenuSettings {
   logoUrl?: string;           // Logo personalizado del restaurante para el menú QR (512x512)
   bannerUrl?: string;         // Banner horizontal del encabezado (1200x400)
   categories?: string[];      // Categorías configuradas para el menú QR
+
+  // Personalización avanzada de Tarjetas de Productos
+  cardBgColor?: string;               // Color HEX (ej. "#ffffff")
+  cardBgOpacity?: number;             // Transparencia 0..100
+  cardBgImageUrl?: string;            // Imagen de fondo JPG/PNG/WebP
+  cardBgFit?: 'cover' | 'contain' | 'center'; // Ajuste de imagen
+  cardOverlayColor?: string;          // Color HEX de superposición
+  cardOverlayOpacity?: number;        // Opacidad de superposición 0..100
+  cardTextColor?: string;             // Color de texto de la tarjeta o ''
+  cardAutoContrast?: boolean;         // Opción de auto-contraste
+
+  // Personalización avanzada del Contenedor de Categorías
+  catBgColor?: string;                // Color HEX (ej. "#ffffff")
+  catBgOpacity?: number;              // Transparencia 0..100
+  catBgImageUrl?: string;             // Imagen de fondo JPG/PNG/WebP
+  catBgFit?: 'cover' | 'contain' | 'center'; // Ajuste de imagen
+  catOverlayColor?: string;           // Color HEX de superposición
+  catOverlayOpacity?: number;         // Opacidad de superposición 0..100
+  catTextColor?: string;              // Color de texto del contenedor o ''
+  catAutoContrast?: boolean;          // Opción de auto-contraste
 }
 
 export interface AppConfig {
@@ -75,6 +95,22 @@ export const defaultAppConfig: AppConfig = {
     allowRequestBill: true,
     menuOnlyMode: false,
     qrTheme: 'default_normal',
-    menuViewMode: 'medium'
+    menuViewMode: 'medium',
+    cardBgColor: '#ffffff',
+    cardBgOpacity: 100,
+    cardBgImageUrl: '',
+    cardBgFit: 'cover',
+    cardOverlayColor: '#000000',
+    cardOverlayOpacity: 0,
+    cardTextColor: '',
+    cardAutoContrast: true,
+    catBgColor: '#ffffff',
+    catBgOpacity: 100,
+    catBgImageUrl: '',
+    catBgFit: 'cover',
+    catOverlayColor: '#000000',
+    catOverlayOpacity: 0,
+    catTextColor: '',
+    catAutoContrast: true
   }
 };

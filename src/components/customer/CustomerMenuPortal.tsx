@@ -28,6 +28,7 @@ import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
 import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
+import { computeCustomContainerStyle } from '../../utils/qrCustomization';
 import {
   Search,
   Plus,
@@ -843,6 +844,29 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     .join('')
     .toUpperCase() || 'R';
 
+  // Personalización avanzada computada para Tarjetas de Productos y Contenedor de Categorías
+  const categoryCustomStyles = computeCustomContainerStyle({
+    bgColor: urlUid ? firestoreQrSettings?.catBgColor : (firestoreQrSettings?.catBgColor || qrSettings.catBgColor),
+    bgOpacity: urlUid ? firestoreQrSettings?.catBgOpacity : (firestoreQrSettings?.catBgOpacity ?? qrSettings.catBgOpacity),
+    bgImageUrl: urlUid ? firestoreQrSettings?.catBgImageUrl : (firestoreQrSettings?.catBgImageUrl || qrSettings.catBgImageUrl),
+    bgFit: urlUid ? firestoreQrSettings?.catBgFit : (firestoreQrSettings?.catBgFit || qrSettings.catBgFit),
+    overlayColor: urlUid ? firestoreQrSettings?.catOverlayColor : (firestoreQrSettings?.catOverlayColor || qrSettings.catOverlayColor),
+    overlayOpacity: urlUid ? firestoreQrSettings?.catOverlayOpacity : (firestoreQrSettings?.catOverlayOpacity ?? qrSettings.catOverlayOpacity),
+    textColor: urlUid ? firestoreQrSettings?.catTextColor : (firestoreQrSettings?.catTextColor || qrSettings.catTextColor),
+    autoContrast: urlUid ? firestoreQrSettings?.catAutoContrast : (firestoreQrSettings?.catAutoContrast ?? qrSettings.catAutoContrast)
+  });
+
+  const productCardCustomStyles = computeCustomContainerStyle({
+    bgColor: urlUid ? firestoreQrSettings?.cardBgColor : (firestoreQrSettings?.cardBgColor || qrSettings.cardBgColor),
+    bgOpacity: urlUid ? firestoreQrSettings?.cardBgOpacity : (firestoreQrSettings?.cardBgOpacity ?? qrSettings.cardBgOpacity),
+    bgImageUrl: urlUid ? firestoreQrSettings?.cardBgImageUrl : (firestoreQrSettings?.cardBgImageUrl || qrSettings.cardBgImageUrl),
+    bgFit: urlUid ? firestoreQrSettings?.cardBgFit : (firestoreQrSettings?.cardBgFit || qrSettings.cardBgFit),
+    overlayColor: urlUid ? firestoreQrSettings?.cardOverlayColor : (firestoreQrSettings?.cardOverlayColor || qrSettings.cardOverlayColor),
+    overlayOpacity: urlUid ? firestoreQrSettings?.cardOverlayOpacity : (firestoreQrSettings?.cardOverlayOpacity ?? qrSettings.cardOverlayOpacity),
+    textColor: urlUid ? firestoreQrSettings?.cardTextColor : (firestoreQrSettings?.cardTextColor || qrSettings.cardTextColor),
+    autoContrast: urlUid ? firestoreQrSettings?.cardAutoContrast : (firestoreQrSettings?.cardAutoContrast ?? qrSettings.cardAutoContrast)
+  });
+
   return (
     <div 
       className="min-h-screen flex flex-col pb-36 relative"
@@ -1097,17 +1121,24 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
         {/* Products List & View Mode Switcher */}
         <div className="space-y-3">
-          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between flex-wrap gap-3">
-            <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2">
+          <div
+            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between flex-wrap gap-3 relative overflow-hidden"
+            style={categoryCustomStyles.hasCustomStyle ? categoryCustomStyles.containerStyle : undefined}
+          >
+            {categoryCustomStyles.overlayStyle && <div style={categoryCustomStyles.overlayStyle} />}
+            <h3
+              className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white flex items-center gap-2 relative z-10"
+              style={categoryCustomStyles.computedTextColor ? { color: categoryCustomStyles.computedTextColor } : undefined}
+            >
               <span className="w-2 h-2 rounded-full qr-accent-bg shrink-0" />
               <span>{selectedCategory}</span>
-              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-full">
+              <span className="text-xs font-medium bg-black/10 dark:bg-white/10 px-2.5 py-0.5 rounded-full">
                 {filteredProducts.length} {filteredProducts.length === 1 ? 'producto' : 'productos'}
               </span>
             </h3>
 
             {/* View Mode Selector */}
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs">
+            <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-1 rounded-xl border border-slate-200/40 dark:border-slate-700/40 text-xs relative z-10">
               {(['list', 'medium'] as const).map(mode => (
                 <button
                   key={mode}
@@ -1118,6 +1149,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       ? 'qr-accent-bg text-white shadow-xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
+                  style={menuViewMode !== mode && categoryCustomStyles.computedTextColor ? { color: categoryCustomStyles.computedTextColor, opacity: 0.8 } : undefined}
                   title={`Vista ${mode}`}
                 >
                   {mode === 'list' ? 'Lista' : 'Mediano'}
@@ -1153,11 +1185,13 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                   return (
                     <div
                       key={product.id}
-                      className={`p-3 sm:p-3.5 rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 flex items-center justify-between gap-3 ${
+                      style={productCardCustomStyles.hasCustomStyle ? productCardCustomStyles.containerStyle : undefined}
+                      className={`p-3 sm:p-3.5 rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 flex items-center justify-between gap-3 relative overflow-hidden ${
                         isOutOfStock ? 'opacity-65 border-slate-200 dark:border-slate-800' : 'border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-md'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {productCardCustomStyles.overlayStyle && <div style={productCardCustomStyles.overlayStyle} />}
+                      <div className="flex items-center gap-3 min-w-0 flex-1 relative z-10">
                         <div
                           onClick={() => openProductDetail(product)}
                           className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 shrink-0 relative cursor-pointer border border-slate-100 dark:border-slate-800"
@@ -1179,6 +1213,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                           <h4
                             onClick={() => openProductDetail(product)}
                             className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:opacity-85 transition-colors"
+                            style={productCardCustomStyles.computedTextColor ? { color: productCardCustomStyles.computedTextColor } : undefined}
                           >
                             {product.name}
                           </h4>
@@ -1186,13 +1221,18 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                             <span className="font-mono font-black text-xs sm:text-sm qr-accent-text tracking-tight">
                               {formatCOP(product.price)}
                             </span>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">({resolveProductTax(product, taxRate).shortLabel} incl.)</span>
+                            <span
+                              className="text-[10px] text-slate-400 dark:text-slate-500 font-medium"
+                              style={productCardCustomStyles.computedTextColor ? { color: productCardCustomStyles.computedTextColor, opacity: 0.7 } : undefined}
+                            >
+                              ({resolveProductTax(product, taxRate).shortLabel} incl.)
+                            </span>
                           </div>
                         </div>
                       </div>
 
                       {canOrder && (
-                        <div className="shrink-0">
+                        <div className="shrink-0 relative z-10">
                           {inCartItem ? (
                             <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700">
                               <button
@@ -1205,7 +1245,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                               >
                                 -
                               </button>
-                              <span className="w-5 text-center font-bold text-xs">{inCartItem.quantity}</span>
+                              <span className="w-5 text-center font-bold text-xs" style={productCardCustomStyles.computedTextColor ? { color: productCardCustomStyles.computedTextColor } : undefined}>{inCartItem.quantity}</span>
                               <button
                                 type="button"
                                 onClick={() => handleAddToCart(product)}
@@ -1234,13 +1274,15 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                 return (
                   <div
                     key={product.id}
+                    style={productCardCustomStyles.hasCustomStyle ? productCardCustomStyles.containerStyle : undefined}
                     className={`p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border transition-all duration-200 flex flex-col justify-between overflow-hidden relative group ${
                       isOutOfStock
                         ? 'opacity-65 border-slate-200 dark:border-slate-800'
                         : 'border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-md'
                     }`}
                   >
-                    <div className="flex gap-3 items-start">
+                    {productCardCustomStyles.overlayStyle && <div style={productCardCustomStyles.overlayStyle} />}
+                    <div className="flex gap-3 items-start relative z-10">
                       {/* Product Image Thumbnail */}
                       <div
                         onClick={() => openProductDetail(product)}
@@ -1270,18 +1312,25 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                       <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
                         <div>
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                            <span
+                              className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate"
+                              style={productCardCustomStyles.computedTextColor ? { color: productCardCustomStyles.computedTextColor, opacity: 0.7 } : undefined}
+                            >
                               {product.category}
                             </span>
                           </div>
                           <h4
                             onClick={() => openProductDetail(product)}
                             className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white leading-snug cursor-pointer hover:opacity-85 transition-colors line-clamp-2 mt-0.5"
+                            style={productCardCustomStyles.computedTextColor ? { color: productCardCustomStyles.computedTextColor } : undefined}
                           >
                             {product.name}
                           </h4>
                           {product.description && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed font-normal">
+                            <p
+                              className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed font-normal"
+                              style={productCardCustomStyles.computedTextColor ? { color: productCardCustomStyles.computedTextColor, opacity: 0.8 } : undefined}
+                            >
                               {product.description}
                             </p>
                           )}
@@ -1291,7 +1340,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                           <span className="font-mono font-black text-sm sm:text-base qr-accent-text tracking-tight">
                             {formatCOP(product.price)}
                           </span>
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">
+                          <span
+                            className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold"
+                            style={productCardCustomStyles.computedTextColor ? { color: productCardCustomStyles.computedTextColor, opacity: 0.7 } : undefined}
+                          >
                             ({resolveProductTax(product, taxRate).shortLabel} incl.)
                           </span>
                         </div>
@@ -1299,8 +1351,11 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
                     </div>
 
                     {/* Action Bar for Product */}
-                    <div className="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
-                      <span className="text-[10px] font-medium opacity-70">
+                    <div className="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between relative z-10">
+                      <span
+                        className="text-[10px] font-medium opacity-70"
+                        style={productCardCustomStyles.computedTextColor ? { color: productCardCustomStyles.computedTextColor } : undefined}
+                      >
                         {isOutOfStock ? (
                           <span className="text-rose-500 font-bold">Agotado hoy</span>
                         ) : (

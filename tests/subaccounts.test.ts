@@ -345,6 +345,7 @@ async function runTests() {
       stock: 10,
       minStock: 2,
       imageUrl: '',
+      sku: 'HAMB-01',
       tipoInventario: 'receta',
       receta: [{ insumoId: 'ins-carne', nombre: 'Carne Molida', cantidad: 150, unidad: 'gramos' }],
     };
@@ -502,12 +503,12 @@ async function runTests() {
     const excelRes = await generalExcelExportAdapter.generate(normalized, sampleRestaurantProfile);
     assert.ok(excelRes.data instanceof Uint8Array && excelRes.data.length > 0);
     const wb = XLSX.read(excelRes.data, { type: 'array' });
-    const summaryCsv = XLSX.utils.sheet_to_csv(wb.Sheets['1_Resumen_Ventas']);
-    assert.ok(summaryCsv.includes('Mixto:'));
+    const salesSheetCsv = XLSX.utils.sheet_to_csv(wb.Sheets['Ventas']);
+    assert.ok(salesSheetCsv.includes('MIXTO'));
 
     const csvRes = await generalCsvExportAdapter.generate(normalized, sampleRestaurantProfile);
     assert.ok(typeof csvRes.data === 'string' && csvRes.data.includes('Ana'));
-    assert.ok(csvRes.data.includes('Mixto:'));
+    assert.ok(csvRes.data.includes('MIXTO'));
 
     const siigoRes = await siigoExcelExportAdapter.generate(normalized, sampleRestaurantProfile);
     assert.ok(siigoRes.data instanceof Uint8Array && siigoRes.data.length > 0);

@@ -29,6 +29,7 @@ import {
   computeItemPendingAmount,
   computeItemTotal,
   generateSubaccountId,
+  createTableSubaccount,
 } from '../../utils/subaccounts';
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
@@ -214,6 +215,57 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const [subaccountNameDraft, setSubaccountNameDraft] = useState<string>('');
   const [isSubaccountSwitcherOpen, setIsSubaccountSwitcherOpen] = useState<boolean>(false);
   const [summaryScope, setSummaryScope] = useState<'mine' | 'table'>('mine');
+
+  const [hasSkippedWelcome, setHasSkippedWelcome] = useState<boolean>(false);
+  const [newSubaccountInput, setNewSubaccountInput] = useState<string>('');
+  const [isAddingNewPerson, setIsAddingNewPerson] = useState<boolean>(false);
+
+  const handleWelcomeSelectSubaccount = (sub: TableSubaccount) => {
+    setActiveSubaccountId(sub.id);
+    setActiveSubaccountName(sub.displayName);
+    setCustomerName(sub.displayName);
+    setHasSkippedWelcome(true);
+  };
+
+  const handleWelcomeAddNewSubaccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = newSubaccountInput.trim();
+    if (!clean || !table) return;
+
+    const newSub = createTableSubaccount({
+      tableId: table.id,
+      tableSessionId: activeSessionId,
+      desiredName: clean,
+      existingSubaccounts: tableSubaccounts,
+    });
+
+    const targetUid = urlUid || auth.currentUser?.uid;
+    const nextSubaccounts = [...tableSubaccounts, newSub];
+
+    setActiveSubaccountId(newSub.id);
+    setActiveSubaccountName(newSub.displayName);
+    setCustomerName(newSub.displayName);
+    setHasSkippedWelcome(true);
+    setNewSubaccountInput('');
+    setIsAddingNewPerson(false);
+
+    if (targetUid) {
+      try {
+        const updatedTable: Table = {
+          ...table,
+          subaccounts: nextSubaccounts,
+          updatedAt: new Date().toISOString(),
+        };
+        await saveTableToFirestore(updatedTable, targetUid);
+      } catch (err) {
+        console.error('Error guardando nueva subcuenta en Firestore:', err);
+      }
+    }
+  };
+
+  const handleWelcomeContinueWithout = () => {
+    setHasSkippedWelcome(true);
+  };
 
   // Propina voluntaria (Ley 1935/2018)
   const [tipMode, setTipMode] = useState<'none' | 'suggested' | '15' | 'custom_pct' | 'custom_amt'>('none');
@@ -855,9 +907,6 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     );
   }
 
-  const isWaiterCurrentlyCalled = table.waiterCall?.type === 'waiter';
-  const isBillCurrentlyRequested = table.status === 'cuenta' || table.waiterCall?.type === 'bill';
-
   const bgImage = urlUid ? (firestoreQrSettings?.bgImageUrl || '') : (firestoreQrSettings?.bgImageUrl || qrSettings.bgImageUrl || '');
   const customTextColor = urlUid ? (firestoreQrSettings?.textColor || '') : (firestoreQrSettings?.textColor || qrSettings.textColor || '');
   const customAccentColor = urlUid ? (firestoreQrSettings?.accentColor || '#e11d48') : (firestoreQrSettings?.accentColor || qrSettings.accentColor || '#e11d48');
@@ -871,6 +920,126 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     .slice(0, 2)
     .join('')
     .toUpperCase() || 'R';
+
+  const isWaiterCurrentlyCalled = table.waiterCall?.type === 'waiter';
+
+  const showWelcomeScreen =
+    subaccountsMode !== 'disabled' &&
+    !activeSubaccountId &&
+    !hasSkippedWelcome;
+
+  if (showWelcomeScreen && table) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+          <div className="flex flex-col items-center space-y-3">
+            {restaurantLogo ? (
+              <img
+                src={restaurantLogo}
+                alt={restaurantName}
+                className="w-16 h-16 rounded-2xl border border-slate-200 dark:border-slate-700 object-contain bg-white shadow-md p-1"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl qr-accent-bg text-white font-black text-2xl flex items-center justify-center shadow-md">
+                {restaurantInitials}
+              </div>
+            )}
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                {restaurantName}
+              </h1>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-1">
+                📍 Mesa {table.number} {table.zone ? `(${table.zone})` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-5 space-y-4">
+            <h2 className="text-sm font-extrabold text-slate-800 dark:text-slate-200">
+              ¿Quién va a realizar el pedido?
+            </h2>
+
+            {tableSubaccounts.length > 0 ? (
+              <div className="space-y-2 text-left max-h-48 overflow-y-auto pr-1">
+                <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                  Personas ya registradas en esta mesa:
+                </p>
+                {tableSubaccounts.map((sub) => (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => handleWelcomeSelectSubaccount(sub)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-slate-900 dark:hover:border-white bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-200 transition cursor-pointer group"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="w-7 h-7 rounded-lg bg-rose-950 text-white flex items-center justify-center text-xs font-bold">
+                        {sub.displayName.charAt(0).toUpperCase()}
+                      </span>
+                      <span>{sub.displayName}</span>
+                    </span>
+                    <span className="text-[11px] text-rose-900 dark:text-rose-400 group-hover:underline">
+                      Seleccionar →
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 italic">
+                Aún no hay personas registradas en esta mesa. Sé el primero en unirte.
+              </p>
+            )}
+
+            {!isAddingNewPerson ? (
+              <button
+                type="button"
+                onClick={() => setIsAddingNewPerson(true)}
+                className="w-full py-3 px-4 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-rose-950 dark:hover:border-rose-400 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Agregar otra persona</span>
+              </button>
+            ) : (
+              <form onSubmit={handleWelcomeAddNewSubaccount} className="space-y-2.5 pt-1 text-left">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                  Escribe tu nombre:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newSubaccountInput}
+                    onChange={(e) => setNewSubaccountInput(e.target.value)}
+                    placeholder="Ej. Carlos, María..."
+                    autoFocus
+                    className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newSubaccountInput.trim()}
+                    className="px-4 py-2 rounded-xl qr-accent-bg text-white font-bold text-xs disabled:opacity-50 transition cursor-pointer shrink-0"
+                  >
+                    Unirme
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {subaccountsMode === 'optional' && (
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleWelcomeContinueWithout}
+                  className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white underline cursor-pointer"
+                >
+                  Continuar al menú sin subcuenta
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const isBillCurrentlyRequested = table.status === 'cuenta' || table.waiterCall?.type === 'bill';
 
   // Personalización avanzada computada para Tarjetas de Productos y Contenedor de Categorías
   const categoryCustomStyles = computeCustomContainerStyle({

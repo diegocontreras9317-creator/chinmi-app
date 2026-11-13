@@ -51,6 +51,7 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
   const [tableToEdit, setTableToEdit] = useState<Table | null>(null);
   const [tableForQr, setTableForQr] = useState<Table | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [checkoutSubaccountIds, setCheckoutSubaccountIds] = useState<string[] | undefined>(undefined);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
   // Card size state: 'sm' (Pequeño), 'md' (Mediano), 'lg' (Grande)
@@ -588,9 +589,12 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                     {/* Body Compacto */}
                     <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1 text-[11px]">
                       {hasOrder ? (
-                        <div className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between">
+                        <div className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between gap-1">
                           <span className="text-[10px] text-slate-500 truncate">
                             {itemsCount} ítems
+                            {(table.order?.subaccounts?.length || 0) > 0 && (
+                              <> · {table.order?.subaccounts?.length} subc.</>
+                            )}
                           </span>
                           <span className="font-mono font-black text-xs text-orange-600 dark:text-orange-400">
                             {formatCOP(tableTotal)}
@@ -688,11 +692,20 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700/60 flex items-center justify-between">
                             <div>
                               <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400 block">
-                                Cuenta en Curso ({itemsCount} productos)
+                                Cuenta en Curso ({itemsCount} productos
+                                {(table.order?.subaccounts?.length || 0) > 0
+                                  ? ` · ${table.order?.subaccounts?.length} subcuentas`
+                                  : ''}
+                                )
                               </span>
                               <span className="font-mono font-black text-2xl text-orange-600 dark:text-orange-400 mt-0.5 block">
                                 {formatCOP(tableTotal)}
                               </span>
+                              {(table.order?.paymentsTotal || 0) > 0 && (
+                                <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 block mt-0.5">
+                                  Abonado: {formatCOP(table.order?.paymentsTotal || 0)}
+                                </span>
+                              )}
                             </div>
                             <span className="text-xs px-3 py-1 rounded-xl bg-orange-100 dark:bg-orange-950/70 text-orange-700 dark:text-orange-300 font-black">
                               Comanda Activa
@@ -861,16 +874,19 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
 
                     {/* Current consumption / items */}
                     {hasOrder ? (
-                      <div className="p-2 sm:p-2.5 rounded-lg sm:rounded-xl bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between">
-                        <div>
+                      <div className="p-2 sm:p-2.5 rounded-lg sm:rounded-xl bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
                           <span className="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400 block">
                             Cuenta en curso
                           </span>
-                          <span className="text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          <span className="text-[11px] sm:text-xs font-semibold text-slate-700 dark:text-slate-300 truncate block">
                             {itemsCount} productos
+                            {(table.order?.subaccounts?.length || 0) > 0
+                              ? ` · ${table.order?.subaccounts?.length} subc.`
+                              : ''}
                           </span>
                         </div>
-                        <span className="font-mono font-extrabold text-sm sm:text-base text-orange-600 dark:text-orange-400">
+                        <span className="font-mono font-extrabold text-sm sm:text-base text-orange-600 dark:text-orange-400 shrink-0">
                           {formatCOP(tableTotal)}
                         </span>
                       </div>
@@ -1015,7 +1031,10 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
           isOpen={!!currentSelectedTable && !isCheckoutOpen}
           onClose={() => setSelectedTableId(null)}
           table={currentSelectedTable}
-          onOpenCheckout={() => setIsCheckoutOpen(true)}
+          onOpenCheckout={(subIds) => {
+            setCheckoutSubaccountIds(subIds);
+            setIsCheckoutOpen(true);
+          }}
         />
       )}
 
@@ -1023,10 +1042,17 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
       {currentSelectedTable && (
         <CheckoutModal
           isOpen={isCheckoutOpen}
-          onClose={() => setIsCheckoutOpen(false)}
+          onClose={() => {
+            setIsCheckoutOpen(false);
+            setCheckoutSubaccountIds(undefined);
+          }}
           table={currentSelectedTable}
+          preselectedSubaccountIds={checkoutSubaccountIds}
           onSuccessCheckout={(receipt) => {
-            setSelectedTableId(null);
+            if (receipt.closedTableAtPayment !== false) {
+              setSelectedTableId(null);
+            }
+            setCheckoutSubaccountIds(undefined);
             setLatestReceipt(receipt);
             setIsReceiptOpen(true);
           }}

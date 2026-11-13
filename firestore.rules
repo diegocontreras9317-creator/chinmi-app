@@ -3,58 +3,236 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
     function isOwner(userId) {
-      return request.auth != null && (request.auth.uid == userId || request.auth.uid == 'usr-google-' + userId);
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        request.auth.uid == 'usr-google-' + userId
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOrderNotClosed(data) {
+      return data.get('closed', false) != true &&
+        !(data.get('estado', '') in ['pagada', 'cancelada']) &&
+        !(data.get('status', '') in ['pagada', 'cancelada']);
+    }
+
+    function isValidQrOrder(data, userId) {
+      return data.get('userId', userId) == userId &&
+        data.get('closed', false) == false &&
+        data.get('estado', 'activa') == 'activa' &&
+        data.get('status', 'activa') == 'activa' &&
+        data.get('items', []) is list &&
+        data.get('items', []).size() <= 200 &&
+        data.get('paymentsTotal', 0) is number &&
+        data.get('paymentsTotal', 0) >= 0;
+    }
+
+    function isValidQrTableWrite(data, userId) {
+      return data.get('userId', userId) == userId &&
+        data.get('status', 'ocupada') in ['libre', 'ocupada', 'cuenta'] &&
+        data.get('estado', 'ocupada') in ['libre', 'ocupada', 'cuenta'] &&
+        (
+          !('order' in data) ||
+          data.order == null ||
+          (
+            data.order is map &&
+            data.order.get('closed', false) == false &&
+            data.order.get('estado', 'activa') == 'activa'
+          )
+        );
+    }
+
+    function isValidPrivateQrBilling(data, userId) {
+      return data.keys().hasAll(['id', 'tableId', 'tableSessionId', 'subaccountId', 'requiresElectronicInvoice', 'billingInfo']) &&
+        data.keys().hasOnly([
+          'id', 'tableId', 'tableSessionId', 'subaccountId', 'subaccountName',
+          'requiresElectronicInvoice', 'billingInfo', 'requestedTipAmount',
+          'preferredPaymentMethod', 'createdAt', 'updatedAt', 'userId'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.tableId is string && data.tableId.size() >= 1 && data.tableId.size() <= 128 &&
+        data.tableSessionId is string && data.tableSessionId.size() >= 1 && data.tableSessionId.size() <= 128 &&
+        data.subaccountId is string && data.subaccountId.size() >= 1 && data.subaccountId.size() <= 128 &&
+        data.requiresElectronicInvoice is bool &&
+        data.billingInfo is map &&
+        data.get('userId', userId) == userId &&
+        (!('requestedTipAmount' in data) || (data.requestedTipAmount is number && data.requestedTipAmount >= 0 && data.requestedTipAmount <= 50000000));
+    }
+
+    function isValidTablePaymentCreate(data, userId) {
+      return data.keys().hasAll(['id', 'orderId', 'tableId', 'total', 'createdAt', 'userId']) &&
+        data.userId == userId &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.orderId is string && data.orderId.size() >= 1 && data.orderId.size() <= 128 &&
+        data.tableId is string && data.tableId.size() >= 1 && data.tableId.size() <= 128 &&
+        data.total is number && data.total >= 0 && data.total <= 500000000 &&
+        data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 64 &&
+        (!('tipAmount' in data) || (data.tipAmount is number && data.tipAmount >= 0 && data.tipAmount <= 50000000));
+    }
+
+    function isValidSaleDoc(data, userId) {
+      return data.keys().hasAll(['id', 'total', 'paymentMethod', 'timestamp']) &&
+        data.get('userId', userId) == userId &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.total is number && data.total >= 0 && data.total <= 500000000 &&
+        data.paymentMethod is string && data.paymentMethod.size() >= 1 && data.paymentMethod.size() <= 64 &&
+        data.timestamp is string && data.timestamp.size() >= 1 && data.timestamp.size() <= 64 &&
+        (!('tipAmount' in data) || (data.tipAmount is number && data.tipAmount >= 0 && data.tipAmount <= 50000000));
     }
 
     match /users/{userId} {
-      allow read, write: if true;
+      // PII isolated strictly to the authenticated tenant owner
+      allow get, list, create, update: if isOwner(userId) && isValidId(userId);
+      allow delete: if false;
 
-      match /mesas/{tableId} {
-        allow read, write, create, update: if true;
-        allow delete: if true;
+      match /config/{configId} {
+        allow get: if isValidId(configId) && (isOwner(userId) || configId in ['qrSettings', 'appConfig']);
+        allow list, create, update, delete: if isOwner(userId);
+      }
+
+      match /config_fiscal/{configId} {
+        allow read, write: if isOwner(userId);
       }
 
       match /menu/{menuId} {
-        allow read: if true;
-        allow write: if true;
+        allow get, list: if true;
+        allow create, update, delete: if isOwner(userId) && isValidId(menuId);
       }
 
       match /productos/{productId} {
-        allow read: if true;
-        allow write: if true;
+        allow get, list: if true;
+        allow create, update, delete: if isOwner(userId) && isValidId(productId);
       }
 
-      match /inventario/{itemId} {
-        allow read, write: if true;
+      match /mesas/{tableId} {
+        allow get: if isValidId(tableId);
+        allow list: if isOwner(userId);
+        allow create: if isValidId(tableId) && (
+          isOwner(userId) ||
+          isValidQrTableWrite(incoming(), userId)
+        );
+        allow update: if isValidId(tableId) && (
+          isOwner(userId) ||
+          (
+            existing().get('userId', userId) == userId &&
+            (existing().get('order', null) == null || isOrderNotClosed(existing().order)) &&
+            isValidQrTableWrite(incoming(), userId) &&
+            !incoming().diff(existing()).affectedKeys().hasAny(['paymentsTotal', 'settledAt', 'closedAt'])
+          )
+        );
+        allow delete: if isOwner(userId) && isValidId(tableId);
       }
 
       match /pedidos/{pedidoId} {
-        allow read, write, create, update: if true;
-        allow delete: if true;
+        allow get: if isValidId(pedidoId);
+        allow list: if isOwner(userId);
+        allow create: if isValidId(pedidoId) && (
+          isOwner(userId) ||
+          (
+            isValidQrOrder(incoming(), userId) &&
+            incoming().get('items', []).size() > 0 &&
+            incoming().get('paymentsTotal', 0) == 0 &&
+            !incoming().keys().hasAny(['settledAt', 'closedAt'])
+          )
+        );
+        allow update: if isValidId(pedidoId) && (
+          isOwner(userId) ||
+          (
+            isOrderNotClosed(existing()) &&
+            existing().get('userId', userId) == userId &&
+            isValidQrOrder(incoming(), userId) &&
+            incoming().get('paymentsTotal', 0) == existing().get('paymentsTotal', 0) &&
+            !incoming().diff(existing()).affectedKeys().hasAny(['settledAt', 'closedAt', 'closed'])
+          )
+        );
+        allow delete: if isOwner(userId) && isValidId(pedidoId);
       }
 
+      // Buzón privado PII de facturación QR: el comensal solo puede escribir su solicitud, nunca leer ni listar otras
+      match /facturacion_privada_qr/{recordId} {
+        allow get, list, delete: if isOwner(userId);
+        allow create: if isValidId(recordId) && isValidPrivateQrBilling(incoming(), userId);
+        allow update: if isValidId(recordId) && isValidPrivateQrBilling(incoming(), userId) && (
+          isOwner(userId) ||
+          (
+            existing().get('userId', userId) == userId &&
+            existing().tableSessionId == incoming().tableSessionId &&
+            existing().subaccountId == incoming().subaccountId &&
+            existing().tableId == incoming().tableId
+          )
+        );
+      }
+
+      // Libro mayor idempotente de pagos de mesa (inmutable tras creación)
+      match /pagos_mesa/{paymentId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(paymentId) && isValidTablePaymentCreate(incoming(), userId);
+        allow update, delete: if false;
+      }
+
+      // Ventas contables inmutables (prohibido eliminar o alterar totales fiscales)
       match /ventas/{saleId} {
-        allow read, write, create: if true;
-        allow delete: if true;
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(saleId) && isValidSaleDoc(incoming(), userId);
+        allow update: if isOwner(userId) && isValidId(saleId) &&
+          isValidSaleDoc(incoming(), userId) &&
+          incoming().total == existing().total &&
+          incoming().timestamp == existing().timestamp &&
+          (!('subtotal' in existing()) || incoming().subtotal == existing().subtotal) &&
+          (!('taxAmount' in existing()) || incoming().taxAmount == existing().taxAmount);
+        allow delete: if false;
       }
 
-      match /empleados/{empleadoId} {
-        allow read, write: if true;
+      match /ventas_metadatos/{saleId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /inventario/{itemId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /despensa/{itemId} {
+        allow read, write: if isOwner(userId);
       }
 
       match /proveedores/{proveedorId} {
-        allow read, write: if true;
+        allow read, write: if isOwner(userId);
+      }
+
+      match /ordenes_proveedores/{ordenId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /empleados/{empleadoId} {
+        allow read, write: if isOwner(userId);
       }
     }
 
+    // Canje de códigos promocionales: solo lectura puntual por usuarios autenticados
     match /codigos_promocionales/{codigoId} {
-      allow read: if true;
-      allow write: if request.auth != null || true;
-    }
-
-    match /{document=**} {
-      allow read, write: if true;
+      allow get: if isSignedIn() && isValidId(codigoId);
+      allow list, create, update, delete: if false;
     }
   }
 }

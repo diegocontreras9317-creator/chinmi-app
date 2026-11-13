@@ -100,7 +100,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           <div>
             <p>
               <span className="font-bold">Mesa:</span> {receipt.tableName}
+              {receipt.isPartialTableCheckout ? ' (Cobro Parcial)' : ''}
             </p>
+            {Array.isArray(receipt.subaccountNames) && receipt.subaccountNames.length > 0 && (
+              <p>
+                <span className="font-bold">Subcuenta:</span> {receipt.subaccountNames.join(', ')}
+              </p>
+            )}
             <p>
               <span className="font-bold">Cobrado por:</span> {receipt.cashierName}
               {receipt.cashierRole ? ` (${receipt.cashierRole})` : ''}
@@ -224,19 +230,40 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
       {/* Payment info */}
       <div className="py-2.5 border-b border-dashed border-slate-300 space-y-0.5 text-[11px] break-inside-avoid">
-        <div className="flex justify-between gap-2">
-          <span className="capitalize">
-            Forma de pago:{' '}
-            {receipt.paymentMethod === 'bizum' ? 'Transferencia / QR' : receipt.paymentMethod}
-          </span>
-          <span className="font-bold shrink-0">
-            $ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.total))} COP
-          </span>
-        </div>
-        {receipt.paymentMethod === 'efectivo' && receipt.cashTendered && (
+        {Array.isArray(receipt.paymentBreakdown) && receipt.paymentBreakdown.length > 1 ? (
+          <>
+            <div className="flex justify-between gap-2 font-bold">
+              <span>Forma de pago: Pago Mixto</span>
+              <span className="shrink-0">
+                $ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.total))} COP
+              </span>
+            </div>
+            {receipt.paymentBreakdown.map((entry, idx) => (
+              <div key={idx} className="flex justify-between gap-2 text-slate-600 pl-2">
+                <span className="capitalize">
+                  · {entry.method === 'bizum' ? 'Transferencia / QR' : entry.method}:
+                </span>
+                <span className="shrink-0">
+                  $ {new Intl.NumberFormat('es-CO').format(Math.round(entry.amount))} COP
+                </span>
+              </div>
+            ))}
+          </>
+        ) : (
+          <div className="flex justify-between gap-2">
+            <span className="capitalize">
+              Forma de pago:{' '}
+              {receipt.paymentMethod === 'bizum' ? 'Transferencia / QR' : receipt.paymentMethod}
+            </span>
+            <span className="font-bold shrink-0">
+              $ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.total))} COP
+            </span>
+          </div>
+        )}
+        {receipt.cashTendered !== undefined && receipt.cashTendered > 0 && (
           <>
             <div className="flex justify-between gap-2 text-slate-600">
-              <span>Entregado:</span>
+              <span>Efectivo entregado:</span>
               <span className="shrink-0">
                 $ {new Intl.NumberFormat('es-CO').format(Math.round(receipt.cashTendered))} COP
               </span>

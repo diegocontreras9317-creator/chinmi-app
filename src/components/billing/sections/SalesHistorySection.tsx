@@ -425,7 +425,17 @@ export const SalesHistorySection: React.FC<SalesHistorySectionProps> = ({
                           {sale.dateKey}
                         </td>
                         <td className="py-2.5 px-3 font-medium text-slate-700 dark:text-slate-300">
-                          {sale.tableName}
+                          <span>{sale.tableName}</span>
+                          {sale.isPartialTableCheckout && (
+                            <span className="ml-1 px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[9px] font-bold">
+                              Parcial
+                            </span>
+                          )}
+                          {sale.subaccountNames && sale.subaccountNames.length > 0 && (
+                            <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                              {sale.subaccountNames.join(', ')}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3 font-medium text-slate-900 dark:text-white max-w-[180px] truncate" title={sale.customerName}>
                           {sale.customerName}
@@ -435,8 +445,18 @@ export const SalesHistorySection: React.FC<SalesHistorySectionProps> = ({
                           {sale.dv ? `-${sale.dv}` : ''}
                         </td>
                         <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                          {getPaymentIcon(sale.paymentMethod)}
-                          <span className="capitalize">{sale.paymentMethod}</span>
+                          {Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 1 ? (
+                            <span className="font-semibold text-indigo-700 dark:text-indigo-400">
+                              Mixto ({sale.paymentBreakdown.length})
+                            </span>
+                          ) : (
+                            <>
+                              {getPaymentIcon(sale.paymentMethod)}
+                              <span className="capitalize">
+                                {sale.paymentMethod === 'bizum' ? 'Transferencia' : sale.paymentMethod}
+                              </span>
+                            </>
+                          )}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-700 dark:text-slate-300">
                           {formatCOP(sale.taxableBase)}

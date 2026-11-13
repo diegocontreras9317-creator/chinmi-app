@@ -37,8 +37,20 @@ import {
   Save,
   RefreshCw,
   CheckCircle2,
-  Printer
+  Printer,
+  Users,
+  UserPlus,
+  Split,
+  Merge
 } from 'lucide-react';
+import {
+  computeOrderSubaccountsSummary,
+  computeItemPaidAmount,
+  computeItemPendingAmount,
+  computeItemTotal,
+  allocateIntegerShares,
+  UNASSIGNED_SUBACCOUNT_ID,
+} from '../../utils/subaccounts';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
 import { TableQrModal } from './TableQrModal';
 import { ComandaPrintPortal } from './ComandaTicketView';
@@ -47,7 +59,7 @@ interface TableDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   table: Table;
-  onOpenCheckout: () => void;
+  onOpenCheckout: (subaccountIds?: string[]) => void;
 }
 
 export const TableDetailModal: React.FC<TableDetailModalProps> = ({
@@ -66,7 +78,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     updateOrderModifiers,
     setTableStatus,
     setCustomerViewTableId,
-    dismissWaiterCall
+    dismissWaiterCall,
+    createPosTableSubaccount,
+    assignItemSubaccount,
+    splitOrderItemBetweenSubaccounts,
+    mergeTableSubaccounts,
+    unmergeTableSubaccounts,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,9 +99,29 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   const [comandaToPrint, setComandaToPrint] = useState<ComandaTicketData | null>(null);
   const [printCountTick, setPrintCountTick] = useState(0);
 
+  // Estado local para gestión de subcuentas, unión y división de ítems en POS
+  const [selectedSubFilter, setSelectedSubFilter] = useState<string>('all');
+  const [newSubaccountName, setNewSubaccountName] = useState<string>('');
+  const [isAddSubOpen, setIsAddSubOpen] = useState<boolean>(false);
+  const [movingItemId, setMovingItemId] = useState<string | null>(null);
+  const [splittingItemId, setSplittingItemId] = useState<string | null>(null);
+  const [splitParticipantIds, setSplitParticipantIds] = useState<string[]>([]);
+  const [splitMode, setSplitMode] = useState<'equal' | 'custom'>('equal');
+  const [splitCustomAmounts, setSplitCustomAmounts] = useState<Record<string, string>>({});
+  const [isMergeMode, setIsMergeMode] = useState<boolean>(false);
+  const [mergeSelectedIds, setMergeSelectedIds] = useState<string[]>([]);
+
   const order = table?.order;
   const items: OrderItem[] = order?.items || (order as any)?.productos || [];
   const extractedCustomerBilling = extractTableBillingInfo(table);
+  const tableSubaccounts = useMemo(
+    () => (order?.subaccounts || table?.subaccounts || []).filter((s) => s.status !== 'cerrada'),
+    [order?.subaccounts, table?.subaccounts]
+  );
+  const subaccountsOverview = useMemo(
+    () => computeOrderSubaccountsSummary(order, Number(order?.taxPercent ?? config.defaultTaxRate ?? 8) || 8, table?.subaccounts),
+    [order, config.defaultTaxRate, table?.subaccounts]
+  );
 
   const isComandaPrintEnabled = config.comandaPrintSettings?.enabled !== false;
   const comandaPaperWidth = config.comandaPrintSettings?.paperWidth === '58mm' ? '58mm' : '80mm';
@@ -172,7 +209,14 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         customerName: it.customerName?.trim() || '',
         orderedBy: it.orderedBy || (empleadoActivo ? `${empleadoActivo.nombre} (${empleadoActivo.rol})` : 'mesero'),
         taxType: resolvedTax.taxType,
-        taxRate: resolvedTax.taxRate
+        taxRate: resolvedTax.taxRate,
+        ...(it.subaccountId ? { subaccountId: it.subaccountId } : {}),
+        ...(it.subaccountName ? { subaccountName: it.subaccountName } : {}),
+        ...(it.isShared !== undefined ? { isShared: Boolean(it.isShared) } : {}),
+        ...(Array.isArray(it.allocations) && it.allocations.length > 0 ? { allocations: it.allocations } : {}),
+        ...(it.inventoryDeducted !== undefined ? { inventoryDeducted: Boolean(it.inventoryDeducted) } : {}),
+        ...(it.paidAmount !== undefined ? { paidAmount: Number(it.paidAmount) } : {}),
+        ...(it.paidQuantity !== undefined ? { paidQuantity: Number(it.paidQuantity) } : {}),
       };
     });
 
@@ -180,6 +224,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       id: pedidoId,
       tableId: table?.id || '',
       tableName: table?.name || 'Mesa',
+      ...(order?.tableSessionId || table?.tableSessionId
+        ? { tableSessionId: order?.tableSessionId || table?.tableSessionId }
+        : {}),
+      ...(tableSubaccounts.length > 0 ? { subaccounts: tableSubaccounts } : {}),
+      ...(order?.paymentsTotal !== undefined ? { paymentsTotal: order.paymentsTotal } : {}),
+      ...(order?.pendingBalance !== undefined ? { pendingBalance: order.pendingBalance } : {}),
       items: cleanItems,
       productos: cleanItems,
       subtotal: Math.round(subtotal),
@@ -278,6 +328,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       return;
     }
 
+    const targetToRemove = (items || []).find((it) => it.id === idEliminar);
+    if (targetToRemove && computeItemPaidAmount(targetToRemove) > 0) {
+      setSaveErrorMsg('No se puede eliminar un producto que ya tiene pagos parciales o totales registrados.');
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     const remainingItems = (items || []).filter(item => item.id !== idEliminar);
     const pedidoId = order?.id || `ord-${table.id}`;
@@ -309,7 +365,14 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
           customerName: it.customerName?.trim() || '',
           orderedBy: it.orderedBy || 'mesero',
           taxType: resolvedTax.taxType,
-          taxRate: resolvedTax.taxRate
+          taxRate: resolvedTax.taxRate,
+          ...(it.subaccountId ? { subaccountId: it.subaccountId } : {}),
+          ...(it.subaccountName ? { subaccountName: it.subaccountName } : {}),
+          ...(it.isShared !== undefined ? { isShared: Boolean(it.isShared) } : {}),
+          ...(Array.isArray(it.allocations) && it.allocations.length > 0 ? { allocations: it.allocations } : {}),
+          ...(it.inventoryDeducted !== undefined ? { inventoryDeducted: Boolean(it.inventoryDeducted) } : {}),
+          ...(it.paidAmount !== undefined ? { paidAmount: Number(it.paidAmount) } : {}),
+          ...(it.paidQuantity !== undefined ? { paidQuantity: Number(it.paidQuantity) } : {}),
         };
       });
 
@@ -331,6 +394,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         id: pedidoId,
         tableId: table.id,
         tableName: table.name || 'Mesa',
+        ...(order?.tableSessionId || table?.tableSessionId
+          ? { tableSessionId: order?.tableSessionId || table?.tableSessionId }
+          : {}),
+        ...(tableSubaccounts.length > 0 ? { subaccounts: tableSubaccounts } : {}),
+        ...(order?.paymentsTotal !== undefined ? { paymentsTotal: order.paymentsTotal } : {}),
         items: cleanRemaining,
         productos: cleanRemaining,
         subtotal: Math.round(newSubtotal),
@@ -815,6 +883,179 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
               )}
             </div>
 
+            {/* Subcuentas y División de Cuenta (POS) */}
+            {items.length > 0 && (
+              <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" />
+                    <span>Subcuentas ({tableSubaccounts.length})</span>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {tableSubaccounts.length >= 2 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMergeMode((v) => !v);
+                          setMergeSelectedIds([]);
+                        }}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 cursor-pointer ${
+                          isMergeMode
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <Merge className="w-3 h-3" />
+                        <span>{isMergeMode ? 'Cancelar unión' : 'Unir cuentas'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsAddSubOpen((v) => !v)}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <UserPlus className="w-3 h-3" />
+                      <span>+ Subcuenta</span>
+                    </button>
+                  </div>
+                </div>
+
+                {isAddSubOpen && (
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={newSubaccountName}
+                      onChange={(e) => setNewSubaccountName(e.target.value)}
+                      placeholder="Nombre del comensal..."
+                      className="flex-1 px-2.5 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const created = createPosTableSubaccount(table.id, newSubaccountName);
+                        if (created) {
+                          setSelectedSubFilter(created.id);
+                          setNewSubaccountName('');
+                          setIsAddSubOpen(false);
+                        }
+                      }}
+                      disabled={!newSubaccountName.trim()}
+                      className="px-2.5 py-1 rounded bg-stone-900 text-white text-[11px] font-bold disabled:opacity-40 cursor-pointer"
+                    >
+                      Crear
+                    </button>
+                  </div>
+                )}
+
+                {isMergeMode && (
+                  <div className="p-2 rounded bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 space-y-1.5 text-[11px]">
+                    <p className="font-semibold text-purple-900 dark:text-purple-200">
+                      Selecciona 2 o más subcuentas para unirlas en un mismo cobro:
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tableSubaccounts.map((sub) => {
+                        const checked = mergeSelectedIds.includes(sub.id);
+                        return (
+                          <button
+                            key={sub.id}
+                            type="button"
+                            onClick={() =>
+                              setMergeSelectedIds((prev) =>
+                                prev.includes(sub.id)
+                                  ? prev.filter((id) => id !== sub.id)
+                                  : [...prev, sub.id]
+                              )
+                            }
+                            className={`px-2 py-0.5 rounded font-bold border cursor-pointer ${
+                              checked
+                                ? 'bg-purple-700 text-white border-purple-700'
+                                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-purple-200 dark:border-purple-700'
+                            }`}
+                          >
+                            {sub.displayName}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {mergeSelectedIds.length >= 2 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          mergeTableSubaccounts(table.id, mergeSelectedIds.slice(1), mergeSelectedIds[0]);
+                          setIsMergeMode(false);
+                          setMergeSelectedIds([]);
+                        }}
+                        className="px-3 py-1 rounded bg-purple-700 text-white font-bold cursor-pointer"
+                      >
+                        Confirmar Unión ({mergeSelectedIds.length})
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {(tableSubaccounts.length > 0 || subaccountsOverview.unassignedItemCount > 0) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSubFilter('all')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border cursor-pointer ${
+                        selectedSubFilter === 'all'
+                          ? 'bg-stone-900 text-white border-stone-900 dark:bg-stone-100 dark:text-stone-900'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      Todos ({formatCOP(subaccountsOverview.tablePendingNetWithTax, false)})
+                    </button>
+
+                    {subaccountsOverview.unassignedItemCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSubFilter(UNASSIGNED_SUBACCOUNT_ID)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-bold border cursor-pointer ${
+                          selectedSubFilter === UNASSIGNED_SUBACCOUNT_ID
+                            ? 'bg-stone-900 text-white border-stone-900'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        General ({formatCOP(subaccountsOverview.unassignedPendingGross, false)})
+                      </button>
+                    )}
+
+                    {subaccountsOverview.subaccounts.map((sub) => (
+                      <div key={sub.subaccountId} className="inline-flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSubFilter(sub.subaccountId)}
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold border cursor-pointer flex items-center gap-1 ${
+                            selectedSubFilter === sub.subaccountId
+                              ? 'bg-rose-900 text-white border-rose-900'
+                              : sub.status === 'pidiendo_cuenta'
+                                ? 'bg-purple-50 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-200'
+                                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          <span>{sub.displayName}</span>
+                          <span className="font-mono">
+                            {sub.pendingNetWithTax <= 0 ? 'Pagada' : formatCOP(sub.pendingNetWithTax, false)}
+                          </span>
+                        </button>
+                        {sub.mergedGroupName && !sub.mergedIntoSubaccountId && (
+                          <button
+                            type="button"
+                            onClick={() => unmergeTableSubaccounts(table.id, sub.subaccountId)}
+                            title="Separar subcuentas unidas"
+                            className="px-1 py-0.5 text-[9px] font-bold text-purple-700 dark:text-purple-300 hover:underline cursor-pointer"
+                          >
+                            Separar
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Items List in Order */}
             <div className={`flex-1 overflow-y-auto space-y-2 ${items.length === 0 ? 'p-0 md:p-4' : 'p-4'}`}>
               {items.length === 0 ? (
@@ -830,71 +1071,340 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                   </p>
                 </div>
               ) : (
-                items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                          {item.name}
-                        </p>
-                        <p className="text-[11px] font-mono tabular-nums text-slate-500">
-                          {formatCOP(item.unitPrice, false)} / ud ·{' '}
-                          {
-                            resolveOrderItemTax(
-                              item as unknown as Partial<OrderItem> & Record<string, unknown>,
-                              products,
-                              config.defaultTaxRate
-                            ).shortLabel
-                          }
-                        </p>
-                        {item.notes && (
-                          <p className="text-[11px] text-amber-600 dark:text-amber-400 italic mt-0.5">
-                            Nota: {item.notes}
-                          </p>
-                        )}
-                      </div>
+                items
+                  .filter((item) => {
+                    if (selectedSubFilter === 'all') return true;
+                    if (selectedSubFilter === UNASSIGNED_SUBACCOUNT_ID) {
+                      return !item.subaccountId && !item.isShared;
+                    }
+                    if (item.subaccountId === selectedSubFilter) return true;
+                    if (item.isShared && item.allocations?.some((a) => a.subaccountId === selectedSubFilter)) {
+                      return true;
+                    }
+                    return false;
+                  })
+                  .map((item) => {
+                    const itemPaid = computeItemPaidAmount(item);
+                    const itemPending = computeItemPendingAmount(item);
+                    const itemTotal = computeItemTotal(item);
+                    const isMovingThis = movingItemId === item.id;
+                    const isSplittingThis = splittingItemId === item.id;
 
-                      {/* Quantity Stepper & Price */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <div className="flex items-center border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => updateOrderItemQuantity(table.id, item.id, -1)}
-                            className="p-1 text-slate-500 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                          <span className="px-2 text-xs font-bold font-mono text-slate-900 dark:text-white">
-                            {item.quantity}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => updateOrderItemQuantity(table.id, item.id, 1)}
-                            className="p-1 text-slate-500 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
+                    return (
+                      <div
+                        key={item.id}
+                        className={`p-2.5 rounded-xl border transition space-y-2 ${
+                          itemPending <= 0
+                            ? 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20'
+                            : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                {item.name}
+                              </p>
+                              {item.subaccountName && !item.isShared && (
+                                <span className="px-1.5 py-0.2 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-900 dark:text-rose-300 text-[10px] font-bold">
+                                  {item.subaccountName}
+                                </span>
+                              )}
+                              {item.isShared && (
+                                <span className="px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                                  Compartido
+                                </span>
+                              )}
+                              {itemPending <= 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-600 text-white text-[10px] font-bold">
+                                  Pagado
+                                </span>
+                              )}
+                              {itemPaid > 0 && itemPending > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
+                                  Abonado {formatCOP(itemPaid, false)}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] font-mono tabular-nums text-slate-500">
+                              {formatCOP(item.unitPrice, false)} / ud ·{' '}
+                              {
+                                resolveOrderItemTax(
+                                  item as unknown as Partial<OrderItem> & Record<string, unknown>,
+                                  products,
+                                  config.defaultTaxRate
+                                ).shortLabel
+                              }
+                            </p>
+                            {item.isShared && Array.isArray(item.allocations) && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {item.allocations.map((alloc) => (
+                                  <span
+                                    key={alloc.subaccountId}
+                                    className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                                      alloc.paid
+                                        ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 line-through'
+                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                    }`}
+                                  >
+                                    {alloc.subaccountName}: {formatCOP(alloc.shareAmount, false)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {item.notes && (
+                              <p className="text-[11px] text-amber-600 dark:text-amber-400 italic mt-0.5">
+                                Nota: {item.notes}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Quantity Stepper & Price */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {itemPaid <= 0 && (
+                              <div className="flex items-center border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => updateOrderItemQuantity(table.id, item.id, -1)}
+                                  className="p-1 text-slate-500 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                >
+                                  <Minus className="w-3.5 h-3.5" />
+                                </button>
+                                <span className="px-2 text-xs font-bold font-mono text-slate-900 dark:text-white">
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateOrderItemQuantity(table.id, item.id, 1)}
+                                  className="p-1 text-slate-500 hover:text-orange-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+
+                            <span className="w-16 text-right font-mono font-bold text-xs text-slate-900 dark:text-white">
+                              {formatCOP(itemTotal, false)}
+                            </span>
+
+                            {itemPaid <= 0 && tableSubaccounts.length > 0 && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSplittingItemId(null);
+                                    setMovingItemId(isMovingThis ? null : item.id);
+                                  }}
+                                  className="p-1 text-slate-500 hover:text-rose-700 text-[10px] font-bold"
+                                  title="Mover a subcuenta"
+                                >
+                                  Mover
+                                </button>
+                                {tableSubaccounts.length >= 2 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setMovingItemId(null);
+                                      if (isSplittingThis) {
+                                        setSplittingItemId(null);
+                                      } else {
+                                        setSplittingItemId(item.id);
+                                        setSplitMode('equal');
+                                        const initIds = tableSubaccounts.slice(0, 2).map((s) => s.id);
+                                        setSplitParticipantIds(initIds);
+                                        const shares = allocateIntegerShares(itemTotal, initIds.length);
+                                        const map: Record<string, string> = {};
+                                        initIds.forEach((sid, idx) => {
+                                          map[sid] = String(shares[idx]);
+                                        });
+                                        setSplitCustomAmounts(map);
+                                      }
+                                    }}
+                                    className="p-1 text-slate-500 hover:text-amber-600"
+                                    title="Dividir producto compartido"
+                                  >
+                                    <Split className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+
+                            {itemPaid <= 0 && (
+                              <button
+                                type="button"
+                                onClick={() => eliminarProducto(item.id)}
+                                className="p-1 text-slate-400 hover:text-rose-600 transition"
+                                title="Eliminar producto"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        <span className="w-20 text-right font-mono font-bold text-xs text-slate-900 dark:text-white">
-                          {formatCOP(item.quantity * item.unitPrice, false)}
-                        </span>
+                        {isMovingThis && (
+                          <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <span className="text-slate-500 font-semibold">Mover a:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                assignItemSubaccount(table.id, item.id, undefined, undefined);
+                                setMovingItemId(null);
+                              }}
+                              className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-bold cursor-pointer"
+                            >
+                              Cuenta General
+                            </button>
+                            {tableSubaccounts.map((sub) => (
+                              <button
+                                key={sub.id}
+                                type="button"
+                                onClick={() => {
+                                  assignItemSubaccount(table.id, item.id, sub.id, sub.displayName);
+                                  setMovingItemId(null);
+                                }}
+                                className="px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-200 font-bold cursor-pointer"
+                              >
+                                {sub.displayName}
+                              </button>
+                            ))}
+                          </div>
+                        )}
 
-                        <button
-                          type="button"
-                          onClick={() => eliminarProducto(item.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 transition"
-                          title="Eliminar producto"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {isSplittingThis && (
+                          <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2 text-[11px]">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">
+                                Dividir {formatCOP(itemTotal)} entre:
+                              </span>
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setSplitMode('equal')}
+                                  className={`px-2 py-0.5 rounded font-bold cursor-pointer ${
+                                    splitMode === 'equal' ? 'bg-amber-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-200'
+                                  }`}
+                                >
+                                  Partes iguales
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSplitMode('custom')}
+                                  className={`px-2 py-0.5 rounded font-bold cursor-pointer ${
+                                    splitMode === 'custom' ? 'bg-amber-600 text-white' : 'bg-white dark:bg-slate-900 border border-slate-200'
+                                  }`}
+                                >
+                                  Montos exactos
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1.5">
+                              {tableSubaccounts.map((sub) => {
+                                const selected = splitParticipantIds.includes(sub.id);
+                                return (
+                                  <button
+                                    key={sub.id}
+                                    type="button"
+                                    onClick={() => {
+                                      const nextIds = selected
+                                        ? splitParticipantIds.filter((id) => id !== sub.id)
+                                        : [...splitParticipantIds, sub.id];
+                                      setSplitParticipantIds(nextIds);
+                                      if (nextIds.length > 0) {
+                                        const shares = allocateIntegerShares(itemTotal, nextIds.length);
+                                        const map: Record<string, string> = {};
+                                        nextIds.forEach((sid, idx) => {
+                                          map[sid] = String(shares[idx]);
+                                        });
+                                        setSplitCustomAmounts(map);
+                                      }
+                                    }}
+                                    className={`px-2 py-0.5 rounded font-bold border cursor-pointer ${
+                                      selected
+                                        ? 'bg-stone-900 text-white border-stone-900 dark:bg-stone-100 dark:text-stone-900'
+                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
+                                    }`}
+                                  >
+                                    {sub.displayName}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {splitMode === 'custom' && splitParticipantIds.length >= 2 && (
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {splitParticipantIds.map((sid) => {
+                                  const sObj = tableSubaccounts.find((s) => s.id === sid);
+                                  return (
+                                    <div key={sid} className="flex items-center gap-1">
+                                      <span className="truncate text-[10px] font-semibold w-16">
+                                        {sObj?.displayName}:
+                                      </span>
+                                      <input
+                                        type="number"
+                                        value={splitCustomAmounts[sid] || ''}
+                                        onChange={(e) =>
+                                          setSplitCustomAmounts((prev) => ({
+                                            ...prev,
+                                            [sid]: e.target.value,
+                                          }))
+                                        }
+                                        className="flex-1 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono text-[11px]"
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setSplittingItemId(null)}
+                                className="px-2 py-0.5 rounded border border-slate-200 text-slate-600 cursor-pointer"
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                type="button"
+                                disabled={splitParticipantIds.length < 2}
+                                onClick={() => {
+                                  try {
+                                    const participants = tableSubaccounts.filter((s) =>
+                                      splitParticipantIds.includes(s.id)
+                                    );
+                                    if (splitMode === 'equal') {
+                                      splitOrderItemBetweenSubaccounts(
+                                        table.id,
+                                        item.id,
+                                        'equal',
+                                        participants.map((p) => ({ id: p.id, displayName: p.displayName }))
+                                      );
+                                    } else {
+                                      const customShares = participants.map((p) => ({
+                                        subaccountId: p.id,
+                                        subaccountName: p.displayName,
+                                        shareAmount: Number(splitCustomAmounts[p.id] || 0),
+                                      }));
+                                      splitOrderItemBetweenSubaccounts(table.id, item.id, 'custom', customShares);
+                                    }
+                                    setSplittingItemId(null);
+                                    setSaveErrorMsg(null);
+                                  } catch (err: any) {
+                                    setSaveErrorMsg(err?.message || 'Error al dividir producto');
+                                  }
+                                }}
+                                className="px-2.5 py-0.5 rounded bg-amber-600 text-white font-bold disabled:opacity-40 cursor-pointer"
+                              >
+                                Aplicar división
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  </div>
-                ))
+                    );
+                  })
               )}
             </div>
 
@@ -1086,12 +1596,22 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                     <button
                       type="button"
                       id="btn-open-checkout-pos"
-                      onClick={onOpenCheckout}
+                      onClick={() =>
+                        onOpenCheckout(
+                          selectedSubFilter !== 'all' && selectedSubFilter !== UNASSIGNED_SUBACCOUNT_ID
+                            ? [selectedSubFilter]
+                            : undefined
+                        )
+                      }
                       disabled={items.length === 0}
                       className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white text-xs font-black shadow-md shadow-emerald-600/20 transition cursor-pointer"
                     >
                       <CreditCard className="w-4 h-4" />
-                      <span>Cobrar</span>
+                      <span>
+                        {selectedSubFilter !== 'all' && selectedSubFilter !== UNASSIGNED_SUBACCOUNT_ID
+                          ? 'Cobrar Subcuenta'
+                          : 'Cobrar'}
+                      </span>
                     </button>
                   </div>
                 </div>

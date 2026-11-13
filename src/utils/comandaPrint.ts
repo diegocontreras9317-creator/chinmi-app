@@ -101,6 +101,11 @@ export function extractComandaItemDetails(
     }
   }
 
+  const subaccountLabel = String(rawItem.subaccountName ?? '').trim();
+  if (subaccountLabel && !seen.has(`sub:${subaccountLabel.toLowerCase()}`)) {
+    modifiers.push(`Subcuenta: ${subaccountLabel}`);
+  }
+
   const rawNotes = String(
     rawItem.notes ?? rawItem.observaciones ?? rawItem.note ?? ''
   ).trim();

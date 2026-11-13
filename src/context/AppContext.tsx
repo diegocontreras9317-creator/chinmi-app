@@ -1,5 +1,25 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Table, Product, SaleReceipt, TableStatus, Order, OrderItem, PaymentMethod, CloudSyncStatus, PerishableItem, Supplier, SupplierOrder, SupplierOrderItem, CustomerBillingInfo, ElectronicInvoiceStatus, AppStateData, User } from '../types';
+import {
+  Table,
+  Product,
+  SaleReceipt,
+  TableStatus,
+  Order,
+  OrderItem,
+  PaymentMethod,
+  CloudSyncStatus,
+  PerishableItem,
+  Supplier,
+  SupplierOrder,
+  SupplierOrderItem,
+  CustomerBillingInfo,
+  ElectronicInvoiceStatus,
+  AppStateData,
+  User,
+  TableSubaccount,
+  PaymentBreakdownEntry,
+  TablePaymentRecord,
+} from '../types';
 import { extractTableBillingInfo, normalizeBillingInfo, hasCustomBillingData } from '../utils/billing';
 import { resolveProductTax, resolveOrderItemTax, calculateOrderTaxBreakdown } from '../utils/taxes';
 import { defaultAppConfig, AppConfig, QrMenuSettings } from '../config/appConfig';
@@ -30,12 +50,26 @@ import {
   saveSaleToFirestore,
   releaseTableInFirestore,
   executeSaleCheckoutBatch,
+  executePartialOrFullCheckoutTransaction,
   saveUserQrConfig,
   saveUserAppConfig,
   subscribeUserAppConfig,
   getUserAppConfig,
   getActiveUserId
 } from '../services/firestoreUserStorage';
+import {
+  buildSubaccountCheckoutPlan,
+  createTableSubaccount,
+  generatePaymentOperationId,
+  generateTableSessionId,
+  mergeSubaccountsGroup,
+  moveOrderItemToSubaccount,
+  splitOrderItemCustomAmounts,
+  splitOrderItemEqually,
+  unmergeSubaccountsGroup,
+  type PartialItemSelection,
+  type SubaccountCheckoutPlan,
+} from '../utils/subaccounts';
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
 import { playServiceBell, playNewOrderAlert } from '../utils/audioAlert';
@@ -207,6 +241,45 @@ interface AppContextType {
       billingInfo?: CustomerBillingInfo;
     }
   ) => Promise<{ success: boolean; receipt?: SaleReceipt }>;
+  createPosTableSubaccount: (tableId: string, desiredName: string) => TableSubaccount | null;
+  assignItemSubaccount: (
+    tableId: string,
+    itemId: string,
+    targetSubaccountId?: string,
+    targetSubaccountName?: string
+  ) => void;
+  splitOrderItemBetweenSubaccounts: (
+    tableId: string,
+    itemId: string,
+    mode: 'equal' | 'custom',
+    participantsOrShares:
+      | Array<{ id: string; displayName: string }>
+      | Array<{ subaccountId: string; subaccountName: string; shareAmount: number }>
+  ) => void;
+  mergeTableSubaccounts: (
+    tableId: string,
+    sourceSubaccountIds: string[],
+    targetSubaccountId: string,
+    groupName?: string
+  ) => void;
+  unmergeTableSubaccounts: (tableId: string, groupTargetSubaccountId: string) => void;
+  processSubaccountsCheckout: (params: {
+    tableId: string;
+    targetSubaccountIds?: string[];
+    includeUnassigned?: boolean;
+    selectedItems?: PartialItemSelection[];
+    tipAmount?: number;
+    paymentMethod?: PaymentMethod;
+    paymentBreakdown?: PaymentBreakdownEntry[];
+    cashTendered?: number;
+    billingInfo?: CustomerBillingInfo;
+    privateQrBillingId?: string;
+    paymentId?: string;
+    receiptId?: string;
+    cashierName?: string;
+    cashierRole?: string;
+    cashierId?: string;
+  }) => Promise<{ success: boolean; receipt?: SaleReceipt; plan?: SubaccountCheckoutPlan; idempotentDuplicate?: boolean }>;
   eliminarProducto: (tableId: string, itemId: string) => Promise<void>;
   updateElectronicInvoiceStatus: (saleId: string, status: ElectronicInvoiceStatus) => void;
   bulkUpdateElectronicInvoiceStatus: (saleIds: string[], status: ElectronicInvoiceStatus) => void;
@@ -1437,6 +1510,419 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return res;
   };
 
+  // ==================== OPERACIONES POS DE SUBCUENTAS, DIVISIÓN Y PAGO MIXTO/PARCIAL ====================
+
+  const createPosTableSubaccount = (tableId: string, desiredName: string): TableSubaccount | null => {
+    const cleanName = desiredName.trim();
+    if (!cleanName) return null;
+    const nowIso = new Date().toISOString();
+    let createdSub: TableSubaccount | null = null;
+
+    const nextTables = tablesRef.current.map(tbl => {
+      if (tbl.id !== tableId || !tbl.order) return tbl;
+      const tableSessionId = tbl.order.tableSessionId || tbl.tableSessionId || generateTableSessionId(tableId);
+      const existingSubs = tbl.order.subaccounts || tbl.subaccounts || [];
+      createdSub = createTableSubaccount({
+        tableId,
+        tableSessionId,
+        desiredName: cleanName,
+        existingSubaccounts: existingSubs,
+        nowIso,
+      });
+      const nextSubaccounts = [...existingSubs, createdSub];
+      return {
+        ...tbl,
+        tableSessionId,
+        subaccounts: nextSubaccounts,
+        updatedAt: nowIso,
+        order: {
+          ...tbl.order,
+          tableSessionId,
+          subaccounts: nextSubaccounts,
+          lastUpdatedAt: nowIso,
+        },
+      };
+    });
+
+    if (!createdSub) return null;
+    tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
+    setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
+    persistChanges(nextTables, products, sales);
+    return createdSub;
+  };
+
+  const assignItemSubaccount = (
+    tableId: string,
+    itemId: string,
+    targetSubaccountId?: string,
+    targetSubaccountName?: string
+  ) => {
+    const nowIso = new Date().toISOString();
+    const nextTables = tablesRef.current.map(tbl => {
+      if (tbl.id !== tableId || !tbl.order) return tbl;
+      const nextItems = moveOrderItemToSubaccount(
+        tbl.order.items,
+        itemId,
+        targetSubaccountId,
+        targetSubaccountName
+      );
+      return {
+        ...tbl,
+        updatedAt: nowIso,
+        order: {
+          ...tbl.order,
+          items: nextItems,
+          lastUpdatedAt: nowIso,
+        },
+      };
+    });
+    tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
+    setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
+    persistChanges(nextTables, products, sales);
+  };
+
+  const splitOrderItemBetweenSubaccounts = (
+    tableId: string,
+    itemId: string,
+    mode: 'equal' | 'custom',
+    participantsOrShares:
+      | Array<{ id: string; displayName: string }>
+      | Array<{ subaccountId: string; subaccountName: string; shareAmount: number }>
+  ) => {
+    const nowIso = new Date().toISOString();
+    const nextTables = tablesRef.current.map(tbl => {
+      if (tbl.id !== tableId || !tbl.order) return tbl;
+      const nextItems =
+        mode === 'equal'
+          ? splitOrderItemEqually(
+              tbl.order.items,
+              itemId,
+              participantsOrShares as Array<{ id: string; displayName: string }>
+            )
+          : splitOrderItemCustomAmounts(
+              tbl.order.items,
+              itemId,
+              participantsOrShares as Array<{ subaccountId: string; subaccountName: string; shareAmount: number }>
+            );
+      return {
+        ...tbl,
+        updatedAt: nowIso,
+        order: {
+          ...tbl.order,
+          items: nextItems,
+          lastUpdatedAt: nowIso,
+        },
+      };
+    });
+    tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
+    setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
+    persistChanges(nextTables, products, sales);
+  };
+
+  const mergeTableSubaccounts = (
+    tableId: string,
+    sourceSubaccountIds: string[],
+    targetSubaccountId: string,
+    groupName?: string
+  ) => {
+    const nowIso = new Date().toISOString();
+    const nextTables = tablesRef.current.map(tbl => {
+      if (tbl.id !== tableId || !tbl.order) return tbl;
+      const existingSubs = tbl.order.subaccounts || tbl.subaccounts || [];
+      const nextSubaccounts = mergeSubaccountsGroup(
+        existingSubs,
+        sourceSubaccountIds,
+        targetSubaccountId,
+        groupName
+      );
+      return {
+        ...tbl,
+        subaccounts: nextSubaccounts,
+        updatedAt: nowIso,
+        order: {
+          ...tbl.order,
+          subaccounts: nextSubaccounts,
+          lastUpdatedAt: nowIso,
+        },
+      };
+    });
+    tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
+    setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
+    persistChanges(nextTables, products, sales);
+  };
+
+  const unmergeTableSubaccounts = (tableId: string, groupTargetSubaccountId: string) => {
+    const nowIso = new Date().toISOString();
+    const nextTables = tablesRef.current.map(tbl => {
+      if (tbl.id !== tableId || !tbl.order) return tbl;
+      const existingSubs = tbl.order.subaccounts || tbl.subaccounts || [];
+      const nextSubaccounts = unmergeSubaccountsGroup(existingSubs, groupTargetSubaccountId);
+      return {
+        ...tbl,
+        subaccounts: nextSubaccounts,
+        updatedAt: nowIso,
+        order: {
+          ...tbl.order,
+          subaccounts: nextSubaccounts,
+          lastUpdatedAt: nowIso,
+        },
+      };
+    });
+    tablesRef.current = nextTables;
+    lastLocalTableMutations.current[tableId] = Date.now();
+    setTables(nextTables);
+    const updatedTable = nextTables.find(t => t.id === tableId);
+    if (activeUid && activeUid !== 'default') {
+      syncTableOrderToFirestore(tableId, updatedTable?.order, activeUid).catch(console.error);
+    }
+    persistChanges(nextTables, products, sales);
+  };
+
+  const processSubaccountsCheckout = async (params: {
+    tableId: string;
+    targetSubaccountIds?: string[];
+    includeUnassigned?: boolean;
+    selectedItems?: PartialItemSelection[];
+    tipAmount?: number;
+    paymentMethod?: PaymentMethod;
+    paymentBreakdown?: PaymentBreakdownEntry[];
+    cashTendered?: number;
+    billingInfo?: CustomerBillingInfo;
+    privateQrBillingId?: string;
+    paymentId?: string;
+    receiptId?: string;
+    cashierName?: string;
+    cashierRole?: string;
+    cashierId?: string;
+  }): Promise<{ success: boolean; receipt?: SaleReceipt; plan?: SubaccountCheckoutPlan; idempotentDuplicate?: boolean }> => {
+    const table = tablesRef.current.find(t => t.id === params.tableId);
+    const rawOrder = table?.order;
+    const rawItems = rawOrder?.items || (rawOrder as any)?.productos || [];
+    if (!table || !rawOrder || rawItems.length === 0) {
+      return { success: false };
+    }
+
+    const fallbackTaxRate = Number(rawOrder.taxPercent ?? config.defaultTaxRate ?? 8) || 8;
+    const enrichedItems: OrderItem[] = rawItems.map((item: any) => {
+      const resolvedItemTax = resolveOrderItemTax(item, products, fallbackTaxRate);
+      return {
+        ...item,
+        taxType: resolvedItemTax.taxType,
+        taxRate: resolvedItemTax.taxRate,
+      };
+    });
+
+    const enrichedOrder: Order = {
+      ...rawOrder,
+      items: enrichedItems,
+      subaccounts: rawOrder.subaccounts || table.subaccounts || [],
+      tableSessionId: rawOrder.tableSessionId || table.tableSessionId || rawOrder.id,
+    };
+
+    const paymentId = params.paymentId || generatePaymentOperationId();
+    const receiptId = params.receiptId || `tick-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+
+    const plan = buildSubaccountCheckoutPlan({
+      order: enrichedOrder,
+      targetSubaccountIds: params.targetSubaccountIds,
+      includeUnassigned: params.includeUnassigned,
+      selectedItems: params.selectedItems,
+      tipAmount: params.tipAmount ?? 0,
+      paymentMethod: params.paymentMethod,
+      paymentBreakdown: params.paymentBreakdown,
+      cashTendered: params.cashTendered,
+      defaultTaxRate: fallbackTaxRate,
+      paymentId,
+    });
+
+    const resolvedCashierName = params.cashierName?.trim() || activeOperatorName;
+    const resolvedCashierRole = params.cashierRole?.trim() || activeOperatorRole || undefined;
+    const resolvedCashierId = params.cashierId?.trim() || activeOperatorId || undefined;
+
+    const extracted = extractTableBillingInfo(table);
+    // Aislamiento estricto: si cobramos subcuenta específica sin datos propios proporcionados, no heredamos PII de otra persona salvo que coincida
+    const resolvedBilling = normalizeBillingInfo(
+      params.billingInfo || (plan.affectedSubaccountIds.length === 0 ? extracted.billing : undefined)
+    );
+    const isElectronic = Boolean(resolvedBilling.requiresElectronicInvoice || resolvedBilling.email);
+    const effectiveTaxPercent = plan.subtotal > 0 ? Math.round((plan.taxAmount / plan.subtotal) * 100) : fallbackTaxRate;
+    const nowIso = new Date().toISOString();
+
+    const receipt: SaleReceipt = {
+      id: receiptId,
+      orderId: enrichedOrder.id,
+      tableName: table.name,
+      tableSessionId: plan.tableSessionId,
+      ...(plan.affectedSubaccountIds.length > 0 ? { subaccountIds: plan.affectedSubaccountIds } : {}),
+      ...(plan.affectedSubaccountNames.length > 0 ? { subaccountNames: plan.affectedSubaccountNames } : {}),
+      isPartialTableCheckout: plan.isPartialTableCheckout,
+      closedTableAtPayment: plan.shouldReleaseTable,
+      paymentId,
+      paymentBreakdown: plan.normalizedBreakdown,
+      items: plan.receiptItems,
+      subtotal: Math.round(plan.subtotal),
+      taxAmount: Math.round(plan.taxAmount),
+      taxPercent: effectiveTaxPercent,
+      ivaAmount: Math.round(plan.ivaAmount),
+      impoconsumoAmount: Math.round(plan.impoconsumoAmount),
+      discountAmount: Math.round(plan.discountAmount),
+      discountPercent: plan.discountPercent,
+      tipAmount: Math.round(plan.tipAmount),
+      total: Math.round(plan.total),
+      paymentMethod: plan.primaryPaymentMethod,
+      ...(plan.cashTendered !== undefined ? { cashTendered: Math.round(plan.cashTendered) } : {}),
+      ...(plan.change !== undefined ? { change: Math.round(plan.change) } : {}),
+      timestamp: nowIso,
+      cashierName: resolvedCashierName,
+      ...(resolvedCashierRole ? { cashierRole: resolvedCashierRole } : {}),
+      ...(resolvedCashierId ? { cashierId: resolvedCashierId } : {}),
+      customerName: resolvedBilling.customerName,
+      customerDocumentType: resolvedBilling.documentType,
+      customerDocumentNumber: resolvedBilling.documentNumber,
+      ...(resolvedBilling.email ? { customerEmail: resolvedBilling.email } : {}),
+      ...(params.privateQrBillingId ? { privateQrBillingId: params.privateQrBillingId } : {}),
+      ...(isElectronic
+        ? {
+            requiresElectronicInvoice: true,
+            electronicInvoiceStatus: 'pendiente' as const,
+          }
+        : {}),
+      billingInfo: resolvedBilling,
+    };
+
+    const paymentRecord: TablePaymentRecord = {
+      id: paymentId,
+      orderId: enrichedOrder.id,
+      tableId: table.id,
+      tableName: table.name,
+      tableSessionId: plan.tableSessionId,
+      receiptId: receipt.id,
+      subaccountIds: plan.affectedSubaccountIds,
+      subaccountNames: plan.affectedSubaccountNames,
+      subtotal: receipt.subtotal,
+      discountAmount: receipt.discountAmount,
+      taxAmount: receipt.taxAmount,
+      ivaAmount: receipt.ivaAmount,
+      impoconsumoAmount: receipt.impoconsumoAmount,
+      tipAmount: receipt.tipAmount,
+      total: receipt.total,
+      paymentMethod: receipt.paymentMethod,
+      paymentBreakdown: plan.normalizedBreakdown,
+      requiresElectronicInvoice: receipt.requiresElectronicInvoice,
+      ...(params.privateQrBillingId ? { privateQrBillingId: params.privateQrBillingId } : {}),
+      cashierName: resolvedCashierName,
+      ...(resolvedCashierRole ? { cashierRole: resolvedCashierRole } : {}),
+      ...(resolvedCashierId ? { cashierId: resolvedCashierId } : {}),
+      createdAt: nowIso,
+    };
+
+    const preCheckoutProducts = productsRef.current;
+    const preCheckoutPerishables = perishablesRef.current;
+
+    let nextProducts = preCheckoutProducts;
+    let nextPerishables = preCheckoutPerishables;
+
+    if (activeUid && activeUid !== 'default') {
+      const txRes = await executePartialOrFullCheckoutTransaction({
+        uid: activeUid,
+        tableId: params.tableId,
+        order: enrichedOrder,
+        plan,
+        receipt,
+        paymentRecord,
+        productsCatalog: preCheckoutProducts,
+        perishablesList: preCheckoutPerishables,
+      });
+
+      if (txRes.idempotentDuplicate) {
+        return { success: true, receipt, plan, idempotentDuplicate: true };
+      }
+      nextProducts = txRes.updatedProducts;
+      nextPerishables = txRes.updatedPerishables;
+    } else if (plan.itemsRequiringInventoryDeduction.length > 0) {
+      const invRes = computeSaleInventoryUpdates({
+        orderItems: plan.itemsRequiringInventoryDeduction,
+        productsCatalog: preCheckoutProducts,
+        perishablesList: preCheckoutPerishables,
+      });
+      nextProducts = invRes.updatedProducts;
+      nextPerishables = invRes.updatedPerishables;
+    }
+
+    lastLocalTableMutations.current[params.tableId] = Date.now();
+    if (plan.shouldReleaseTable) {
+      delete prevWaiterCallsRef.current[params.tableId];
+    }
+
+    const nextTables = tablesRef.current.map(tbl => {
+      if (tbl.id !== params.tableId) return tbl;
+      if (plan.shouldReleaseTable) {
+        return {
+          ...tbl,
+          status: 'libre' as TableStatus,
+          tableSessionId: null,
+          subaccounts: [],
+          order: undefined,
+          waiterCall: null,
+          updatedAt: nowIso,
+        };
+      }
+      const clearWaiterCall =
+        !tbl.waiterCall ||
+        (tbl.waiterCall.subaccountId && plan.affectedSubaccountIds.includes(tbl.waiterCall.subaccountId)) ||
+        plan.updatedSubaccounts.every(s => s.status !== 'pidiendo_cuenta');
+      return {
+        ...tbl,
+        status: (clearWaiterCall ? 'ocupada' : tbl.status) as TableStatus,
+        tableSessionId: plan.tableSessionId,
+        subaccounts: plan.updatedSubaccounts,
+        waiterCall: clearWaiterCall ? null : tbl.waiterCall,
+        updatedAt: nowIso,
+        order: {
+          ...enrichedOrder,
+          items: plan.updatedOrderItems,
+          subaccounts: plan.updatedSubaccounts,
+          pendingBalance: plan.remainingPendingBalance,
+          paymentsTotal: (enrichedOrder.paymentsTotal || 0) + plan.total,
+          lastUpdatedAt: nowIso,
+        },
+      };
+    });
+
+    const nextSales = [receipt, ...sales.filter(s => s.id !== receipt.id)];
+    tablesRef.current = nextTables;
+    setTables(nextTables);
+    productsRef.current = nextProducts;
+    setProducts(nextProducts);
+    perishablesRef.current = nextPerishables;
+    setPerishables(nextPerishables);
+    setSales(nextSales);
+    setLatestReceipt(receipt);
+    persistChanges(nextTables, nextProducts, nextSales, nextPerishables);
+
+    return { success: true, receipt, plan };
+  };
+
   // Función asíncrona de eliminación de producto con control de errores extremo
   const eliminarProducto = async (tableId: string, itemId: string): Promise<void> => {
     if (!tableId || typeof tableId !== 'string') {
@@ -2129,6 +2615,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateOrderBillingInfo,
         checkoutTable,
         cobrarMesa,
+        createPosTableSubaccount,
+        assignItemSubaccount,
+        splitOrderItemBetweenSubaccounts,
+        mergeTableSubaccounts,
+        unmergeTableSubaccounts,
+        processSubaccountsCheckout,
         eliminarProducto,
         updateElectronicInvoiceStatus,
         bulkUpdateElectronicInvoiceStatus,

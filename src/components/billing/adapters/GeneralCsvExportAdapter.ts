@@ -85,11 +85,21 @@ export class GeneralCsvExportAdapter implements IAccountingExportAdapter {
     lines.push(headers.join(delimiter));
 
     for (const sale of sales) {
+      const tableLabel =
+        sale.subaccountNames && sale.subaccountNames.length > 0
+          ? `${sale.tableName} (${sale.subaccountNames.join(', ')})`
+          : sale.tableName;
+      const paymentLabel =
+        Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 1
+          ? `MIXTO (${sale.paymentBreakdown
+              .map((p) => `${p.method === 'bizum' ? 'transferencia' : p.method}: ${p.amount}`)
+              .join(' + ')})`
+          : sale.paymentMethod;
       const row = [
         escapeCsv(sale.saleId),
         escapeCsv(sale.ticketNumber),
         escapeCsv(sale.timestamp),
-        escapeCsv(sale.tableName),
+        escapeCsv(tableLabel),
         escapeCsv(sale.cashierName),
         escapeCsv(sale.customerName),
         escapeCsv(sale.documentType),
@@ -115,7 +125,7 @@ export class GeneralCsvExportAdapter implements IAccountingExportAdapter {
         sale.taxAmount,
         sale.tipAmount,
         sale.total,
-        escapeCsv(sale.paymentMethod),
+        escapeCsv(paymentLabel),
         escapeCsv(sale.requestStatus === 'solicitada' ? 'SI' : 'NO'),
         escapeCsv(sale.exportStatus),
         escapeCsv(sale.filingStatus),

@@ -65,6 +65,17 @@ export class LoggroExcelExportAdapter implements IAccountingExportAdapter {
         paymentLabel = restaurant.loggroPaymentMethodCash || 'EFECTIVO';
       }
 
+      const mixObs =
+        Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 1
+          ? ` · Pago Mixto (${sale.paymentBreakdown
+              .map((p) => `${p.method === 'bizum' ? 'Transferencia' : p.method}: $${p.amount}`)
+              .join(' / ')})`
+          : '';
+      const subObs =
+        sale.subaccountNames && sale.subaccountNames.length > 0
+          ? ` · Subcuenta: ${sale.subaccountNames.join(', ')}`
+          : '';
+
       rowsEncabezado.push([
         defaultVoucher,
         sale.ticketNumber,
@@ -72,7 +83,7 @@ export class LoggroExcelExportAdapter implements IAccountingExportAdapter {
         sale.documentNumber || '222222222222',
         sale.customerName || 'Consumidor Final',
         paymentLabel,
-        `Mesa: ${sale.tableName || 'General'} · Chinmi App Ticket #${sale.ticketNumber}`,
+        `Mesa: ${sale.tableName || 'General'}${subObs}${mixObs} · Chinmi App Ticket #${sale.ticketNumber}`,
         sale.total
       ]);
     }

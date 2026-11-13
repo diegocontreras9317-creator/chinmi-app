@@ -120,6 +120,9 @@ export const SaleCardMobile: React.FC<SaleCardMobileProps> = ({
             <span>·</span>
             <span className="font-semibold text-slate-700 dark:text-slate-300 truncate">
               {sale.tableName}
+              {sale.subaccountNames && sale.subaccountNames.length > 0
+                ? ` · ${sale.subaccountNames.join(', ')}`
+                : ''}
             </span>
           </div>
 
@@ -139,8 +142,18 @@ export const SaleCardMobile: React.FC<SaleCardMobileProps> = ({
 
           <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
             <div className="flex items-center gap-1.5">
-              {getPaymentIcon()}
-              <span className="capitalize">{sale.paymentMethod}</span>
+              {Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 1 ? (
+                <span className="font-semibold text-indigo-700 dark:text-indigo-400">
+                  Mixto ({sale.paymentBreakdown.length})
+                </span>
+              ) : (
+                <>
+                  {getPaymentIcon()}
+                  <span className="capitalize">
+                    {sale.paymentMethod === 'bizum' ? 'Transferencia' : sale.paymentMethod}
+                  </span>
+                </>
+              )}
               <span className="text-slate-300 dark:text-slate-700">|</span>
               <span>{sale.lines.length} {sale.lines.length === 1 ? 'ítem' : 'ítems'}</span>
             </div>

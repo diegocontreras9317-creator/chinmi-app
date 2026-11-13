@@ -74,7 +74,15 @@ export const SaleDetailsDrawer: React.FC<SaleDetailsDrawerProps> = ({
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
             <div>
               <span className="text-slate-400 block text-[10px] font-semibold">Mesa / Salón</span>
-              <span className="font-bold text-slate-800 dark:text-slate-200">{sale.tableName}</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">
+                {sale.tableName}
+                {sale.isPartialTableCheckout ? ' (Parcial)' : ''}
+              </span>
+              {sale.subaccountNames && sale.subaccountNames.length > 0 && (
+                <span className="block text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+                  {sale.subaccountNames.join(', ')}
+                </span>
+              )}
             </div>
             <div>
               <span className="text-slate-400 block text-[10px] font-semibold">Cajero / Operador</span>
@@ -82,7 +90,18 @@ export const SaleDetailsDrawer: React.FC<SaleDetailsDrawerProps> = ({
             </div>
             <div>
               <span className="text-slate-400 block text-[10px] font-semibold">Método de Pago</span>
-              <span className="font-bold capitalize text-slate-800 dark:text-slate-200">{sale.paymentMethod}</span>
+              {Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 1 ? (
+                <span className="font-bold text-indigo-700 dark:text-indigo-300 block">
+                  Mixto:{' '}
+                  {sale.paymentBreakdown
+                    .map((p) => `${p.method === 'bizum' ? 'Transf.' : p.method} ${formatCOP(p.amount)}`)
+                    .join(' + ')}
+                </span>
+              ) : (
+                <span className="font-bold capitalize text-slate-800 dark:text-slate-200">
+                  {sale.paymentMethod === 'bizum' ? 'Transferencia / QR' : sale.paymentMethod}
+                </span>
+              )}
             </div>
             <div>
               <span className="text-slate-400 block text-[10px] font-semibold">Fecha de Emisión</span>

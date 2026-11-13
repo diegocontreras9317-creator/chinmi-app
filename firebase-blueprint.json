@@ -30,6 +30,8 @@
         "zone": { "type": "string" },
         "seats": { "type": "number" },
         "status": { "type": "string" },
+        "tableSessionId": { "type": "string" },
+        "subaccounts": { "type": "array" },
         "userId": { "type": "string" },
         "order": { "type": "object" },
         "waiterCall": { "type": "object" },
@@ -128,12 +130,18 @@
     },
     "SaleReceipt": {
       "title": "SaleReceipt",
-      "description": "Entidad de recibo o comprobante de venta",
+      "description": "Entidad de recibo o comprobante de venta inmutable",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "orderId": { "type": "string" },
         "tableName": { "type": "string" },
+        "tableSessionId": { "type": "string" },
+        "subaccountIds": { "type": "array" },
+        "subaccountNames": { "type": "array" },
+        "isPartialTableCheckout": { "type": "boolean" },
+        "paymentOperationId": { "type": "string" },
+        "paymentBreakdown": { "type": "array" },
         "subtotal": { "type": "number" },
         "taxAmount": { "type": "number" },
         "taxPercent": { "type": "number" },
@@ -159,6 +167,99 @@
         "userId": { "type": "string" }
       },
       "required": ["id", "total", "paymentMethod", "timestamp"]
+    },
+    "TablePaymentRecord": {
+      "title": "TablePaymentRecord",
+      "description": "Registro idempotente de pago parcial o total por mesa y subcuentas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "tableId": { "type": "string" },
+        "tableName": { "type": "string" },
+        "tableSessionId": { "type": "string" },
+        "receiptId": { "type": "string" },
+        "subaccountIds": { "type": "array" },
+        "subaccountNames": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "ivaAmount": { "type": "number" },
+        "impoconsumoAmount": { "type": "number" },
+        "tipAmount": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "paymentBreakdown": { "type": "array" },
+        "cashierName": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "orderId", "tableId", "total", "createdAt", "userId"]
+    },
+    "PrivateQrBillingRecord": {
+      "title": "PrivateQrBillingRecord",
+      "description": "Buzón privado aislado de solicitudes fiscales QR (PII legible solo por el restaurante propietario)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tableId": { "type": "string" },
+        "tableSessionId": { "type": "string" },
+        "subaccountId": { "type": "string" },
+        "subaccountName": { "type": "string" },
+        "requiresElectronicInvoice": { "type": "boolean" },
+        "billingInfo": { "type": "object" },
+        "requestedTipAmount": { "type": "number" },
+        "preferredPaymentMethod": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "tableId", "tableSessionId", "subaccountId", "requiresElectronicInvoice", "billingInfo"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Configuración visual, menú QR, subcuentas y parámetros del restaurante",
+      "type": "object",
+      "properties": {
+        "businessName": { "type": "string" },
+        "businessAddress": { "type": "string" },
+        "businessPhone": { "type": "string" },
+        "businessTaxId": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "categories": { "type": "array" },
+        "qrSettings": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "SaleBillingMetadata": {
+      "title": "SaleBillingMetadata",
+      "description": "Metadatos contables de exportación y estado DIAN por venta",
+      "type": "object",
+      "properties": {
+        "saleId": { "type": "string" },
+        "billingStatus": { "type": "string" },
+        "externalInvoiceNumber": { "type": "string" },
+        "cufe": { "type": "string" },
+        "exportPlatform": { "type": "string" },
+        "exportedAt": { "type": "string" },
+        "notes": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["saleId"]
+    },
+    "RestaurantFiscalProfile": {
+      "title": "RestaurantFiscalProfile",
+      "description": "Perfil fiscal y tributario del restaurante para exportaciones contables",
+      "type": "object",
+      "properties": {
+        "nit": { "type": "string" },
+        "dv": { "type": "string" },
+        "businessName": { "type": "string" },
+        "taxRegime": { "type": "string" },
+        "cityCode": { "type": "string" },
+        "cityName": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
     },
     "PromoCode": {
       "title": "PromoCode",
@@ -201,6 +302,14 @@
       "schema": "#/entities/User",
       "description": "Documento de perfil de usuario"
     },
+    "/users/{userId}/config/{configId}": {
+      "schema": "#/entities/AppConfig",
+      "description": "Configuración del restaurante y carta QR del inquilino"
+    },
+    "/users/{userId}/config_fiscal/{configId}": {
+      "schema": "#/entities/RestaurantFiscalProfile",
+      "description": "Perfil fiscal del restaurante aislado por inquilino"
+    },
     "/users/{userId}/empleados/{empleadoId}": {
       "schema": "#/entities/Empleado",
       "description": "Colección única sincronizada de empleados, roles y perfiles POS del restaurante"
@@ -221,21 +330,37 @@
       "schema": "#/entities/PerishableItem",
       "description": "Colección aislada de inventario/insumos del usuario"
     },
+    "/users/{userId}/despensa/{itemId}": {
+      "schema": "#/entities/PerishableItem",
+      "description": "Colección de compatibilidad para inventario de despensa del usuario"
+    },
     "/users/{userId}/proveedores/{proveedorId}": {
       "schema": "#/entities/Supplier",
       "description": "Colección aislada de proveedores de insumos del usuario"
     },
     "/users/{userId}/ordenes_proveedores/{ordenId}": {
       "schema": "#/entities/SupplierOrder",
-      "description": "Registro histórico de pedidos realizados a distribuidores y su confirmación de llegada"
+      "description": "Registro histórico de pedidos realizados a distribuidores y su confirmación de entrega"
     },
     "/users/{userId}/pedidos/{pedidoId}": {
       "schema": "#/entities/SaleReceipt",
-      "description": "Colección aislada de pedidos del usuario"
+      "description": "Colección aislada de pedidos activos e históricos del usuario"
     },
     "/users/{userId}/ventas/{saleId}": {
       "schema": "#/entities/SaleReceipt",
-      "description": "Colección aislada de ventas del usuario"
+      "description": "Colección aislada e inmutable de ventas contables del usuario"
+    },
+    "/users/{userId}/ventas_metadatos/{saleId}": {
+      "schema": "#/entities/SaleBillingMetadata",
+      "description": "Metadatos de facturación electrónica y exportación contable por venta"
+    },
+    "/users/{userId}/pagos_mesa/{paymentId}": {
+      "schema": "#/entities/TablePaymentRecord",
+      "description": "Libro mayor idempotente de pagos parciales y mixtos de mesa"
+    },
+    "/users/{userId}/facturacion_privada_qr/{recordId}": {
+      "schema": "#/entities/PrivateQrBillingRecord",
+      "description": "Buzón privado de datos fiscales PII enviados desde QR; legible solo por el restaurante propietario"
     }
   }
 }

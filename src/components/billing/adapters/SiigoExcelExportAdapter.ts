@@ -88,6 +88,17 @@ export class SiigoExcelExportAdapter implements IAccountingExportAdapter {
         paymentLabel = restaurant.siigoPaymentMethodCash || 'Efectivo';
       }
 
+      const mixObs =
+        Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 1
+          ? ` · Pago Mixto (${sale.paymentBreakdown
+              .map((p) => `${p.method === 'bizum' ? 'Transferencia' : p.method}: $${p.amount}`)
+              .join(' / ')})`
+          : '';
+      const subObs =
+        sale.subaccountNames && sale.subaccountNames.length > 0
+          ? ` · Subcuenta: ${sale.subaccountNames.join(', ')}`
+          : '';
+
       for (let i = 0; i < sale.lines.length; i++) {
         const line = sale.lines[i];
         const qty = line.quantity || 1;
@@ -122,7 +133,7 @@ export class SiigoExcelExportAdapter implements IAccountingExportAdapter {
           line.taxAmount || 0,
           line.total || line.netTotal || 0,
           paymentLabel,
-          `Mesa: ${sale.tableName || 'General'} · Chinmi App Ticket #${sale.ticketNumber}`
+          `Mesa: ${sale.tableName || 'General'}${subObs}${mixObs} · Chinmi App Ticket #${sale.ticketNumber}`
         ]);
       }
     }

@@ -267,6 +267,7 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
       custEmail.includes(term) ||
       custCity.includes(term) ||
       s.tableName.toLowerCase().includes(term) ||
+      (s.subaccountNames || []).join(' ').toLowerCase().includes(term) ||
       s.cashierName.toLowerCase().includes(term) ||
       s.id.toLowerCase().includes(term) ||
       (s.orderId && s.orderId.toLowerCase().includes(term)) ||
@@ -280,12 +281,28 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
     .map((s) => s.id);
 
   const totalRevenue = sales.reduce((sum, s) => sum + s.total, 0);
-  const cardRevenue = sales
-    .filter((s) => s.paymentMethod === 'tarjeta')
-    .reduce((sum, s) => sum + s.total, 0);
-  const cashRevenue = sales
-    .filter((s) => s.paymentMethod === 'efectivo')
-    .reduce((sum, s) => sum + s.total, 0);
+  const cardRevenue = sales.reduce((sum, s) => {
+    if (Array.isArray(s.paymentBreakdown) && s.paymentBreakdown.length > 0) {
+      return (
+        sum +
+        s.paymentBreakdown
+          .filter((p) => p.method === 'tarjeta')
+          .reduce((pSum, p) => pSum + (Number(p.amount) || 0), 0)
+      );
+    }
+    return s.paymentMethod === 'tarjeta' ? sum + s.total : sum;
+  }, 0);
+  const cashRevenue = sales.reduce((sum, s) => {
+    if (Array.isArray(s.paymentBreakdown) && s.paymentBreakdown.length > 0) {
+      return (
+        sum +
+        s.paymentBreakdown
+          .filter((p) => p.method === 'efectivo')
+          .reduce((pSum, p) => pSum + (Number(p.amount) || 0), 0)
+      );
+    }
+    return s.paymentMethod === 'efectivo' ? sum + s.total : sum;
+  }, 0);
   const totalElectronicCount = sales.filter((s) => isElectronicInvoiceSale(s)).length;
   const totalElectronicPending = sales.filter(
     (s) => isElectronicInvoiceSale(s) && s.electronicInvoiceStatus !== 'emitida'
@@ -865,7 +882,17 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
                         <td className="px-4 py-3 max-w-[210px] align-top">
                           <span className="font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap block">
                             {sale.tableName}
+                            {sale.isPartialTableCheckout && (
+                              <span className="ml-1.5 px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[9px] font-bold">
+                                Parcial
+                              </span>
+                            )}
                           </span>
+                          {sale.subaccountNames && sale.subaccountNames.length > 0 && (
+                            <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 block truncate">
+                              Subcuenta: {sale.subaccountNames.join(', ')}
+                            </span>
+                          )}
                           {sale.items && sale.items.length > 0 && (
                             <span
                               className="text-[10px] text-slate-500 dark:text-slate-400 block truncate"
@@ -1005,18 +1032,34 @@ export const SalesHistoryModal: React.FC<SalesHistoryModalProps> = ({
                         </td>
 
                         <td className="px-4 py-3 align-top">
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium capitalize text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                            {sale.paymentMethod === 'tarjeta' && (
-                              <CreditCard className="w-3 h-3 text-orange-500 shrink-0" />
-                            )}
-                            {sale.paymentMethod === 'efectivo' && (
-                              <Banknote className="w-3 h-3 text-emerald-500 shrink-0" />
-                            )}
-                            {sale.paymentMethod === 'bizum' && (
-                              <Smartphone className="w-3 h-3 text-blue-500 shrink-0" />
-                            )}
-                            {sale.paymentMethod === 'bizum' ? 'Transferencia / QR' : sale.paymentMethod}
-                          </span>
+                          {Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 1 ? (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                                Pago Mixto
+                              </span>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                {sale.paymentBreakdown
+                                  .map(
+                                    (p) =>
+                                      `${p.method === 'bizum' ? 'Transf.' : p.method}: ${formatCOP(p.amount)}`
+                                  )
+                                  .join(' · ')}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium capitalize text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                              {sale.paymentMethod === 'tarjeta' && (
+                                <CreditCard className="w-3 h-3 text-orange-500 shrink-0" />
+                              )}
+                              {sale.paymentMethod === 'efectivo' && (
+                                <Banknote className="w-3 h-3 text-emerald-500 shrink-0" />
+                              )}
+                              {sale.paymentMethod === 'bizum' && (
+                                <Smartphone className="w-3 h-3 text-blue-500 shrink-0" />
+                              )}
+                              {sale.paymentMethod === 'bizum' ? 'Transferencia / QR' : sale.paymentMethod}
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-4 py-3 text-right font-mono tabular-nums font-bold text-sm text-slate-900 dark:text-white whitespace-nowrap align-top">

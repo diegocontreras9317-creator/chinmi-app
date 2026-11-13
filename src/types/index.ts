@@ -102,6 +102,43 @@ export type TableStatus = 'libre' | 'ocupada' | 'cuenta';
 
 export type ProductTaxType = 'impoconsumo' | 'iva' | 'exento';
 
+export type QrSubaccountsMode = 'disabled' | 'optional' | 'required';
+
+export type SubaccountStatus =
+  | 'activa'
+  | 'pidiendo_cuenta'
+  | 'pagada_parcial'
+  | 'pagada'
+  | 'cerrada';
+
+export interface TableSubaccount {
+  id: string;
+  tableId: string;
+  tableSessionId: string;
+  displayName: string;
+  baseName?: string;
+  status: SubaccountStatus;
+  createdAt: string;
+  updatedAt?: string;
+  mergedIntoSubaccountId?: string;
+  mergedGroupName?: string;
+  preferredPaymentMethod?: 'efectivo' | 'tarjeta' | 'transferencia';
+  requiresElectronicInvoice?: boolean;
+  privateQrBillingId?: string;
+  requestedBillAt?: string;
+  requestedTipAmount?: number;
+}
+
+export interface ItemAllocation {
+  subaccountId: string;
+  subaccountName: string;
+  shareAmount: number;
+  shareRatio?: number;
+  paid?: boolean;
+  paidAt?: string;
+  paymentId?: string;
+}
+
 export interface OrderItem {
   id: string;
   productId: string;
@@ -114,6 +151,13 @@ export interface OrderItem {
   customerName?: string;
   taxType?: ProductTaxType;
   taxRate?: number;
+  subaccountId?: string;
+  subaccountName?: string;
+  isShared?: boolean;
+  allocations?: ItemAllocation[];
+  inventoryDeducted?: boolean;
+  paidAmount?: number;
+  paidQuantity?: number;
 }
 
 export type CustomerDocumentType =
@@ -159,13 +203,18 @@ export interface Order {
   id: string;
   tableId: string;
   tableName: string;
+  tableSessionId?: string;
   items: OrderItem[];
   productos?: OrderItem[];
+  subaccounts?: TableSubaccount[];
   discountPercent: number;
   taxPercent: number;
   tipAmount: number;
+  paymentsTotal?: number;
+  pendingBalance?: number;
   openedAt: string;
   lastUpdatedAt: string;
+  settledAt?: string;
   status?: string;
   estado?: string;
   closed?: boolean;
@@ -184,6 +233,8 @@ export interface WaiterCallNotification {
   message?: string;
   preferredPaymentMethod?: 'efectivo' | 'tarjeta' | 'transferencia';
   billingInfo?: CustomerBillingInfo | null;
+  subaccountId?: string;
+  subaccountName?: string;
 }
 
 export interface Table {
@@ -194,6 +245,8 @@ export interface Table {
   seats: number;
   status: TableStatus;
   estado?: TableStatus;
+  tableSessionId?: string | null;
+  subaccounts?: TableSubaccount[];
   order?: Order | null;
   currentOrder?: Order | null;
   pedidoActual?: Order | null;
@@ -232,10 +285,65 @@ export type PaymentMethod = 'efectivo' | 'tarjeta' | 'bizum';
 
 export type ElectronicInvoiceStatus = 'pendiente' | 'emitida';
 
+export interface PaymentBreakdownEntry {
+  method: PaymentMethod;
+  amount: number;
+  cashTendered?: number;
+  change?: number;
+  reference?: string;
+}
+
+export interface PrivateQrBillingRecord {
+  id: string;
+  tableId: string;
+  tableSessionId: string;
+  subaccountId: string;
+  subaccountName: string;
+  requiresElectronicInvoice: boolean;
+  billingInfo: CustomerBillingInfo;
+  requestedTipAmount?: number;
+  preferredPaymentMethod?: 'efectivo' | 'tarjeta' | 'transferencia';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TablePaymentRecord {
+  id: string;
+  orderId: string;
+  tableId: string;
+  tableName: string;
+  tableSessionId: string;
+  receiptId: string;
+  subaccountIds: string[];
+  subaccountNames: string[];
+  subtotal: number;
+  discountAmount: number;
+  taxAmount: number;
+  ivaAmount?: number;
+  impoconsumoAmount?: number;
+  tipAmount: number;
+  total: number;
+  paymentMethod: PaymentMethod;
+  paymentBreakdown: PaymentBreakdownEntry[];
+  requiresElectronicInvoice?: boolean;
+  privateQrBillingId?: string;
+  cashierName: string;
+  cashierRole?: string;
+  cashierId?: string;
+  createdAt: string;
+}
+
 export interface SaleReceipt {
   id: string;
   orderId: string;
   tableName: string;
+  tableSessionId?: string;
+  subaccountIds?: string[];
+  subaccountNames?: string[];
+  isPartialTableCheckout?: boolean;
+  closedTableAtPayment?: boolean;
+  paymentId?: string;
+  paymentBreakdown?: PaymentBreakdownEntry[];
   items: OrderItem[];
   subtotal: number;
   taxAmount: number;
@@ -260,6 +368,7 @@ export interface SaleReceipt {
   requiresElectronicInvoice?: boolean;
   electronicInvoiceStatus?: ElectronicInvoiceStatus;
   electronicInvoiceIssuedAt?: string;
+  privateQrBillingId?: string;
   billingInfo?: CustomerBillingInfo;
 }
 

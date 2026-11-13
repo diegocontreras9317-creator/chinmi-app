@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Product, Table, OrderItem, CustomerBillingInfo, CustomerDocumentType } from '../../types';
+import { Product, Table, OrderItem, CustomerBillingInfo, CustomerDocumentType, TableSubaccount } from '../../types';
 import {
   calculateColombiaNitDV,
   COLOMBIAN_CITIES_DANE,
@@ -12,18 +12,24 @@ import {
 } from '../../utils/billing';
 import {
   calculateOrderTaxBreakdown,
-  resolveOrderItemTax,
   resolveProductTax
 } from '../../utils/taxes';
-import { auth, db } from '../../firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { auth } from '../../firebase';
 import {
   subscribeUserMenu,
   subscribeSingleTable,
   subscribeUserQrConfig,
   saveTableToFirestore,
-  sanitizeForFirestore
+  submitQrOrderTransaction,
+  requestQrBillTransaction,
+  savePrivateQrBillingRecord,
 } from '../../services/firestoreUserStorage';
+import {
+  computeOrderSubaccountsSummary,
+  computeItemPendingAmount,
+  computeItemTotal,
+  generateSubaccountId,
+} from '../../utils/subaccounts';
 import { formatCOP } from '../../utils/currency';
 import { ChinmiLogo } from '../common/ChinmiLogo';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
@@ -44,6 +50,8 @@ import {
   ArrowLeft,
   X,
   User,
+  Users,
+  Heart,
   MessageSquare,
   AlertCircle,
   BellRing,
@@ -144,6 +152,12 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const canOrder = qrSettings.allowOrdering && !qrSettings.menuOnlyMode;
   const canCallWaiter = qrSettings.allowCallWaiter !== false;
   const canRequestBill = qrSettings.allowRequestBill !== false;
+  const subaccountsMode: 'disabled' | 'optional' | 'required' = qrSettings.subaccountsMode || 'disabled';
+  const allowQrSubaccountJoin = qrSettings.allowQrSubaccountJoin !== false;
+  const allowQrVolunteerTip = qrSettings.allowQrVolunteerTip !== false;
+  const defaultSuggestedTipPercent = Math.max(0, Math.min(25, Number(qrSettings.defaultSuggestedTipPercent ?? 10) || 10));
+
+  const activeSessionId = table?.order?.tableSessionId || table?.tableSessionId || 'classic';
 
   const [menuViewMode, setMenuViewMode] = useState<'list' | 'medium'>(() => {
     return qrSettings.menuViewMode === 'list' ? 'list' : 'medium';
@@ -190,7 +204,52 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const billingStorageKey = `chinmi_qr_billing_${urlMesa || tableId || 'default'}`;
+
+  // Aislamiento estricto por restaurante + mesa + sesión activa (evita heredar PII o subcuentas de visitas anteriores)
+  const billingStorageKey = `chinmi_qr_billing_${urlUid || 'local'}_${urlMesa || tableId || 'default'}_${activeSessionId}`;
+  const subaccountStorageKey = `chinmi_qr_subaccount_${urlUid || 'local'}_${urlMesa || tableId || 'default'}_${activeSessionId}`;
+
+  const [activeSubaccountId, setActiveSubaccountId] = useState<string>('');
+  const [activeSubaccountName, setActiveSubaccountName] = useState<string>('');
+  const [subaccountNameDraft, setSubaccountNameDraft] = useState<string>('');
+  const [isSubaccountSwitcherOpen, setIsSubaccountSwitcherOpen] = useState<boolean>(false);
+  const [summaryScope, setSummaryScope] = useState<'mine' | 'table'>('mine');
+
+  // Propina voluntaria (Ley 1935/2018)
+  const [tipMode, setTipMode] = useState<'none' | 'suggested' | '15' | 'custom_pct' | 'custom_amt'>('none');
+  const [customTipPercent, setCustomTipPercent] = useState<string>('');
+  const [customTipAmount, setCustomTipAmount] = useState<string>('');
+  const [billScope, setBillScope] = useState<'mine' | 'table'>('mine');
+
+  // Sincronizar subcuenta local por sesión activa de mesa
+  useEffect(() => {
+    if (typeof window === 'undefined' || subaccountsMode === 'disabled') return;
+    try {
+      const saved = localStorage.getItem(subaccountStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.id) setActiveSubaccountId(parsed.id);
+        if (parsed?.displayName) setActiveSubaccountName(parsed.displayName);
+      } else {
+        setActiveSubaccountId('');
+        setActiveSubaccountName('');
+      }
+    } catch {
+      setActiveSubaccountId('');
+      setActiveSubaccountName('');
+    }
+  }, [subaccountStorageKey, subaccountsMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || subaccountsMode === 'disabled') return;
+    if (!activeSubaccountId && !activeSubaccountName) return;
+    try {
+      localStorage.setItem(
+        subaccountStorageKey,
+        JSON.stringify({ id: activeSubaccountId, displayName: activeSubaccountName })
+      );
+    } catch {}
+  }, [subaccountStorageKey, activeSubaccountId, activeSubaccountName, subaccountsMode]);
 
   const [customerName, setCustomerName] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
@@ -328,38 +387,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     wantsElectronicInvoice
   ]);
 
-  // Hydrate from active order billing info if local fields are empty
-  useEffect(() => {
-    const orderBilling = table?.order?.billingInfo || table?.waiterCall?.billingInfo;
-    if (!orderBilling) return;
-    if (!customerName && orderBilling.customerName && orderBilling.customerName !== 'Consumidor Final') {
-      setCustomerName(orderBilling.customerName);
-    }
-    if (!customerDocNumber && orderBilling.documentNumber) {
-      setCustomerDocNumber(orderBilling.documentNumber);
-      if (orderBilling.documentType && orderBilling.documentType !== 'CONSUMIDOR_FINAL') {
-        setCustomerDocType(orderBilling.documentType);
-      }
-    }
-    if (!customerEmail && orderBilling.email) {
-      setCustomerEmail(orderBilling.email);
-      setWantsElectronicInvoice(true);
-    }
-    if (!customerPhone && orderBilling.phone) {
-      setCustomerPhone(orderBilling.phone);
-    }
-    if (!customerCity && orderBilling.city) {
-      setCustomerCity(orderBilling.city);
-    }
-    if (!customerAddress && orderBilling.address) {
-      setCustomerAddress(orderBilling.address);
-    }
-  }, [
-    table?.order?.id,
-    table?.order?.billingInfo?.documentNumber,
-    table?.order?.billingInfo?.email,
-    table?.waiterCall?.requestedAt
-  ]);
+  // Aislamiento estricto: jamás hidratar PII de otros clientes de la mesa ni de sesiones anteriores
 
   // Detail Modal for Product Image & Ingredients
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
@@ -423,7 +451,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const cartTaxInclusiveTotal = cartTaxSummary.productsTotal;
   const cartTaxAmount = Math.round(cartTaxSummary.totalTaxAmount);
 
-  // Existing table order totals (Precios P.V.P con impuesto incluido)
+  // Existing table order & subaccounts overview (Precios P.V.P con impuesto incluido)
   const existingOrder = table?.order;
   const existingItemsCount = existingOrder?.items.reduce((acc, it) => acc + it.quantity, 0) || 0;
   const existingOrderTaxRate = Number(existingOrder?.taxPercent ?? taxRate) || taxRate;
@@ -439,6 +467,50 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   }, [existingOrder?.items, existingOrder?.discountPercent, existingOrderTaxRate, activeProducts]);
   const existingTaxInclusiveTotal = existingTaxSummary.productsTotal;
   const existingTaxAmount = Math.round(existingTaxSummary.totalTaxAmount);
+
+  const subaccountsOverview = useMemo(
+    () => computeOrderSubaccountsSummary(existingOrder, existingOrderTaxRate, table?.subaccounts),
+    [existingOrder, existingOrderTaxRate, table?.subaccounts]
+  );
+
+  const tableSubaccounts: TableSubaccount[] = useMemo(() => {
+    const raw = existingOrder?.subaccounts || table?.subaccounts || [];
+    return raw.filter((s) => s.status !== 'cerrada');
+  }, [existingOrder?.subaccounts, table?.subaccounts]);
+
+  const mySubaccountSummary = useMemo(() => {
+    if (!activeSubaccountId) return null;
+    return subaccountsOverview.subaccounts.find((s) => s.subaccountId === activeSubaccountId) || null;
+  }, [subaccountsOverview, activeSubaccountId]);
+
+  const effectiveBillSubtotalPending = useMemo(() => {
+    if (subaccountsMode !== 'disabled' && billScope === 'mine' && activeSubaccountId && mySubaccountSummary) {
+      return mySubaccountSummary.pendingNetWithTax;
+    }
+    return subaccountsOverview.tablePendingNetWithTax || existingTaxInclusiveTotal;
+  }, [
+    subaccountsMode,
+    billScope,
+    activeSubaccountId,
+    mySubaccountSummary,
+    subaccountsOverview.tablePendingNetWithTax,
+    existingTaxInclusiveTotal,
+  ]);
+
+  const computedTipAmount = useMemo(() => {
+    if (!allowQrVolunteerTip || tipMode === 'none') return 0;
+    const base = Math.max(0, Math.round(effectiveBillSubtotalPending));
+    if (tipMode === 'suggested') return Math.round((base * defaultSuggestedTipPercent) / 100);
+    if (tipMode === '15') return Math.round((base * 15) / 100);
+    if (tipMode === 'custom_pct') {
+      const pct = Math.max(0, Math.min(50, Number(customTipPercent.replace(',', '.')) || 0));
+      return Math.round((base * pct) / 100);
+    }
+    if (tipMode === 'custom_amt') {
+      return Math.max(0, Math.round(Number(customTipAmount.replace(/[^0-9]/g, '')) || 0));
+    }
+    return 0;
+  }, [allowQrVolunteerTip, tipMode, effectiveBillSubtotalPending, defaultSuggestedTipPercent, customTipPercent, customTipAmount]);
 
   // Add product to cart
   const handleAddToCart = (product: Product, notes?: string) => {
@@ -477,33 +549,35 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     setCart(prev => prev.filter((_, idx) => idx !== index));
   };
 
-  // Submit cart order directly to kitchen/POS
+  const handleSelectOrCreateSubaccount = (desiredName: string, existingSub?: TableSubaccount) => {
+    const clean = desiredName.trim();
+    if (!clean) return;
+    if (existingSub) {
+      setActiveSubaccountId(existingSub.id);
+      setActiveSubaccountName(existingSub.displayName);
+      setCustomerName(existingSub.displayName);
+      setSubaccountNameDraft('');
+      setIsSubaccountSwitcherOpen(false);
+      return;
+    }
+    const newId = generateSubaccountId();
+    setActiveSubaccountId(newId);
+    setActiveSubaccountName(clean);
+    setCustomerName(clean);
+    setSubaccountNameDraft('');
+    setIsSubaccountSwitcherOpen(false);
+  };
+
+  // Submit cart order directly to kitchen/POS using atomic transaction (prevents multi-phone overwrites)
   const handleSendOrder = async () => {
     if (!table || cart.length === 0 || !canOrder) return;
     setPortalErrorMsg(null);
 
-    // 1. Obtener restId desde URL o fallback a usuario autenticado
-    const targetUid = urlUid || auth.currentUser?.uid;
-    if (!targetUid) {
-      setPortalErrorMsg('No se encontró el identificador del restaurante en el enlace QR.');
+    const desiredGuestName = (activeSubaccountName || customerName).trim();
+    if (subaccountsMode === 'required' && !desiredGuestName) {
+      setPortalErrorMsg('Por favor escribe tu nombre o selecciona tu subcuenta para identificar tu pedido en la mesa.');
       return;
     }
-
-    const nowIso = new Date().toISOString();
-    const existingOrder = table.order;
-    const isExistingOrderActive = Boolean(
-      existingOrder &&
-      existingOrder.id &&
-      !existingOrder.closed &&
-      (existingOrder as any).estado === 'activa' &&
-      (existingOrder as any).status !== 'pagada' &&
-      (existingOrder as any).status !== 'cobrado' &&
-      Array.isArray(existingOrder.items)
-    );
-
-    const orderId = isExistingOrderActive && existingOrder?.id
-      ? existingOrder.id
-      : `ord-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     const cleanCartEmail = customerEmail.trim().toLowerCase();
     if (cleanCartEmail && !isValidEmailFormat(cleanCartEmail)) {
@@ -511,125 +585,70 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       return;
     }
 
-    const candidateBilling: Partial<CustomerBillingInfo> = {
-      customerName: customerName.trim(),
-      documentType: customerDocType,
-      documentNumber: customerDocNumber.trim(),
-      email: cleanCartEmail,
-      phone: customerPhone.trim(),
-      city: customerCity.trim(),
-      address: customerAddress.trim(),
-      requiresElectronicInvoice: Boolean(wantsElectronicInvoice || cleanCartEmail)
-    };
-    const resolvedBilling: CustomerBillingInfo | null = hasCustomBillingData(candidateBilling)
-      ? normalizeBillingInfo(candidateBilling)
-      : (isExistingOrderActive ? (existingOrder?.billingInfo || null) : null);
+    const targetUid = urlUid || auth.currentUser?.uid;
+    const nowIso = new Date().toISOString();
 
-    const effectiveCustomerLabel =
-      customerName.trim() ||
-      (resolvedBilling?.customerName && resolvedBilling.customerName !== 'Consumidor Final'
-        ? resolvedBilling.customerName
-        : '');
-
-    // Sanitización exhaustiva del array de productos para que NINGÚN campo sea undefined
-    const cleanNewItems: OrderItem[] = cart.map(c => {
+    const cleanNewItems: OrderItem[] = cart.map((c, idx) => {
       const resolvedProdTax = resolveProductTax(c.product, taxRate);
       return {
-        id: `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        id: `it-qr-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
         productId: c.product.id || '',
         name: c.product.name || 'Producto',
         unitPrice: Number(c.product.price) || 0,
         quantity: Number(c.quantity) || 1,
         notes: c.notes?.trim() || '',
         addedAt: nowIso,
-        customerName: effectiveCustomerLabel,
+        customerName: desiredGuestName || 'Cliente QR',
         orderedBy: 'cliente',
         taxType: resolvedProdTax.taxType,
-        taxRate: resolvedProdTax.taxRate
+        taxRate: resolvedProdTax.taxRate,
       };
     });
 
-    // Solo mantener ítems si la comanda previa estaba realmente activa en la mesa
-    const sourceItems = isExistingOrderActive ? (existingOrder?.items || []) : [];
-    const cleanExistingItems: OrderItem[] = sourceItems.map(it => {
-      const resolvedItemTax = resolveOrderItemTax(
-        it as unknown as Partial<OrderItem> & Record<string, unknown>,
-        activeProducts,
-        taxRate
-      );
-      return {
-        id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        productId: it.productId || '',
-        name: it.name || 'Producto',
-        unitPrice: Number(it.unitPrice) || 0,
-        quantity: Number(it.quantity) || 1,
-        notes: it.notes?.trim() || '',
-        addedAt: it.addedAt || nowIso,
-        customerName: it.customerName?.trim() || effectiveCustomerLabel,
-        orderedBy: it.orderedBy || 'cliente',
-        taxType: resolvedItemTax.taxType,
-        taxRate: resolvedItemTax.taxRate
-      };
-    });
-
-    const cleanAllItems = [...cleanExistingItems, ...cleanNewItems];
-
-    // Construcción del objeto de pedido con valores por defecto para campos opcionales
-    const rawOrderPayload = {
-      id: orderId,
-      tableId: table.id || '',
-      tableName: table.name || 'Barra',
-      items: cleanAllItems,
-      productos: cleanAllItems,
-      status: 'activa',
-      estado: 'activa',
-      closed: false,
-      discountPercent: Number(existingOrder?.discountPercent) || 0,
-      taxPercent: Number(existingOrder?.taxPercent) || 8,
-      tipAmount: Number(existingOrder?.tipAmount) || 0,
-      openedAt: existingOrder?.openedAt || nowIso,
-      lastUpdatedAt: nowIso,
-      userId: targetUid || '',
-      customerName: effectiveCustomerLabel,
-      nombreCliente: effectiveCustomerLabel,
-      cliente: effectiveCustomerLabel,
-      billingInfo: resolvedBilling,
-      comentario: '',
-      mesa: table.name || 'Barra'
-    };
-
-    const sanitizedOrderPayload = sanitizeForFirestore(rawOrderPayload);
-
-    const rawTablePayload = {
-      id: table.id || '',
-      number: Number(table.number) || 1,
-      name: table.name || 'Mesa',
-      seats: Number(table.seats) || 2,
-      zone: table.zone || 'Salón Principal',
-      status: 'ocupada',
-      order: sanitizedOrderPayload,
-      updatedAt: nowIso,
-      userId: targetUid || '',
-      waiterCall: table.waiterCall ? {
-        type: table.waiterCall.type || 'waiter',
-        requestedAt: table.waiterCall.requestedAt || nowIso,
-        message: table.waiterCall.message || '',
-        ...(table.waiterCall.preferredPaymentMethod
-          ? { preferredPaymentMethod: table.waiterCall.preferredPaymentMethod }
-          : {}),
-        ...(table.waiterCall.billingInfo ? { billingInfo: table.waiterCall.billingInfo } : {})
-      } : null
-    };
-
-    const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
+    const useSubaccountNow =
+      subaccountsMode === 'required' ||
+      (subaccountsMode === 'optional' && Boolean(activeSubaccountId || desiredGuestName));
 
     try {
-      await setDoc(doc(db, 'users', targetUid, 'pedidos', sanitizedOrderPayload.id), sanitizedOrderPayload, { merge: true });
-      await setDoc(doc(db, 'users', targetUid, 'mesas', table.id), sanitizedTablePayload, { merge: true });
+      if (targetUid) {
+        const subIdToUse = useSubaccountNow ? (activeSubaccountId || generateSubaccountId()) : undefined;
+        const txResult = await submitQrOrderTransaction({
+          uid: targetUid,
+          tableId: table.id,
+          tableName: table.name || `Mesa ${table.number}`,
+          incomingItems: cleanNewItems,
+          defaultTaxRate: taxRate,
+          subaccountInput: useSubaccountNow
+            ? {
+                id: subIdToUse,
+                desiredName: desiredGuestName || 'Invitado',
+              }
+            : null,
+          legacyCustomerName: desiredGuestName || 'Cliente QR',
+        });
+
+        if (txResult.resolvedSubaccount) {
+          setActiveSubaccountId(txResult.resolvedSubaccount.id);
+          setActiveSubaccountName(txResult.resolvedSubaccount.displayName);
+          if (!customerName.trim()) {
+            setCustomerName(txResult.resolvedSubaccount.displayName);
+          }
+        }
+      } else {
+        addItemsToOrder(
+          table.id,
+          cart.map((c) => ({
+            product: c.product,
+            quantity: c.quantity,
+            notes: c.notes,
+            customerName: desiredGuestName || 'Cliente QR',
+            orderedBy: 'cliente',
+          }))
+        );
+      }
 
       setOrderSentSuccess(true);
       setTimeout(() => setOrderSentSuccess(false), 6000);
-
       setCart([]);
       setIsCartOpen(false);
     } catch (error: any) {
@@ -642,7 +661,8 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const handleConfirmCallWaiter = async () => {
     if (!table) return;
     const nowIso = new Date().toISOString();
-    const msg = `Mesa ${table.number} solicita atención: ${waiterCallReason}`;
+    const who = activeSubaccountName ? ` (${activeSubaccountName})` : '';
+    const msg = `Mesa ${table.number}${who} solicita atención: ${waiterCallReason}`;
 
     const updatedTable: Table = {
       ...table,
@@ -650,7 +670,9 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       waiterCall: {
         type: 'waiter',
         requestedAt: nowIso,
-        message: msg
+        message: msg,
+        ...(activeSubaccountId ? { subaccountId: activeSubaccountId } : {}),
+        ...(activeSubaccountName ? { subaccountName: activeSubaccountName } : {}),
       }
     };
 
@@ -670,7 +692,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     setTimeout(() => setWaiterCallSuccess(null), 8000);
   };
 
-  // Action: Request Bill
+  // Action: Request Bill (isolated fiscal PII dropbox + optional subaccount + voluntary tip Law 1935/2018)
   const handleConfirmRequestBill = async () => {
     if (!table) return;
     setPortalErrorMsg(null);
@@ -679,6 +701,14 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     const cleanBillEmail = customerEmail.trim().toLowerCase();
     if (wantsElectronicInvoice && !cleanBillEmail) {
       setBillRequestError('Ingresa tu correo electrónico para enviarte la Factura Electrónica.');
+      return;
+    }
+    if (wantsElectronicInvoice && customerDocType === 'CONSUMIDOR_FINAL') {
+      setBillRequestError('Selecciona el tipo de documento (C.C. o NIT) para emitir Factura Electrónica.');
+      return;
+    }
+    if (wantsElectronicInvoice && !customerDocNumber.trim()) {
+      setBillRequestError('Ingresa tu número de documento para emitir Factura Electrónica.');
       return;
     }
     if (cleanBillEmail && !isValidEmailFormat(cleanBillEmail)) {
@@ -693,7 +723,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       : 'Transferencia / Nequi / Daviplata';
 
     const candidateBilling: Partial<CustomerBillingInfo> = {
-      customerName: customerName.trim(),
+      customerName: customerName.trim() || activeSubaccountName.trim(),
       documentType: customerDocType,
       documentNumber: customerDocNumber.trim(),
       email: cleanBillEmail,
@@ -703,75 +733,73 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
       requiresElectronicInvoice: Boolean(wantsElectronicInvoice || cleanBillEmail)
     };
     const hasBilling = hasCustomBillingData(candidateBilling);
-    const normalizedBilling = hasBilling
-      ? normalizeBillingInfo(candidateBilling)
-      : table.order?.billingInfo || undefined;
-
-    const docSummary = normalizedBilling
-      ? formatCustomerDocument(normalizedBilling.documentType, normalizedBilling.documentNumber)
-      : '';
-    const emailSummary = normalizedBilling?.email ? ` · Correo FE: ${normalizedBilling.email}` : '';
-    const billingText =
-      normalizedBilling && hasCustomBillingData(normalizedBilling)
-        ? ` · Cobrar a: ${normalizedBilling.customerName}${docSummary ? ` (${docSummary})` : ''}${emailSummary}`
-        : '';
-
-    const nowIso = new Date().toISOString();
-    const msg = `Mesa ${table.number} solicita la cuenta. Método: ${methodText}${billingText}`;
-
-    const nextOrder = table.order
-      ? {
-          ...table.order,
-          ...(normalizedBilling
-            ? {
-                customerName: normalizedBilling.customerName,
-                nombreCliente: normalizedBilling.customerName,
-                billingInfo: normalizedBilling
-              }
-            : {}),
-          lastUpdatedAt: nowIso
-        }
-      : table.order;
-
-    const updatedTable: Table = {
-      ...table,
-      status: 'cuenta',
-      updatedAt: nowIso,
-      order: nextOrder,
-      waiterCall: {
-        type: 'bill',
-        requestedAt: nowIso,
-        message: msg,
-        preferredPaymentMethod: paymentMethodChoice,
-        ...(normalizedBilling ? { billingInfo: normalizedBilling } : {})
-      }
-    };
+    const normalizedBilling = hasBilling ? normalizeBillingInfo(candidateBilling) : undefined;
 
     const targetUid = urlUid || auth.currentUser?.uid;
-    if (targetUid) {
-      try {
-        await saveTableToFirestore(updatedTable, targetUid);
-      } catch (err) {
-        console.error("Error guardando solicitud de cuenta en Firestore:", err);
+    const nowIso = new Date().toISOString();
+    const sessionIdForBilling = table.order?.tableSessionId || table.tableSessionId || table.order?.id || table.id;
+    const scopedSubId =
+      subaccountsMode !== 'disabled' && billScope === 'mine' && activeSubaccountId
+        ? activeSubaccountId
+        : undefined;
+    const scopedSubName =
+      scopedSubId
+        ? activeSubaccountName || customerName.trim() || 'Invitado'
+        : undefined;
+
+    const privateBillingDocId =
+      hasBilling && normalizedBilling
+        ? `${sessionIdForBilling}__${scopedSubId || 'mesa_general'}`
+        : undefined;
+
+    try {
+      if (targetUid && privateBillingDocId && normalizedBilling) {
+        await savePrivateQrBillingRecord(targetUid, {
+          id: privateBillingDocId,
+          tableId: table.id,
+          tableSessionId: sessionIdForBilling,
+          subaccountId: scopedSubId || 'mesa_general',
+          subaccountName: scopedSubName || normalizedBilling.customerName || 'Cuenta Mesa',
+          requiresElectronicInvoice: Boolean(normalizedBilling.requiresElectronicInvoice),
+          billingInfo: normalizedBilling,
+          requestedTipAmount: computedTipAmount,
+          preferredPaymentMethod: paymentMethodChoice,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
       }
+
+      if (targetUid && table.order && !table.order.closed) {
+        await requestQrBillTransaction({
+          uid: targetUid,
+          tableId: table.id,
+          preferredPaymentMethod: paymentMethodChoice,
+          subaccountId: scopedSubId,
+          subaccountName: scopedSubName,
+          requestedTipAmount: computedTipAmount,
+          requiresElectronicInvoice: Boolean(wantsElectronicInvoice),
+          privateQrBillingId: privateBillingDocId,
+          // Jamás publicar PII en el documento compartido cuando hay subcuentas o buzón privado
+          legacyBillingInfo: undefined,
+        });
+      } else {
+        const msg = `Mesa ${table.number}${scopedSubName ? ` · Subcuenta: ${scopedSubName}` : ''} solicita la cuenta. Método: ${methodText}`;
+        callWaiter(table.id, 'bill', msg, {
+          preferredPaymentMethod: paymentMethodChoice,
+        });
+      }
+
+      setIsRequestBillModalOpen(false);
+      const tipSummary = computedTipAmount > 0 ? ` · Propina voluntaria: ${formatCOP(computedTipAmount)}` : '';
+      const feMsg = wantsElectronicInvoice ? ' · Solicitud privada de Factura Electrónica enviada a caja' : '';
+      setBillRequestSuccess(
+        `¡Cuenta solicitada${scopedSubName ? ` (${scopedSubName})` : ''}! Pago: ${methodText}${tipSummary}${feMsg}.`
+      );
+      setTimeout(() => setBillRequestSuccess(null), 8000);
+    } catch (err: any) {
+      console.error('Error guardando solicitud de cuenta en Firestore:', err);
+      setBillRequestError('No se pudo registrar la solicitud de cuenta: ' + (err?.message || String(err)));
     }
-
-    callWaiter(table.id, 'bill', msg, {
-      billingInfo: normalizedBilling,
-      preferredPaymentMethod: paymentMethodChoice
-    });
-
-    setIsRequestBillModalOpen(false);
-    setBillRequestSuccess(
-      `¡Cuenta solicitada! ${
-        normalizedBilling && hasCustomBillingData(normalizedBilling)
-          ? `A nombre de ${normalizedBilling.customerName}${docSummary ? ` (${docSummary})` : ''}${
-              normalizedBilling.email ? ` · FE a ${normalizedBilling.email}` : ''
-            } · `
-          : ''
-      }Pago: ${methodText}.`
-    );
-    setTimeout(() => setBillRequestSuccess(null), 8000);
   };
 
   const handleExitPortal = () => {
@@ -1433,98 +1461,235 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
           )}
         </div>
 
+        {/* Banner de Subcuenta QR cuando el restaurante habilita subcuentas */}
+        {subaccountsMode !== 'disabled' && canOrder && (
+          <div className="p-3.5 rounded-md bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-800 shadow-xs space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-md bg-rose-100 dark:bg-rose-950/60 text-rose-900 dark:text-rose-300 flex items-center justify-center">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-extrabold text-slate-900 dark:text-white">
+                    {activeSubaccountName
+                      ? `Pidiendo como: ${activeSubaccountName}`
+                      : subaccountsMode === 'required'
+                        ? 'Ingresa tu nombre para pedir en esta mesa'
+                        : '¿Quieres pedir con tu propia subcuenta?'}
+                  </p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Sin registro ni contraseñas · Cada persona lleva su consumo por separado
+                  </p>
+                </div>
+              </div>
+              {activeSubaccountName && (
+                <button
+                  type="button"
+                  onClick={() => setIsSubaccountSwitcherOpen((v) => !v)}
+                  className="px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  {isSubaccountSwitcherOpen ? 'Listo' : 'Cambiar / Agregar'}
+                </button>
+              )}
+            </div>
+
+            {(!activeSubaccountName || isSubaccountSwitcherOpen) && (
+              <div className="space-y-2 pt-1">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={subaccountNameDraft}
+                    onChange={(e) => setSubaccountNameDraft(e.target.value)}
+                    placeholder="Tu nombre (ej. Diego, Laura...)"
+                    className="flex-1 px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-rose-900/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSelectOrCreateSubaccount(subaccountNameDraft)}
+                    disabled={!subaccountNameDraft.trim()}
+                    className="px-3 py-1.5 rounded-md bg-stone-900 hover:bg-stone-800 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Usar nombre
+                  </button>
+                </div>
+
+                {allowQrSubaccountJoin && tableSubaccounts.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-slate-500">En esta mesa:</span>
+                    {tableSubaccounts.map((sub) => (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => handleSelectOrCreateSubaccount(sub.displayName, sub)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-bold border cursor-pointer transition ${
+                          activeSubaccountId === sub.id
+                            ? 'bg-rose-900 text-white border-rose-900'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {sub.displayName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Existing Consumption Summary on this Table */}
         {existingItemsCount > 0 && (
           <div className="p-4 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-stone-700 dark:text-stone-300" />
                 <div>
                   <h4 className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white">
-                    Consumo Acumulado en Mesa {table.number}
+                    {subaccountsMode !== 'disabled' && summaryScope === 'mine' && activeSubaccountName
+                      ? `Mi Consumo (${activeSubaccountName})`
+                      : `Consumo Acumulado en Mesa ${table.number}`}
                   </h4>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    Base gravable: {formatCOP(existingTaxInclusiveTotal - existingTaxAmount)} ·{' '}
-                    {existingTaxSummary.summaryLabel}: {formatCOP(existingTaxAmount)}
+                    Pendiente total mesa: {formatCOP(subaccountsOverview.tablePendingNetWithTax)}
+                    {subaccountsOverview.tablePaidGross > 0
+                      ? ` · Ya abonado: ${formatCOP(subaccountsOverview.tablePaidGross)}`
+                      : ''}
                   </p>
                 </div>
               </div>
               <div className="text-right">
                 <span className="font-mono font-black text-sm text-stone-900 dark:text-stone-100 block">
-                  {formatCOP(existingTaxInclusiveTotal)}
+                  {formatCOP(
+                    subaccountsMode !== 'disabled' && summaryScope === 'mine' && mySubaccountSummary
+                      ? mySubaccountSummary.pendingNetWithTax
+                      : subaccountsOverview.tablePendingNetWithTax || existingTaxInclusiveTotal
+                  )}
                 </span>
                 <span className="text-[10px] text-slate-400 font-semibold block">
-                  (Total a pagar)
+                  (Saldo pendiente)
                 </span>
               </div>
             </div>
 
-            <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-              {existingOrder?.items.map((it) => {
-                const itemUnitPrice = Number(it.unitPrice) || 0;
-                return (
-                  <div key={it.id} className="py-2 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-400 w-5 text-center">
-                        {it.quantity}x
-                      </span>
-                      <div>
-                        <span className="font-medium text-slate-800 dark:text-slate-200">
-                          {it.name}
-                        </span>
-                        {it.notes && (
-                          <p className="text-[10px] text-stone-500 dark:text-stone-400 italic">
-                            Nota: {it.notes}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                      {formatCOP(itemUnitPrice * it.quantity)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Billing attribution preview & Request Bill Button in summary */}
-            {(hasCustomBillingData(existingOrder?.billingInfo) || hasCustomBillingData(table.waiterCall?.billingInfo)) && (() => {
-              const activeBillInfo = table.waiterCall?.billingInfo || existingOrder?.billingInfo;
-              const docStr = formatCustomerDocument(activeBillInfo?.documentType, activeBillInfo?.documentNumber);
-              return (
-                <div className="p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 text-xs">
-                  <div className="min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Datos registrados para cobro / factura
-                    </span>
-                    <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                      {activeBillInfo?.customerName || 'Consumidor Final'}
-                      {docStr ? ` · ${docStr}` : ''}
-                      {activeBillInfo?.email ? ` · ${activeBillInfo.email}` : ''}
-                    </p>
-                  </div>
-                  {canRequestBill && (
+            {subaccountsMode !== 'disabled' && (activeSubaccountId || subaccountsOverview.subaccounts.length > 0) && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  {activeSubaccountId && (
                     <button
                       type="button"
-                      onClick={() => setIsRequestBillModalOpen(true)}
-                      className="text-[11px] font-bold text-rose-900 dark:text-rose-300 hover:underline shrink-0 cursor-pointer"
+                      onClick={() => setSummaryScope('mine')}
+                      className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition ${
+                        summaryScope === 'mine'
+                          ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                      }`}
                     >
-                      Cambiar
+                      Mi cuenta
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setSummaryScope('table')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer transition ${
+                      summaryScope === 'table' || !activeSubaccountId
+                        ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Toda la mesa
+                  </button>
                 </div>
-              );
-            })()}
+
+                <div className="flex flex-wrap gap-1.5">
+                  {subaccountsOverview.subaccounts.map((s) => (
+                    <span
+                      key={s.subaccountId}
+                      className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-slate-700 dark:text-slate-300"
+                    >
+                      {s.displayName}: {s.pendingNetWithTax <= 0 ? 'Pagada' : formatCOP(s.pendingNetWithTax)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+              {existingOrder?.items
+                .filter((it) => {
+                  if (subaccountsMode === 'disabled' || summaryScope === 'table' || !activeSubaccountId) {
+                    return true;
+                  }
+                  if (it.subaccountId === activeSubaccountId) return true;
+                  if (it.isShared && it.allocations?.some((a) => a.subaccountId === activeSubaccountId)) {
+                    return true;
+                  }
+                  return false;
+                })
+                .map((it) => {
+                  const itemGross = computeItemTotal(it);
+                  const pending = computeItemPendingAmount(it);
+                  const myAlloc = it.isShared
+                    ? it.allocations?.find((a) => a.subaccountId === activeSubaccountId)
+                    : undefined;
+                  const displayPrice =
+                    summaryScope === 'mine' && myAlloc ? myAlloc.shareAmount : itemGross;
+                  const isLinePaid =
+                    summaryScope === 'mine' && myAlloc ? Boolean(myAlloc.paid) : pending <= 0;
+
+                  return (
+                    <div key={it.id} className="py-2 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold text-slate-400 w-5 text-center shrink-0">
+                          {it.quantity}x
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-medium text-slate-800 dark:text-slate-200">
+                              {it.name}
+                            </span>
+                            {it.subaccountName && summaryScope === 'table' && (
+                              <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                {it.subaccountName}
+                              </span>
+                            )}
+                            {myAlloc && (
+                              <span className="px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
+                                Tu parte compartida
+                              </span>
+                            )}
+                            {isLinePaid && (
+                              <span className="px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                                Pagado
+                              </span>
+                            )}
+                          </div>
+                          {it.notes && (
+                            <p className="text-[10px] text-stone-500 dark:text-stone-400 italic">
+                              Nota: {it.notes}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <span className="font-mono font-semibold text-slate-700 dark:text-slate-300 shrink-0">
+                        {formatCOP(displayPrice)}
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
 
             {canRequestBill && (
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setIsRequestBillModalOpen(true)}
+                  onClick={() => {
+                    setBillScope(subaccountsMode !== 'disabled' && activeSubaccountId ? 'mine' : 'table');
+                    setIsRequestBillModalOpen(true);
+                  }}
                   className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <CreditCard className="w-3.5 h-3.5" />
-                  <span>Pedir la Cuenta / Datos de Factura</span>
+                  <span>Pedir la Cuenta / Propina y Factura</span>
                 </button>
               </div>
             )}
@@ -1695,25 +1860,157 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               </button>
             </div>
 
+            {subaccountsMode !== 'disabled' && activeSubaccountId && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBillScope('mine')}
+                  className={`p-2 rounded-md border text-xs font-bold cursor-pointer transition ${
+                    billScope === 'mine'
+                      ? 'border-stone-900 bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Solo mi subcuenta ({activeSubaccountName})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBillScope('table')}
+                  className={`p-2 rounded-md border text-xs font-bold cursor-pointer transition ${
+                    billScope === 'table'
+                      ? 'border-stone-900 bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  Toda la mesa
+                </button>
+              </div>
+            )}
+
             {existingItemsCount > 0 ? (
-              <div className="p-3 rounded-md bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-stone-900 dark:text-stone-100">
+              <div className="p-3 rounded-md bg-stone-100 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-stone-700 dark:text-stone-300">
+                    Consumo (Impuestos incl.):
+                  </span>
+                  <span className="font-mono font-bold text-stone-900 dark:text-stone-100">
+                    {formatCOP(effectiveBillSubtotalPending)}
+                  </span>
+                </div>
+                {computedTipAmount > 0 && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                      Propina voluntaria (0% IVA):
+                    </span>
+                    <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                      {formatCOP(computedTipAmount)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between pt-1 border-t border-stone-200 dark:border-stone-700">
+                  <span className="text-xs font-extrabold text-stone-900 dark:text-stone-100">
                     Total a pagar:
                   </span>
                   <span className="font-mono tabular-nums font-black text-base text-stone-900 dark:text-stone-100">
-                    {formatCOP(existingTaxInclusiveTotal)}
+                    {formatCOP(effectiveBillSubtotalPending + computedTipAmount)}
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  Incluye base gravable ({formatCOP(existingTaxInclusiveTotal - existingTaxAmount)}) ·{' '}
-                  {existingTaxSummary.summaryLabel}: {formatCOP(existingTaxAmount)}
-                </p>
               </div>
             ) : (
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Avisaremos al personal para llevar la cuenta a tu mesa.
               </p>
+            )}
+
+            {/* Propina voluntaria Colombia (Ley 1935/2018) */}
+            {allowQrVolunteerTip && effectiveBillSubtotalPending > 0 && (
+              <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-900/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Heart className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Propina Voluntaria (Opcional)</span>
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-500">0% impuesto</span>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setTipMode('none')}
+                    className={`py-1.5 px-1 rounded text-[11px] font-bold border cursor-pointer ${
+                      tipMode === 'none'
+                        ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    Sin propina
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipMode('suggested')}
+                    className={`py-1.5 px-1 rounded text-[11px] font-bold border cursor-pointer ${
+                      tipMode === 'suggested'
+                        ? 'bg-emerald-700 text-white border-emerald-700'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    {defaultSuggestedTipPercent}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipMode('15')}
+                    className={`py-1.5 px-1 rounded text-[11px] font-bold border cursor-pointer ${
+                      tipMode === '15'
+                        ? 'bg-emerald-700 text-white border-emerald-700'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    15%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipMode('custom_amt')}
+                    className={`py-1.5 px-1 rounded text-[11px] font-bold border cursor-pointer ${
+                      tipMode === 'custom_amt' || tipMode === 'custom_pct'
+                        ? 'bg-emerald-700 text-white border-emerald-700'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    Otro
+                  </button>
+                </div>
+
+                {(tipMode === 'custom_amt' || tipMode === 'custom_pct') && (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={50}
+                        value={customTipPercent}
+                        onChange={(e) => {
+                          setTipMode('custom_pct');
+                          setCustomTipPercent(e.target.value);
+                        }}
+                        placeholder="% ej. 12"
+                        className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="number"
+                        min={0}
+                        value={customTipAmount}
+                        onChange={(e) => {
+                          setTipMode('custom_amt');
+                          setCustomTipAmount(e.target.value);
+                        }}
+                        placeholder="$ Monto fijo"
+                        className="w-full px-2.5 py-1.5 text-xs font-mono rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Datos de a nombre de quién se cobra (Nombre / Razón Social + NIT / Cédula + Correo FE) */}
@@ -1998,12 +2295,16 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               </button>
             </div>
 
-            {/* Customer Name & Optional Tax ID (NIT / Cédula) + Email FE Input */}
+            {/* Customer Name / Subaccount Selector */}
             <div className="px-4 pt-3 pb-2.5 border-b border-slate-100 dark:border-slate-800 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
                   <User className="w-3.5 h-3.5" />
-                  <span>¿A nombre de quién va el pedido / cobro? (Opcional)</span>
+                  <span>
+                    {subaccountsMode === 'required'
+                      ? 'Tu nombre o subcuenta (Requerido)'
+                      : '¿A nombre de quién va el pedido? (Opcional)'}
+                  </span>
                 </label>
                 <button
                   type="button"
@@ -2017,9 +2318,16 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
               </div>
               <input
                 type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Ej. Juan Pérez o Razón Social..."
+                value={activeSubaccountName || customerName}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCustomerName(val);
+                  if (subaccountsMode !== 'disabled') {
+                    setActiveSubaccountName(val);
+                    if (!activeSubaccountId) setActiveSubaccountId(generateSubaccountId());
+                  }
+                }}
+                placeholder="Ej. Diego, Laura o Razón Social..."
                 className="w-full px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden"
               />
 

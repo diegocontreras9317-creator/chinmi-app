@@ -38,6 +38,13 @@ export interface QrMenuSettings {
   catOverlayOpacity?: number;         // Opacidad de superposición 0..100
   catTextColor?: string;              // Color de texto del contenedor o ''
   catAutoContrast?: boolean;          // Opción de auto-contraste
+
+  // Subcuentas QR y Propina Voluntaria (Ley 1935/2018 Colombia)
+  subaccountsMode?: 'disabled' | 'optional' | 'required';
+  allowQrSubaccountJoin?: boolean;
+  allowQrSharedItems?: boolean;
+  allowQrVolunteerTip?: boolean;
+  defaultSuggestedTipPercent?: number;
 }
 
 export type ComandaPaperWidth = '58mm' | '80mm';
@@ -119,7 +126,12 @@ export const defaultAppConfig: AppConfig = {
     catOverlayColor: '#000000',
     catOverlayOpacity: 0,
     catTextColor: '',
-    catAutoContrast: true
+    catAutoContrast: true,
+    subaccountsMode: 'disabled',
+    allowQrSubaccountJoin: true,
+    allowQrSharedItems: true,
+    allowQrVolunteerTip: true,
+    defaultSuggestedTipPercent: 10,
   },
   comandaPrintSettings: {
     enabled: true,

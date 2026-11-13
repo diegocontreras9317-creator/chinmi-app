@@ -71,8 +71,15 @@ export class GeneralExcelExportAdapter implements IAccountingExportAdapter {
       sumPropinas += sale.tipAmount;
       sumTotal += sale.total;
 
-      const methodKey = (sale.paymentMethod || 'efectivo').toLowerCase();
-      paymentTotals[methodKey] = (paymentTotals[methodKey] || 0) + sale.total;
+      if (Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 0) {
+        for (const entry of sale.paymentBreakdown) {
+          const k = (entry.method || 'efectivo').toLowerCase();
+          paymentTotals[k] = (paymentTotals[k] || 0) + (Number(entry.amount) || 0);
+        }
+      } else {
+        const methodKey = (sale.paymentMethod || 'efectivo').toLowerCase();
+        paymentTotals[methodKey] = (paymentTotals[methodKey] || 0) + sale.total;
+      }
     }
 
     const summaryRows: any[][] = [
@@ -159,11 +166,22 @@ export class GeneralExcelExportAdapter implements IAccountingExportAdapter {
     const salesRows: any[][] = [salesHeader];
 
     for (const sale of sales) {
+      const tableLabel =
+        sale.subaccountNames && sale.subaccountNames.length > 0
+          ? `${sale.tableName} (${sale.subaccountNames.join(', ')})`
+          : sale.tableName;
+      const paymentLabel =
+        Array.isArray(sale.paymentBreakdown) && sale.paymentBreakdown.length > 1
+          ? `MIXTO (${sale.paymentBreakdown
+              .map((p) => `${p.method === 'bizum' ? 'transferencia' : p.method}: ${p.amount}`)
+              .join(' + ')})`
+          : sale.paymentMethod;
+
       salesRows.push([
         sale.saleId,
         sale.ticketNumber,
         sale.timestamp,
-        sale.tableName,
+        tableLabel,
         sale.cashierName,
         sale.customerName,
         sale.documentType,
@@ -193,7 +211,7 @@ export class GeneralExcelExportAdapter implements IAccountingExportAdapter {
         sale.taxAmount,
         sale.tipAmount,
         sale.total,
-        sale.paymentMethod,
+        paymentLabel,
         sale.requestStatus === 'solicitada' ? 'SÍ' : 'NO',
         sale.exportStatus === 'exportado' ? 'EXPORTADO' : 'NO_EXPORTADO',
         sale.filingStatus === 'emitida'

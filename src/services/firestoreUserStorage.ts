@@ -12,10 +12,25 @@ import {
   where,
   writeBatch,
   orderBy,
-  limit
+  limit,
+  runTransaction
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, OrderItem, Empleado, Supplier, SupplierOrder } from '../types';
+import {
+  Table,
+  Product,
+  PerishableItem,
+  SaleReceipt,
+  AppStateData,
+  Order,
+  OrderItem,
+  Empleado,
+  Supplier,
+  SupplierOrder,
+  TableSubaccount,
+  TablePaymentRecord,
+  PrivateQrBillingRecord,
+} from '../types';
 import { AppConfig } from '../config/appConfig';
 import {
   computeSaleInventoryUpdates,
@@ -28,6 +43,13 @@ import {
   normalizeEmployeeEmail,
   sortEmpleados,
 } from '../utils/employeeRoles';
+import {
+  SubaccountCheckoutPlan,
+  createTableSubaccount,
+  generateTableSessionId,
+  computeItemPendingAmount,
+  computeItemTotal,
+} from '../utils/subaccounts';
 
 export enum OperationType {
   CREATE = 'create',
@@ -577,6 +599,27 @@ export function sanitizeForFirestore<T>(data: T): T {
   }));
 }
 
+const cleanOrderItemForFirestore = (it: OrderItem, nowIso: string): Record<string, any> => ({
+  id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+  productId: it.productId || '',
+  name: it.name || 'Producto',
+  unitPrice: Number(it.unitPrice) || 0,
+  quantity: Number(it.quantity) || 1,
+  notes: it.notes?.trim() || '',
+  addedAt: it.addedAt || nowIso,
+  customerName: it.customerName?.trim() || '',
+  orderedBy: it.orderedBy || 'camarero',
+  ...(it.taxType ? { taxType: it.taxType } : {}),
+  ...(it.taxRate !== undefined && !Number.isNaN(Number(it.taxRate)) ? { taxRate: Number(it.taxRate) } : {}),
+  ...(it.subaccountId ? { subaccountId: it.subaccountId } : {}),
+  ...(it.subaccountName ? { subaccountName: it.subaccountName } : {}),
+  ...(it.isShared !== undefined ? { isShared: Boolean(it.isShared) } : {}),
+  ...(Array.isArray(it.allocations) && it.allocations.length > 0 ? { allocations: it.allocations } : {}),
+  ...(it.inventoryDeducted !== undefined ? { inventoryDeducted: Boolean(it.inventoryDeducted) } : {}),
+  ...(it.paidAmount !== undefined && !Number.isNaN(Number(it.paidAmount)) ? { paidAmount: Number(it.paidAmount) } : {}),
+  ...(it.paidQuantity !== undefined && !Number.isNaN(Number(it.paidQuantity)) ? { paidQuantity: Number(it.paidQuantity) } : {}),
+});
+
 /**
  * Guarda o actualiza una comanda en Firestore.
  * Reemplaza completamente el documento en pedidos para evitar que queden items viejos o campos sucios.
@@ -585,6 +628,7 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
   const uid = getActiveUserId(targetUid);
   if (!uid || !order.id) return;
   const path = `users/${uid}/pedidos/${order.id}`;
+  const nowIso = new Date().toISOString();
   try {
     const isClosed = Boolean(
       order.closed ||
@@ -594,19 +638,7 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
       order.status === 'cancelada'
     );
 
-    const cleanItems = (order.items || []).map(it => ({
-      id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      productId: it.productId || '',
-      name: it.name || 'Producto',
-      unitPrice: Number(it.unitPrice) || 0,
-      quantity: Number(it.quantity) || 1,
-      notes: it.notes?.trim() || '',
-      addedAt: it.addedAt || new Date().toISOString(),
-      customerName: it.customerName?.trim() || '',
-      orderedBy: it.orderedBy || 'mesero',
-      ...(it.taxType ? { taxType: it.taxType } : {}),
-      ...(it.taxRate !== undefined && !Number.isNaN(Number(it.taxRate)) ? { taxRate: Number(it.taxRate) } : {})
-    }));
+    const cleanItems = (order.items || []).map(it => cleanOrderItemForFirestore(it, nowIso));
 
     const cleanOrder = sanitizeForFirestore({
       ...order,
@@ -616,7 +648,7 @@ export async function saveOrderToFirestore(order: Order, targetUid?: string): Pr
       status: isClosed ? (order.status || 'pagada') : 'activa',
       estado: isClosed ? (order.estado || 'pagada') : 'activa',
       closed: isClosed,
-      lastUpdatedAt: new Date().toISOString()
+      lastUpdatedAt: nowIso
     });
     await setDoc(doc(db, 'users', uid, 'pedidos', order.id), cleanOrder, { merge: true });
   } catch (err) {
@@ -663,23 +695,12 @@ export async function syncTableOrderToFirestore(
       throw new Error("syncTableOrderToFirestore abortado: ID del pedido es undefined");
     }
 
-    const cleanItems = order.items.map(it => ({
-      id: it.id || `it-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      productId: it.productId || '',
-      name: it.name || 'Producto',
-      unitPrice: Number(it.unitPrice) || 0,
-      quantity: Number(it.quantity) || 1,
-      notes: it.notes?.trim() || '',
-      addedAt: it.addedAt || nowIso,
-      customerName: it.customerName?.trim() || '',
-      orderedBy: it.orderedBy || 'mesero',
-      ...(it.taxType ? { taxType: it.taxType } : {}),
-      ...(it.taxRate !== undefined && !Number.isNaN(Number(it.taxRate)) ? { taxRate: Number(it.taxRate) } : {})
-    }));
+    const cleanItems = order.items.map(it => cleanOrderItemForFirestore(it, nowIso));
 
     const cleanOrder = sanitizeForFirestore({
       ...order,
       userId: uid,
+      tableSessionId: order.tableSessionId || order.id,
       items: cleanItems,
       productos: cleanItems,
       status: 'activa',
@@ -704,6 +725,8 @@ export async function syncTableOrderToFirestore(
       id: tableId,
       status: 'ocupada',
       estado: 'ocupada',
+      tableSessionId: cleanOrder.tableSessionId,
+      ...(Array.isArray(order.subaccounts) ? { subaccounts: order.subaccounts } : {}),
       order: cleanOrder,
       currentOrder: cleanOrder,
       pedidoActual: cleanOrder,
@@ -1460,5 +1483,599 @@ export async function getUserAppConfig(uid: string): Promise<Partial<AppConfig> 
     handleFirestoreError(err, OperationType.GET, path);
     return null;
   }
+}
+
+/**
+ * Envía un pedido QR usando runTransaction para fusionar concurrentemente pedidos de múltiples celulares
+ * en la misma mesa sin sobrescribir ni perder ítems de otros comensales o del mesero.
+ */
+export async function submitQrOrderTransaction(params: {
+  uid: string;
+  tableId: string;
+  tableName: string;
+  incomingItems: OrderItem[];
+  defaultTaxRate: number;
+  subaccountInput?: {
+    id?: string;
+    desiredName: string;
+  } | null;
+  legacyCustomerName?: string;
+}): Promise<{
+  order: Order;
+  tableSessionId: string;
+  resolvedSubaccount: TableSubaccount | null;
+}> {
+  const { uid, tableId, tableName, incomingItems, defaultTaxRate, subaccountInput, legacyCustomerName } = params;
+  if (!uid || !tableId) {
+    throw new Error('submitQrOrderTransaction requiere uid y tableId válidos.');
+  }
+  if (!Array.isArray(incomingItems) || incomingItems.length === 0) {
+    throw new Error('No hay productos para enviar.');
+  }
+
+  const tableRef = doc(db, 'users', uid, 'mesas', tableId);
+
+  return runTransaction(db, async (tx) => {
+    const nowIso = new Date().toISOString();
+    const tableSnap = await tx.get(tableRef);
+    const tableData = (tableSnap.exists() ? tableSnap.data() : {}) as Partial<Table>;
+
+    const tableOrder = tableData.order || null;
+    const hasCandidateActiveOrder = Boolean(
+      tableOrder &&
+      tableOrder.id &&
+      !tableOrder.closed &&
+      tableOrder.estado !== 'pagada' &&
+      tableOrder.status !== 'pagada' &&
+      tableOrder.estado !== 'cancelada' &&
+      tableOrder.status !== 'cancelada' &&
+      Array.isArray(tableOrder.items) &&
+      tableOrder.items.length > 0
+    );
+
+    let activeOrder: Order | null = null;
+    if (hasCandidateActiveOrder && tableOrder?.id) {
+      const pedidoRef = doc(db, 'users', uid, 'pedidos', tableOrder.id);
+      const pedidoSnap = await tx.get(pedidoRef);
+      const pedidoData = pedidoSnap.exists() ? (pedidoSnap.data() as Partial<Order>) : null;
+      const pedidoClosed = Boolean(
+        pedidoData &&
+        (pedidoData.closed ||
+          pedidoData.estado === 'pagada' ||
+          pedidoData.status === 'pagada' ||
+          pedidoData.estado === 'cancelada' ||
+          pedidoData.status === 'cancelada')
+      );
+      if (!pedidoClosed) {
+        const mergedPedidoItems = Array.isArray(pedidoData?.items) && pedidoData.items.length > 0
+          ? pedidoData.items
+          : tableOrder.items;
+        activeOrder = {
+          ...(tableOrder as Order),
+          ...(pedidoData as Partial<Order>),
+          items: mergedPedidoItems,
+        };
+      }
+    }
+
+    const tableSessionId =
+      activeOrder?.tableSessionId ||
+      tableData.tableSessionId ||
+      generateTableSessionId(tableId);
+
+    const existingSubaccounts: TableSubaccount[] = Array.isArray(activeOrder?.subaccounts)
+      ? activeOrder!.subaccounts!
+      : Array.isArray(tableData.subaccounts)
+        ? tableData.subaccounts!
+        : [];
+
+    let resolvedSubaccount: TableSubaccount | null = null;
+    let nextSubaccounts = [...existingSubaccounts];
+
+    if (subaccountInput && subaccountInput.desiredName.trim()) {
+      const existingById = subaccountInput.id
+        ? existingSubaccounts.find((s) => s.id === subaccountInput.id)
+        : undefined;
+      if (existingById) {
+        resolvedSubaccount = {
+          ...existingById,
+          status: existingById.status === 'pagada' || existingById.status === 'cerrada' ? 'activa' : existingById.status,
+          updatedAt: nowIso,
+        };
+        nextSubaccounts = existingSubaccounts.map((s) =>
+          s.id === existingById.id ? resolvedSubaccount! : s
+        );
+      } else {
+        resolvedSubaccount = createTableSubaccount({
+          id: subaccountInput.id,
+          tableId,
+          tableSessionId,
+          desiredName: subaccountInput.desiredName,
+          existingSubaccounts,
+          nowIso,
+        });
+        nextSubaccounts = [...existingSubaccounts, resolvedSubaccount];
+      }
+    }
+
+    const stampedIncoming: OrderItem[] = incomingItems.map((it, idx) => {
+      const rand = Math.random().toString(36).slice(2, 6);
+      return {
+        ...it,
+        id: it.id || `it-qr-${Date.now()}-${idx}-${rand}`,
+        addedAt: it.addedAt || nowIso,
+        orderedBy: 'cliente',
+        customerName: resolvedSubaccount?.displayName || legacyCustomerName?.trim() || it.customerName || 'Cliente QR',
+        ...(resolvedSubaccount
+          ? {
+              subaccountId: resolvedSubaccount.id,
+              subaccountName: resolvedSubaccount.displayName,
+            }
+          : {}),
+      };
+    });
+
+    const baseItems = activeOrder ? [...activeOrder.items] : [];
+    const combinedItems = [...baseItems, ...stampedIncoming];
+    const cleanItems = combinedItems.map((it) => cleanOrderItemForFirestore(it, nowIso));
+
+    const orderId = activeOrder?.id || `ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const subtotalVal = combinedItems.reduce((acc, it) => acc + computeItemTotal(it), 0);
+    const pendingVal = combinedItems.reduce((acc, it) => acc + computeItemPendingAmount(it), 0);
+    const discountPct = activeOrder?.discountPercent ?? 0;
+    const taxPct = activeOrder?.taxPercent ?? defaultTaxRate;
+    const totalVal = Math.max(0, Math.round(subtotalVal * (1 - discountPct / 100)));
+
+    const mergedOrder: Order = sanitizeForFirestore({
+      ...(activeOrder || {}),
+      id: orderId,
+      userId: uid,
+      tableId,
+      tableName: tableName || tableData.name || `Mesa ${tableId}`,
+      tableSessionId,
+      items: cleanItems as unknown as OrderItem[],
+      productos: cleanItems as unknown as OrderItem[],
+      subaccounts: nextSubaccounts,
+      discountPercent: discountPct,
+      taxPercent: taxPct,
+      tipAmount: activeOrder?.tipAmount ?? 0,
+      paymentsTotal: activeOrder?.paymentsTotal ?? 0,
+      pendingBalance: pendingVal,
+      openedAt: activeOrder?.openedAt || nowIso,
+      lastUpdatedAt: nowIso,
+      status: 'activa',
+      estado: 'activa',
+      closed: false,
+      subtotal: subtotalVal,
+      total: totalVal,
+      customerName:
+        activeOrder?.customerName ||
+        resolvedSubaccount?.displayName ||
+        legacyCustomerName?.trim() ||
+        undefined,
+    });
+
+    const pedidoDocRef = doc(db, 'users', uid, 'pedidos', orderId);
+    tx.set(pedidoDocRef, mergedOrder, { merge: true });
+
+    const nextTableStatus = tableData.status === 'cuenta' ? 'cuenta' : 'ocupada';
+    tx.set(
+      tableRef,
+      sanitizeForFirestore({
+        id: tableId,
+        status: nextTableStatus,
+        estado: nextTableStatus,
+        tableSessionId,
+        subaccounts: nextSubaccounts,
+        order: mergedOrder,
+        currentOrder: mergedOrder,
+        pedidoActual: mergedOrder,
+        updatedAt: nowIso,
+        userId: uid,
+      }),
+      { merge: true }
+    );
+
+    return {
+      order: mergedOrder,
+      tableSessionId,
+      resolvedSubaccount,
+    };
+  });
+}
+
+/**
+ * Solicita la cuenta desde QR de forma atómica sin sobrescribir solicitudes ni filtrar PII fiscal entre subcuentas.
+ */
+export async function requestQrBillTransaction(params: {
+  uid: string;
+  tableId: string;
+  preferredPaymentMethod: 'efectivo' | 'tarjeta' | 'transferencia';
+  subaccountId?: string;
+  subaccountName?: string;
+  requestedTipAmount?: number;
+  requiresElectronicInvoice?: boolean;
+  privateQrBillingId?: string;
+  legacyBillingInfo?: any;
+}): Promise<void> {
+  const {
+    uid,
+    tableId,
+    preferredPaymentMethod,
+    subaccountId,
+    subaccountName,
+    requestedTipAmount,
+    requiresElectronicInvoice,
+    privateQrBillingId,
+    legacyBillingInfo,
+  } = params;
+  if (!uid || !tableId) return;
+
+  const tableRef = doc(db, 'users', uid, 'mesas', tableId);
+
+  await runTransaction(db, async (tx) => {
+    const nowIso = new Date().toISOString();
+    const tableSnap = await tx.get(tableRef);
+    const tableData = (tableSnap.exists() ? tableSnap.data() : {}) as Partial<Table>;
+    const order = tableData.order || null;
+    if (!order || order.closed || order.estado === 'pagada') {
+      throw new Error('La mesa ya fue cerrada o no tiene una comanda activa.');
+    }
+
+    let orderRef: ReturnType<typeof doc> | null = null;
+    let pedidoSubaccounts: TableSubaccount[] | undefined;
+    if (order.id) {
+      orderRef = doc(db, 'users', uid, 'pedidos', order.id);
+      const pedidoSnap = await tx.get(orderRef);
+      if (pedidoSnap.exists()) {
+        const pData = pedidoSnap.data() as Partial<Order>;
+        if (pData.closed || pData.estado === 'pagada') {
+          throw new Error('La comanda ya fue cobrada.');
+        }
+        if (Array.isArray(pData.subaccounts)) {
+          pedidoSubaccounts = pData.subaccounts;
+        }
+      }
+    }
+
+    const baseSubaccounts = pedidoSubaccounts || order.subaccounts || tableData.subaccounts || [];
+    const nextSubaccounts = baseSubaccounts.map((sub) => {
+      if (!subaccountId || sub.id !== subaccountId) return sub;
+      return {
+        ...sub,
+        status: 'pidiendo_cuenta' as const,
+        preferredPaymentMethod,
+        ...(requestedTipAmount !== undefined ? { requestedTipAmount: Math.max(0, Math.round(requestedTipAmount)) } : {}),
+        ...(requiresElectronicInvoice !== undefined ? { requiresElectronicInvoice } : {}),
+        ...(privateQrBillingId ? { privateQrBillingId } : {}),
+        requestedBillAt: nowIso,
+        updatedAt: nowIso,
+      };
+    });
+
+    const methodLabels: Record<'efectivo' | 'tarjeta' | 'transferencia', string> = {
+      efectivo: 'Efectivo',
+      tarjeta: 'Tarjeta / Datáfono',
+      transferencia: 'Transferencia / QR',
+    };
+    const subLabel = subaccountName ? ` · Subcuenta: ${subaccountName}` : '';
+    const tipNote = requestedTipAmount && requestedTipAmount > 0
+      ? ` · Propina voluntaria: $${Math.round(requestedTipAmount).toLocaleString('es-CO')}`
+      : '';
+    const feNote = requiresElectronicInvoice ? ' · Requiere Factura Electrónica' : '';
+
+    const waiterCallPayload = sanitizeForFirestore({
+      type: 'bill',
+      requestedAt: nowIso,
+      preferredPaymentMethod,
+      ...(subaccountId ? { subaccountId } : {}),
+      ...(subaccountName ? { subaccountName } : {}),
+      ...(legacyBillingInfo ? { billingInfo: legacyBillingInfo } : {}),
+      message: `El cliente solicita la cuenta${subLabel} (${methodLabels[preferredPaymentMethod]}${tipNote}${feNote})`,
+    });
+
+    const nextOrder = sanitizeForFirestore({
+      ...order,
+      subaccounts: nextSubaccounts,
+      ...(legacyBillingInfo ? { billingInfo: legacyBillingInfo } : {}),
+      lastUpdatedAt: nowIso,
+    });
+
+    if (orderRef) {
+      tx.set(orderRef, {
+        subaccounts: sanitizeForFirestore(nextSubaccounts),
+        ...(legacyBillingInfo ? { billingInfo: sanitizeForFirestore(legacyBillingInfo) } : {}),
+        lastUpdatedAt: nowIso,
+      }, { merge: true });
+    }
+
+    tx.set(tableRef, sanitizeForFirestore({
+      status: 'cuenta',
+      estado: 'cuenta',
+      waiterCall: waiterCallPayload,
+      subaccounts: nextSubaccounts,
+      order: nextOrder,
+      currentOrder: nextOrder,
+      pedidoActual: nextOrder,
+      updatedAt: nowIso,
+    }), { merge: true });
+  });
+}
+
+/**
+ * Buzón privado aislado para datos fiscales QR (PII).
+ * Los comensales pueden escribir su solicitud aquí sin que otros clientes de la misma mesa puedan leerla.
+ */
+export async function savePrivateQrBillingRecord(
+  uid: string,
+  record: PrivateQrBillingRecord
+): Promise<void> {
+  if (!uid || !record?.id) return;
+  const path = `users/${uid}/facturacion_privada_qr/${record.id}`;
+  try {
+    await setDoc(
+      doc(db, 'users', uid, 'facturacion_privada_qr', record.id),
+      sanitizeForFirestore({ ...record, userId: uid }),
+      { merge: true }
+    );
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    throw err;
+  }
+}
+
+/**
+ * Obtiene los registros fiscales privados de una sesión de mesa (uso exclusivo de POS/Caja autenticado).
+ */
+export async function getPrivateQrBillingForSession(
+  uid: string,
+  tableSessionId: string
+): Promise<PrivateQrBillingRecord[]> {
+  if (!uid || !tableSessionId) return [];
+  const path = `users/${uid}/facturacion_privada_qr`;
+  try {
+    const q = query(collection(db, 'users', uid, 'facturacion_privada_qr'), where('tableSessionId', '==', tableSessionId));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as PrivateQrBillingRecord));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+    return [];
+  }
+}
+
+/**
+ * Obtiene los pagos parciales/totales registrados en users/{uid}/pagos_mesa para una comanda.
+ */
+export async function getTablePaymentsForOrder(
+  uid: string,
+  orderId: string
+): Promise<TablePaymentRecord[]> {
+  if (!uid || !orderId) return [];
+  const path = `users/${uid}/pagos_mesa`;
+  try {
+    const q = query(collection(db, 'users', uid, 'pagos_mesa'), where('orderId', '==', orderId));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as TablePaymentRecord));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, path);
+    return [];
+  }
+}
+
+/**
+ * Ejecuta de forma transaccional un cobro parcial o total de mesa/subcuentas con:
+ * - Idempotencia por paymentId en users/{uid}/pagos_mesa/{paymentId}
+ * - Descuento único de inventario por ítem (solo ítems en plan.itemsRequiringInventoryDeduction)
+ * - Registro inmutable en users/{uid}/ventas/{receipt.id}
+ * - Liberación de mesa únicamente cuando plan.shouldReleaseTable === true (saldo pendiente === 0)
+ */
+export async function executePartialOrFullCheckoutTransaction(params: {
+  uid: string;
+  tableId: string;
+  order: Order;
+  plan: SubaccountCheckoutPlan;
+  receipt: SaleReceipt;
+  paymentRecord: TablePaymentRecord;
+  productsCatalog: Product[];
+  perishablesList: PerishableItem[];
+}): Promise<SaleBatchResult & { idempotentDuplicate?: boolean }> {
+  const {
+    uid,
+    tableId,
+    order,
+    plan,
+    receipt,
+    paymentRecord,
+    productsCatalog,
+    perishablesList,
+  } = params;
+
+  if (!uid) {
+    throw new Error('executePartialOrFullCheckoutTransaction abortado: UID no autenticado');
+  }
+
+  // Calcular deducciones únicamente para los ítems que todavía no han descontado inventario
+  const inventoryResult =
+    plan.itemsRequiringInventoryDeduction.length > 0
+      ? computeSaleInventoryUpdates({
+          orderItems: plan.itemsRequiringInventoryDeduction,
+          productsCatalog,
+          perishablesList,
+        })
+      : {
+          updatedPerishables: perishablesList,
+          updatedProducts: productsCatalog,
+          deductedPerishableIds: [],
+          deductedDirectProductIds: [],
+          recipeProductIds: [],
+          lowStockAlerts: [],
+        };
+
+  const deductedPerishableSet = new Set(inventoryResult.deductedPerishableIds);
+  const productIdsToPersist = new Set([
+    ...inventoryResult.deductedDirectProductIds,
+    ...inventoryResult.recipeProductIds,
+  ]);
+
+  const paymentRef = doc(db, 'users', uid, 'pagos_mesa', paymentRecord.id);
+  const saleRef = doc(db, 'users', uid, 'ventas', receipt.id);
+  const tableRef = doc(db, 'users', uid, 'mesas', tableId);
+  const orderRef = order.id ? doc(db, 'users', uid, 'pedidos', order.id) : null;
+
+  const txResult = await runTransaction(db, async (tx) => {
+    const nowIso = new Date().toISOString();
+
+    const paymentSnap = await tx.get(paymentRef);
+    if (paymentSnap.exists()) {
+      return { idempotentDuplicate: true };
+    }
+
+    const tableSnap = await tx.get(tableRef);
+    const currentOrderSnap = orderRef ? await tx.get(orderRef) : null;
+
+    if (currentOrderSnap?.exists()) {
+      const pData = currentOrderSnap.data() as Partial<Order>;
+      if (pData.closed || pData.estado === 'pagada' || pData.status === 'pagada') {
+        throw new Error('Esta comanda ya fue pagada y cerrada.');
+      }
+    }
+
+    // 1. Guardar pago idempotente
+    tx.set(
+      paymentRef,
+      sanitizeForFirestore({
+        ...paymentRecord,
+        userId: uid,
+      })
+    );
+
+    // 2. Guardar venta contable inmutable
+    tx.set(
+      saleRef,
+      sanitizeForFirestore({
+        ...receipt,
+        userId: uid,
+      })
+    );
+
+    // 3. Persistir inventario/despensa/productos descontados en este turno
+    inventoryResult.updatedPerishables.forEach((item) => {
+      if (!deductedPerishableSet.has(item.id)) return;
+      const remaining = item.quantity;
+      const minStock = item.minStock;
+      const remainingScaled = toScaledQuantity(remaining);
+      const minScaled = toScaledQuantity(minStock);
+      const invData = sanitizeForFirestore({
+        quantity: remaining,
+        cantidadActual: remaining,
+        alertaStockMinimo: minStock,
+        hasLowStockAlert: remainingScaled <= minScaled,
+        isOutOfStock: remainingScaled <= 0n,
+        lastUpdated: nowIso,
+      });
+      tx.set(doc(db, 'users', uid, 'inventario', item.id), invData, { merge: true });
+      tx.set(doc(db, 'users', uid, 'despensa', item.id), { id: item.id, ...invData }, { merge: true });
+    });
+
+    inventoryResult.updatedProducts.forEach((prod) => {
+      if (!productIdsToPersist.has(prod.id)) return;
+      tx.set(doc(db, 'users', uid, 'menu', prod.id), { stock: prod.stock, lastUpdated: nowIso }, { merge: true });
+      tx.set(doc(db, 'users', uid, 'productos', prod.id), { stock: prod.stock, lastUpdated: nowIso }, { merge: true });
+    });
+
+    // 4. Actualizar mesa y comanda según saldo restante
+    const tableData = (tableSnap.exists() ? tableSnap.data() : {}) as Partial<Table>;
+    if (plan.shouldReleaseTable) {
+      tx.set(
+        tableRef,
+        sanitizeForFirestore({
+          id: tableId,
+          status: 'libre',
+          estado: 'libre',
+          order: null,
+          currentOrder: null,
+          pedidoActual: null,
+          waiterCall: null,
+          tableSessionId: null,
+          subaccounts: [],
+          updatedAt: nowIso,
+          userId: uid,
+        }),
+        { merge: true }
+      );
+      if (orderRef) {
+        tx.set(
+          orderRef,
+          sanitizeForFirestore({
+            id: order.id,
+            estado: 'pagada',
+            status: 'pagada',
+            closed: true,
+            closedAt: nowIso,
+            settledAt: nowIso,
+            pendingBalance: 0,
+            paymentsTotal: (order.paymentsTotal || 0) + plan.total,
+            subaccounts: plan.updatedSubaccounts,
+            items: [],
+            productos: [],
+          }),
+          { merge: true }
+        );
+      }
+    } else {
+      const cleanUpdatedItems = plan.updatedOrderItems.map((it) => cleanOrderItemForFirestore(it, nowIso));
+      const updatedOrder = sanitizeForFirestore({
+        ...order,
+        tableSessionId: plan.tableSessionId,
+        items: cleanUpdatedItems,
+        productos: cleanUpdatedItems,
+        subaccounts: plan.updatedSubaccounts,
+        pendingBalance: plan.remainingPendingBalance,
+        paymentsTotal: (order.paymentsTotal || 0) + plan.total,
+        lastUpdatedAt: nowIso,
+        status: 'activa',
+        estado: 'activa',
+        closed: false,
+      });
+
+      const currentWaiterCall = tableData.waiterCall || null;
+      const clearWaiterCall =
+        !currentWaiterCall ||
+        (currentWaiterCall.subaccountId && plan.affectedSubaccountIds.includes(currentWaiterCall.subaccountId)) ||
+        plan.updatedSubaccounts.every((s) => s.status !== 'pidiendo_cuenta');
+
+      const nextStatus = clearWaiterCall ? 'ocupada' : tableData.status === 'cuenta' ? 'cuenta' : 'ocupada';
+
+      tx.set(
+        tableRef,
+        sanitizeForFirestore({
+          id: tableId,
+          status: nextStatus,
+          estado: nextStatus,
+          tableSessionId: plan.tableSessionId,
+          subaccounts: plan.updatedSubaccounts,
+          order: updatedOrder,
+          currentOrder: updatedOrder,
+          pedidoActual: updatedOrder,
+          ...(clearWaiterCall ? { waiterCall: null } : {}),
+          updatedAt: nowIso,
+          userId: uid,
+        }),
+        { merge: true }
+      );
+      if (orderRef) {
+        tx.set(orderRef, updatedOrder, { merge: true });
+      }
+    }
+
+    return { idempotentDuplicate: false };
+  });
+
+  return {
+    updatedProducts: inventoryResult.updatedProducts,
+    updatedPerishables: inventoryResult.updatedPerishables,
+    lowStockAlerts: inventoryResult.lowStockAlerts,
+    idempotentDuplicate: txResult.idempotentDuplicate,
+  };
 }
 

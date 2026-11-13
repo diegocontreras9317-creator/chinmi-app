@@ -3,7 +3,7 @@
  * Diseñado bajo el principio de inmutabilidad de ventas y separación estricta de metadatos.
  */
 
-import { CustomerBillingInfo, ProductTaxType, SaleReceipt } from '../../../types';
+import { CustomerBillingInfo, PaymentBreakdownEntry, ProductTaxType, SaleReceipt } from '../../../types';
 
 /**
  * Estados del ciclo de solicitud de Factura Electrónica por parte del comensal / cliente.
@@ -124,8 +124,11 @@ export interface NormalizedExportSale {
   timestamp: string;
   dateKey: string; // YYYY-MM-DD
   tableName: string;
+  subaccountNames?: string[];
+  isPartialTableCheckout?: boolean;
   cashierName: string;
   paymentMethod: string;
+  paymentBreakdown?: PaymentBreakdownEntry[];
   customerName: string;
   documentType: string;
   documentNumber: string;

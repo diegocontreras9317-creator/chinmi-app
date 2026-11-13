@@ -157,6 +157,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [catTextColor, setCatTextColor] = useState(config.qrSettings?.catTextColor || '');
   const [catAutoContrast, setCatAutoContrast] = useState<boolean>(config.qrSettings?.catAutoContrast ?? true);
 
+  // Subcuentas QR y Propina Voluntaria (Ley 1935/2018 Colombia)
+  const [subaccountsMode, setSubaccountsMode] = useState<'disabled' | 'optional' | 'required'>(
+    config.qrSettings?.subaccountsMode || 'disabled'
+  );
+  const [allowQrSubaccountJoin, setAllowQrSubaccountJoin] = useState<boolean>(
+    config.qrSettings?.allowQrSubaccountJoin ?? true
+  );
+  const [allowQrSharedItems, setAllowQrSharedItems] = useState<boolean>(
+    config.qrSettings?.allowQrSharedItems ?? true
+  );
+  const [allowQrVolunteerTip, setAllowQrVolunteerTip] = useState<boolean>(
+    config.qrSettings?.allowQrVolunteerTip ?? true
+  );
+  const [defaultSuggestedTipPercent, setDefaultSuggestedTipPercent] = useState<number>(
+    config.qrSettings?.defaultSuggestedTipPercent ?? 10
+  );
+
   useEffect(() => {
     if (isOpen) {
       setAppName(config.appName);
@@ -197,6 +214,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setCatOverlayOpacity(config.qrSettings?.catOverlayOpacity ?? 0);
       setCatTextColor(config.qrSettings?.catTextColor || '');
       setCatAutoContrast(config.qrSettings?.catAutoContrast ?? true);
+
+      setSubaccountsMode(config.qrSettings?.subaccountsMode || 'disabled');
+      setAllowQrSubaccountJoin(config.qrSettings?.allowQrSubaccountJoin ?? true);
+      setAllowQrSharedItems(config.qrSettings?.allowQrSharedItems ?? true);
+      setAllowQrVolunteerTip(config.qrSettings?.allowQrVolunteerTip ?? true);
+      setDefaultSuggestedTipPercent(config.qrSettings?.defaultSuggestedTipPercent ?? 10);
     }
   }, [isOpen, config]);
 
@@ -355,7 +378,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         catOverlayColor,
         catOverlayOpacity,
         catTextColor: catTextColor.trim(),
-        catAutoContrast
+        catAutoContrast,
+        subaccountsMode,
+        allowQrSubaccountJoin,
+        allowQrSharedItems,
+        allowQrVolunteerTip,
+        defaultSuggestedTipPercent: Math.max(0, Math.min(30, Number(defaultSuggestedTipPercent) || 0)),
       },
       comandaPrintSettings: {
         enabled: comandaPrintEnabled,
@@ -1103,6 +1131,114 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                   <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-rose-950"></div>
                 </label>
+              </div>
+
+              {/* 5. Subcuentas QR y Propina Voluntaria */}
+              <div className="p-4 rounded-md border border-slate-200 dark:border-slate-800 space-y-3 bg-white dark:bg-slate-900">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" />
+                      <span>Subcuentas QR por Comensal</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Permite que varios clientes en la misma mesa lleven su propia cuenta por nombre, dividan productos y paguen por separado o juntos.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    {
+                      value: 'disabled' as const,
+                      title: 'Desactivadas',
+                      desc: 'Cuenta única clásica por mesa',
+                    },
+                    {
+                      value: 'optional' as const,
+                      title: 'Opcionales',
+                      desc: 'El cliente elige si crea subcuenta',
+                    },
+                    {
+                      value: 'required' as const,
+                      title: 'Obligatorias',
+                      desc: 'Pide nombre antes de ordenar',
+                    },
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setSubaccountsMode(opt.value)}
+                      className={`p-2.5 rounded-md border text-left transition cursor-pointer ${
+                        subaccountsMode === opt.value
+                          ? 'border-rose-900 bg-rose-50 dark:bg-rose-950/50 dark:border-rose-500'
+                          : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40'
+                      }`}
+                    >
+                      <div className="font-bold text-xs text-slate-900 dark:text-white">
+                        {opt.title}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        {opt.desc}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {subaccountsMode !== 'disabled' && (
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <label className="flex items-center justify-between gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 cursor-pointer">
+                      <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                        Permitir unirse a subcuenta de otro en la mesa
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={allowQrSubaccountJoin}
+                        onChange={(e) => setAllowQrSubaccountJoin(e.target.checked)}
+                        className="rounded border-slate-300 text-rose-900 focus:ring-rose-900"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-2 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/50 cursor-pointer">
+                      <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                        Permitir productos compartidos entre comensales
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={allowQrSharedItems}
+                        onChange={(e) => setAllowQrSharedItems(e.target.checked)}
+                        className="rounded border-slate-300 text-rose-900 focus:ring-rose-900"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allowQrVolunteerTip}
+                      onChange={(e) => setAllowQrVolunteerTip(e.target.checked)}
+                      className="rounded border-slate-300 text-rose-900 focus:ring-rose-900"
+                    />
+                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                      Permitir sugerencia de propina voluntaria en QR (Ley 1935/2018 · 0% IVA)
+                    </span>
+                  </label>
+                  {allowQrVolunteerTip && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-500">Sugerida:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={25}
+                        value={defaultSuggestedTipPercent}
+                        onChange={(e) => setDefaultSuggestedTipPercent(Number(e.target.value) || 0)}
+                        className="w-14 px-2 py-1 text-xs font-mono text-center rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      />
+                      <span className="text-[11px] font-bold text-slate-500">%</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

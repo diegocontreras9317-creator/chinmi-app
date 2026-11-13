@@ -18,10 +18,9 @@ import {
   BellRing,
   CreditCard,
   Sliders,
-  Utensils,
-  Palette
+  Utensils
 } from 'lucide-react';
-import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
+import { QrThemeId } from '../../config/qrThemes';
 import { saveUserQrConfig } from '../../services/firestoreUserStorage';
 
 interface TableQrModalProps {
@@ -41,7 +40,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
   const [selectedTableId, setSelectedTableId] = useState<string>(table?.id || '');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'preview' | 'options' | 'themes'>('options');
+  const [activeTab, setActiveTab] = useState<'preview' | 'options'>('options');
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -130,11 +129,33 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
     }
   };
 
-  const handleSelectTheme = (themeId: QrThemeId) => {
-    const nextSettings = {
-      ...qrSettings,
-      qrTheme: themeId
-    };
+  // Preset Configurations
+  const applyPreset = (preset: 'full' | 'menuOnly' | 'assistance') => {
+    const nextSettings =
+      preset === 'full'
+        ? {
+            ...qrSettings,
+            menuOnlyMode: false,
+            allowOrdering: true,
+            allowCallWaiter: true,
+            allowRequestBill: true
+          }
+        : preset === 'menuOnly'
+          ? {
+              ...qrSettings,
+              menuOnlyMode: true,
+              allowOrdering: false,
+              allowCallWaiter: true,
+              allowRequestBill: true
+            }
+          : {
+              ...qrSettings,
+              menuOnlyMode: true,
+              allowOrdering: false,
+              allowCallWaiter: true,
+              allowRequestBill: false
+            };
+
     updateConfig({
       qrSettings: nextSettings
     });
@@ -142,38 +163,6 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
     const uid = auth.currentUser?.uid;
     if (uid) {
       saveUserQrConfig(uid, nextSettings);
-    }
-  };
-
-  // Preset Configurations
-  const applyPreset = (preset: 'full' | 'menuOnly' | 'assistance') => {
-    if (preset === 'full') {
-      updateConfig({
-        qrSettings: {
-          menuOnlyMode: false,
-          allowOrdering: true,
-          allowCallWaiter: true,
-          allowRequestBill: true
-        }
-      });
-    } else if (preset === 'menuOnly') {
-      updateConfig({
-        qrSettings: {
-          menuOnlyMode: true,
-          allowOrdering: false,
-          allowCallWaiter: true,
-          allowRequestBill: true
-        }
-      });
-    } else if (preset === 'assistance') {
-      updateConfig({
-        qrSettings: {
-          menuOnlyMode: true,
-          allowOrdering: false,
-          allowCallWaiter: true,
-          allowRequestBill: false
-        }
-      });
     }
   };
 
@@ -340,11 +329,11 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-100 dark:border-slate-800 px-4 sm:px-6 pt-2 bg-slate-50/50 dark:bg-slate-850 gap-1 overflow-x-auto">
+        <div className="grid grid-cols-2 border-b border-slate-100 dark:border-slate-800 px-4 sm:px-6 pt-2 bg-slate-50/50 dark:bg-slate-850 gap-2">
           <button
             type="button"
             onClick={() => setActiveTab('options')}
-            className={`pb-2.5 px-3 sm:px-4 text-xs font-bold transition border-b-2 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+            className={`pb-2.5 px-3 sm:px-4 text-xs font-bold transition border-b-2 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeTab === 'options'
                 ? 'border-rose-900 text-rose-900 dark:border-rose-400 dark:text-rose-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -356,24 +345,8 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
 
           <button
             type="button"
-            onClick={() => setActiveTab('themes')}
-            className={`pb-2.5 px-3 sm:px-4 text-xs font-bold transition border-b-2 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-              activeTab === 'themes'
-                ? 'border-rose-900 text-rose-900 dark:border-rose-400 dark:text-rose-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            }`}
-          >
-            <Palette className="w-3.5 h-3.5" />
-            <span>🎨 Temas Visuales</span>
-            <span className="px-1.5 py-0.2 rounded-md bg-rose-100 dark:bg-rose-950/80 text-rose-900 dark:text-rose-300 text-[10px] font-extrabold border border-rose-200 dark:border-rose-900">
-              6 Estilos
-            </span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setActiveTab('preview')}
-            className={`pb-2.5 px-3 sm:px-4 text-xs font-bold transition border-b-2 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+            className={`pb-2.5 px-3 sm:px-4 text-xs font-bold transition border-b-2 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeTab === 'preview'
                 ? 'border-rose-900 text-rose-900 dark:border-rose-400 dark:text-rose-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -385,11 +358,11 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-5 sm:p-6 overflow-y-auto space-y-5 flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1">
           
           {/* Table Selector Switcher */}
-          <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+          <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                 Mesa seleccionada:
               </span>
@@ -402,7 +375,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
               <select
                 value={selectedTableId}
                 onChange={(e) => setSelectedTableId(e.target.value)}
-                className="px-2.5 py-1 text-xs font-semibold rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden"
+                className="w-full sm:w-auto px-2.5 py-1.5 text-xs font-semibold rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden"
               >
                 {tables.map(t => (
                   <option key={t.id} value={t.id}>
@@ -416,31 +389,6 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
           {/* TAB 1: QR CODE OPTIONS */}
           {activeTab === 'options' && (
             <div className="space-y-4">
-              
-              {/* Active Theme Shortcut Banner */}
-              <div className="p-3.5 rounded-md bg-stone-50 dark:bg-slate-800/80 border border-stone-200 dark:border-slate-700 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-md bg-rose-950 text-white">
-                    <Palette className="w-4 h-4 text-rose-300" />
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Tema Visual Activo de la Carta QR
-                    </span>
-                    <p className="font-bold text-xs text-slate-900 dark:text-white">
-                      {QR_THEMES[qrSettings.qrTheme || 'default_normal']?.name || 'Tema Normal (Original Chinmi)'}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('themes')}
-                  className="px-3 py-1.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center gap-1.5"
-                >
-                  <Palette className="w-3.5 h-3.5" />
-                  <span>Cambiar Tema</span>
-                </button>
-              </div>
 
               {/* Preset Mode Pills */}
               <div>
@@ -615,93 +563,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
             </div>
           )}
 
-          {/* TAB: TEMAS VISUALES QR */}
-          {activeTab === 'themes' && (
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-md bg-stone-50 dark:bg-slate-800/80 border border-stone-200 dark:border-slate-700 space-y-1">
-                <div className="flex items-center gap-2">
-                  <Palette className="w-4 h-4 text-rose-900 dark:text-rose-400" />
-                  <span className="font-extrabold text-xs text-slate-900 dark:text-white">
-                    Personaliza el Tema Visual de la Carta Digital
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  El estilo que selecciones se aplicará de inmediato a todos los códigos QR que escanean los clientes en sus mesas:
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2.5">
-                {Object.values(QR_THEMES).map((thm) => {
-                  const isSelected = (qrSettings.qrTheme || 'default_normal') === thm.id;
-                  return (
-                    <button
-                      key={thm.id}
-                      type="button"
-                      onClick={() => handleSelectTheme(thm.id)}
-                      className={`p-3.5 rounded-lg border text-left transition cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative ${
-                        isSelected
-                          ? 'border-rose-900 ring-2 ring-rose-900/40 bg-rose-50/20 dark:bg-slate-800/90 shadow-xs'
-                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-bold text-xs text-slate-900 dark:text-white">
-                            {thm.name}
-                          </span>
-                          {isSelected && (
-                            <span className="px-2 py-0.5 rounded-full bg-rose-950 text-white text-[10px] font-black flex items-center gap-1 shadow-xs">
-                              <Check className="w-3 h-3 stroke-[3]" />
-                              <span>Activo</span>
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {thm.tagline}
-                        </p>
-                      </div>
-
-                      {/* Swatch Preview Bar */}
-                      <div className="flex items-center gap-1.5 p-2 rounded-md bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 shrink-0 self-start sm:self-auto">
-                        <div
-                          className="w-5 h-5 rounded-full border border-black/20 shadow-xs"
-                          style={{ backgroundColor: thm.previewColors.bg }}
-                          title="Fondo Canvas"
-                        />
-                        <div
-                          className="w-5 h-5 rounded-md border border-black/20 shadow-xs"
-                          style={{ backgroundColor: thm.previewColors.card }}
-                          title="Tarjetas de Platos"
-                        />
-                        <div
-                          className="w-5 h-5 rounded-md border border-black/20 shadow-xs"
-                          style={{ backgroundColor: thm.previewColors.accent }}
-                          title="Botones y Acento"
-                        />
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Botón de probar vista */}
-              <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  ¿Quieres comprobar el diseño en vivo?
-                </span>
-                <button
-                  type="button"
-                  onClick={handleOpenClientMenu}
-                  className="px-3 py-1.5 rounded-md bg-stone-100 dark:bg-slate-700 hover:bg-stone-200 text-rose-900 dark:text-rose-300 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Probar en Pantalla</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: PREVIEW & PRINT FLYER */}
+          {/* TAB 2: PREVIEW & PRINT FLYER */}
           {activeTab === 'preview' && (
             <div className="space-y-4">
               
@@ -784,11 +646,11 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 flex items-center justify-between gap-3">
+        <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
           <button
             type="button"
             onClick={handleDownloadQr}
-            className="px-4 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+            className="w-full sm:w-auto px-4 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Descargar PNG</span>
@@ -797,7 +659,7 @@ export const TableQrModal: React.FC<TableQrModalProps> = ({
           <button
             type="button"
             onClick={handlePrint}
-            className="px-5 py-2 rounded-md bg-rose-900 hover:bg-rose-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+            className="w-full sm:w-auto px-5 py-2 rounded-md bg-rose-900 hover:bg-rose-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>Imprimir QR Mesa {activeTable.number}</span>

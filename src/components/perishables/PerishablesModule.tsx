@@ -35,6 +35,11 @@ import {
 } from '../../utils/perishableUtils';
 import { playExpiryAlarm } from '../../utils/audioAlert';
 import { formatCOP } from '../../utils/currency';
+import {
+  compareQuantities,
+  formatQuantity,
+  normalizeQuantity
+} from '../../utils/quantityPrecision';
 import { NewPerishableModal } from './NewPerishableModal';
 import { PerishableWasteModal } from './PerishableWasteModal';
 import { SupplierModal } from './SupplierModal';
@@ -227,7 +232,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         freshCount++;
       }
 
-      if (item.quantity <= item.minStock) {
+      if (compareQuantities(item.quantity, item.minStock) <= 0) {
         lowStockCount++;
       }
     });
@@ -268,7 +273,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         selectedCategory === 'all' || item.category === selectedCategory;
 
       const status = getExpiryStatus(item.expiryDate, item.alarmDaysBeforeExpiry);
-      const isLowStock = item.quantity <= item.minStock;
+      const isLowStock = compareQuantities(item.quantity, item.minStock) <= 0;
 
       let matchesStatus = true;
       if (statusFilter === 'expired') {
@@ -332,9 +337,9 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         `"${item.id}"`,
         `"${item.name}"`,
         `"${item.category}"`,
-        item.quantity,
+        normalizeQuantity(item.quantity),
         `"${item.unit}"`,
-        item.minStock,
+        normalizeQuantity(item.minStock),
         item.entryDate,
         item.expiryDate,
         days,
@@ -742,7 +747,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                           </span>
                           <div className="space-y-1">
                             {linkedItems.slice(0, 4).map((li) => {
-                              const low = li.quantity <= li.minStock;
+                              const low = compareQuantities(li.quantity, li.minStock) <= 0;
                               return (
                                 <div
                                   key={li.id}
@@ -758,7 +763,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                                         : 'text-slate-600 dark:text-slate-300'
                                     }`}
                                   >
-                                    {li.quantity} {li.unit} {low ? '· Bajo' : ''}
+                                    {formatQuantity(li.quantity)} {li.unit} {low ? '· Bajo' : ''}
                                   </span>
                                 </div>
                               );
@@ -1224,7 +1229,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             const daysRemaining = calculateDaysRemaining(item.expiryDate);
             const status = getExpiryStatus(item.expiryDate, item.alarmDaysBeforeExpiry);
             const badge = getExpiryBadgeConfig(status, daysRemaining);
-            const isLowStock = item.quantity <= item.minStock;
+            const isLowStock = compareQuantities(item.quantity, item.minStock) <= 0;
 
             {/* === DESPENSA TAMAÑO PEQUEÑO (COMPACTA) === */}
             if (cardSize === 'sm') {
@@ -1297,7 +1302,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                     {/* Stock & Expiry */}
                     <div className="mt-2 p-1.5 rounded-md bg-slate-50 dark:bg-slate-850 flex items-center justify-between text-xs">
                       <span className="font-mono font-black text-xs text-stone-900 dark:text-stone-100">
-                        {item.quantity} <span className="text-[10px] font-normal">{item.unit}</span>
+                        {formatQuantity(item.quantity)} <span className="text-[10px] font-normal">{item.unit}</span>
                       </span>
                       <span className={`text-[10px] font-bold ${
                         daysRemaining < 0 ? 'text-rose-600' : daysRemaining <= 3 ? 'text-amber-600' : 'text-slate-500'
@@ -1447,7 +1452,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                           </span>
                           <div className="flex items-baseline gap-1.5 mt-0.5">
                             <span className="text-3xl font-black font-mono text-stone-900 dark:text-stone-100">
-                              {item.quantity}
+                              {formatQuantity(item.quantity)}
                             </span>
                             <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
                               {item.unit}
@@ -1457,7 +1462,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
                         <div className="text-right">
                           <span className="text-xs font-bold text-slate-400 block">
-                            Mínimo de seguridad: {item.minStock} {item.unit}
+                            Mínimo de seguridad: {formatQuantity(item.minStock)} {item.unit}
                           </span>
                           {item.costPerUnit ? (
                             <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 block mt-0.5">
@@ -1650,7 +1655,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                         </span>
                         <div className="flex items-baseline gap-1 mt-0.5">
                           <span className="text-xl font-black font-mono text-stone-900 dark:text-stone-100">
-                            {item.quantity}
+                            {formatQuantity(item.quantity)}
                           </span>
                           <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                             {item.unit}
@@ -1660,7 +1665,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
                       <div className="text-right">
                         <span className="text-[10px] font-bold text-slate-400 block">
-                          Mínimo: {item.minStock} {item.unit}
+                          Mínimo: {formatQuantity(item.minStock)} {item.unit}
                         </span>
                         {item.costPerUnit ? (
                           <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
@@ -1844,7 +1849,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                   const daysRemaining = calculateDaysRemaining(item.expiryDate);
                   const status = getExpiryStatus(item.expiryDate, item.alarmDaysBeforeExpiry);
                   const badge = getExpiryBadgeConfig(status, daysRemaining);
-                  const isLowStock = item.quantity <= item.minStock;
+                  const isLowStock = compareQuantities(item.quantity, item.minStock) <= 0;
 
                   return (
                     <tr
@@ -1931,11 +1936,11 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
                       <td className="py-3 px-3 text-right">
                         <span className="font-mono font-black text-sm text-stone-900 dark:text-stone-100">
-                          {item.quantity} {item.unit}
+                          {formatQuantity(item.quantity)} {item.unit}
                         </span>
                         {isLowStock && (
                           <span className="block text-[10px] text-blue-600 font-bold">
-                            Min: {item.minStock}
+                            Min: {formatQuantity(item.minStock)}
                           </span>
                         )}
                       </td>

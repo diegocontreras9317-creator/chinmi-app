@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Trash2, Plus, Calendar, AlertTriangle } from 'lucide-react';
 import { PerishableItem } from '../../types';
+import {
+  addQuantities,
+  formatQuantity,
+  normalizeNonNegativeQuantity,
+  parseQuantityInput,
+  subtractQuantities
+} from '../../utils/quantityPrecision';
 
 interface PerishableWasteModalProps {
   isOpen: boolean;
@@ -26,21 +33,34 @@ export const PerishableWasteModal: React.FC<PerishableWasteModalProps> = ({
   onConfirmWaste,
   onConfirmRestock
 }) => {
-  const [amount, setAmount] = useState<number>(1);
+  const [amountInput, setAmountInput] = useState<string>('1');
   const [reason, setReason] = useState<string>('Vencimiento / Descomposición');
   const [newEntryDate, setNewEntryDate] = useState<string>(getTodayIso());
   const [newExpiryDate, setNewExpiryDate] = useState<string>(getDefaultExpiryIso(5));
 
+  useEffect(() => {
+    if (isOpen) {
+      setAmountInput('1');
+      setNewEntryDate(getTodayIso());
+      setNewExpiryDate(getDefaultExpiryIso(5));
+    }
+  }, [isOpen, item?.id, mode]);
+
   if (!isOpen || !item) return null;
+
+  const parsedAmount = normalizeNonNegativeQuantity(parseQuantityInput(amountInput, 0));
+  const currentQuantity = normalizeNonNegativeQuantity(item.quantity ?? item.cantidadActual ?? 0);
+  const remainingPreview = subtractQuantities(currentQuantity, parsedAmount);
+  const restockedPreview = addQuantities(currentQuantity, parsedAmount);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (amount <= 0) return;
+    if (parsedAmount <= 0) return;
 
     if (mode === 'waste') {
-      onConfirmWaste(item.id, amount, reason);
+      onConfirmWaste(item.id, parsedAmount, reason);
     } else {
-      onConfirmRestock(item.id, amount, newEntryDate, newExpiryDate);
+      onConfirmRestock(item.id, parsedAmount, newEntryDate, newExpiryDate);
     }
     onClose();
   };
@@ -68,7 +88,7 @@ export const PerishableWasteModal: React.FC<PerishableWasteModalProps> = ({
                 {isWaste ? 'Registrar Merma / Desecho' : 'Entrada de Lote / Reabastecer'}
               </h4>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-xs">
-                {item.name} · Actual: <span className="font-bold font-mono">{item.quantity} {item.unit}</span>
+                {item.name} · Actual: <span className="font-bold font-mono">{formatQuantity(currentQuantity)} {item.unit}</span>
               </p>
             </div>
           </div>
@@ -90,21 +110,25 @@ export const PerishableWasteModal: React.FC<PerishableWasteModalProps> = ({
             <div className="flex items-center gap-2">
               <input
                 type="number"
-                step="0.01"
-                min="0.01"
-                max={isWaste ? item.quantity : undefined}
+                step="any"
+                min="0.000001"
+                max={isWaste ? currentQuantity : undefined}
                 required
-                value={amount}
-                onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+                value={amountInput}
+                onChange={(e) => setAmountInput(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-base"
               />
               <span className="font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
                 {item.unit}
               </span>
             </div>
-            {isWaste && (
+            {isWaste ? (
               <span className="text-[10px] text-slate-500 mt-1 block">
-                Quedarán <strong className="text-slate-800 dark:text-slate-200">{Math.max(0, item.quantity - amount).toFixed(2)} {item.unit}</strong> en inventario.
+                Quedarán <strong className="text-slate-800 dark:text-slate-200">{formatQuantity(remainingPreview)} {item.unit}</strong> en inventario.
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-500 mt-1 block">
+                Nuevo total estimado: <strong className="text-slate-800 dark:text-slate-200">{formatQuantity(restockedPreview)} {item.unit}</strong> en inventario.
               </span>
             )}
           </div>

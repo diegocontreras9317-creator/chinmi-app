@@ -39,7 +39,17 @@ import {
 import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
 import { playServiceBell, playNewOrderAlert } from '../utils/audioAlert';
-import { getUnitConversionFactor } from '../utils/recipeUnits';
+import {
+  computeSaleInventoryUpdates,
+  normalizePerishableRecord
+} from '../utils/recipeUnits';
+import {
+  addQuantities,
+  formatQuantity,
+  normalizeNonNegativeQuantity,
+  normalizeQuantity,
+  subtractQuantities
+} from '../utils/quantityPrecision';
 
 /**
  * Construye una configuración limpia y aislada por cuenta/restaurante.
@@ -1309,68 +1319,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     // 1. Decrement inventory stock automatically (both direct products and recipe ingredients)
-    const directDeductions: Record<string, number> = {};
-    const insumoDeductions: Record<string, number> = {};
+    const preCheckoutProducts = productsRef.current;
+    const preCheckoutPerishables = perishablesRef.current;
 
-    items.forEach((item: any) => {
-      const qty = Number(item.quantity) || 0;
-      if (qty <= 0) return;
-      const prod = products.find(p => p.id === item.productId || p.name === item.name);
-      if (!prod) return;
-
-      if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
-        prod.receta.forEach(ing => {
-          const pantryItem = perishablesRef.current.find(p => p.id === ing.insumoId);
-          const factor = getUnitConversionFactor(ing.unidad, pantryItem?.unit);
-          const req = (Number(ing.cantidad) || 0) * factor * qty;
-          if (req > 0 && ing.insumoId) {
-            insumoDeductions[ing.insumoId] = (insumoDeductions[ing.insumoId] || 0) + req;
-          }
-        });
-      } else {
-        directDeductions[prod.id] = (directDeductions[prod.id] || 0) + qty;
-      }
-    });
-
-    const nextPerishables = perishablesRef.current.map(item => {
-      const deduct = insumoDeductions[item.id];
-      if (deduct !== undefined && deduct > 0) {
-        const remaining = Math.max(0, (Number(item.quantity) || 0) - deduct);
-        return {
-          ...item,
-          quantity: remaining,
-          cantidadActual: remaining
-        };
-      }
-      return item;
-    });
-
-    const nextProducts = products.map(prod => {
-      if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
-        let minPortions = Infinity;
-        prod.receta.forEach(ing => {
-          const found = nextPerishables.find(p => p.id === ing.insumoId);
-          const avail = found ? found.quantity : 0;
-          const factor = getUnitConversionFactor(ing.unidad, found?.unit);
-          const reqInPantryUnit = (Number(ing.cantidad) || 0) * factor;
-          const portions = reqInPantryUnit > 0 ? Math.floor(avail / reqInPantryUnit) : 0;
-          if (portions < minPortions) minPortions = portions;
-        });
-        return {
-          ...prod,
-          stock: minPortions === Infinity ? 0 : minPortions
-        };
-      }
-
-      const deduct = directDeductions[prod.id];
-      if (deduct !== undefined && deduct > 0) {
-        return {
-          ...prod,
-          stock: Math.max(0, (Number(prod.stock) || 0) - deduct)
-        };
-      }
-      return prod;
-    });
+    const { updatedPerishables: nextPerishables, updatedProducts: nextProducts } =
+      computeSaleInventoryUpdates({
+        orderItems: items,
+        productsCatalog: preCheckoutProducts,
+        perishablesList: preCheckoutPerishables
+      });
 
     // 2. Free the table and reset active order & waiter calls
     const nowIso = new Date().toISOString();
@@ -1401,7 +1358,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLatestReceipt(receipt);
     persistChanges(nextTables, nextProducts, nextSales, nextPerishables);
 
-    // 4. Actualización directa e inmediata en Firestore con writeBatch
+    // 4. Actualización directa e inmediata en Firestore con writeBatch (pasando snapshot previo para no duplicar descuento)
     if (!options?.skipFirestore && activeUid && activeUid !== 'default') {
       executeSaleCheckoutBatch({
         uid: activeUid,
@@ -1409,8 +1366,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         orderId: order.id,
         receipt,
         orderItems: enrichedItems,
-        productsCatalog: products,
-        perishablesList: perishablesRef.current
+        productsCatalog: preCheckoutProducts,
+        perishablesList: preCheckoutPerishables
       }).catch(err => {
         console.error('ERROR CRÍTICO EN FIREBASE al ejecutar batch write en checkoutTable:', err);
       });
@@ -1445,6 +1402,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const items = order.items || (order as any)?.productos || [];
+    const preCheckoutProducts = productsRef.current;
+    const preCheckoutPerishables = perishablesRef.current;
 
     const res = checkoutTable(tableId, paymentMethod, cashTendered, {
       ...options,
@@ -1458,8 +1417,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           orderId: order.id,
           receipt: res.receipt,
           orderItems: items,
-          productsCatalog: productsRef.current,
-          perishablesList: perishablesRef.current
+          productsCatalog: preCheckoutProducts,
+          perishablesList: preCheckoutPerishables
         });
       } catch (error) {
         console.error("ERROR CRÍTICO EN FIREBASE al ejecutar batch write en cobrarMesa:", error);
@@ -1594,115 +1553,164 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const adjustProductStock = (id: string, delta: number) => {
     let updatedTarget: Product | undefined;
-    const nextProducts = products.map(p => {
+    const nextProducts = productsRef.current.map(p => {
       if (p.id === id) {
-        updatedTarget = { ...p, stock: Math.max(0, p.stock + delta) };
+        const nextStock =
+          delta >= 0
+            ? addQuantities(p.stock, delta)
+            : subtractQuantities(p.stock, Math.abs(delta));
+        updatedTarget = { ...p, stock: nextStock };
         return updatedTarget;
       }
       return p;
     });
+    productsRef.current = nextProducts;
     setProducts(nextProducts);
     if (updatedTarget && activeUid && activeUid !== 'default') {
       saveProductToFirestore(updatedTarget, activeUid).catch(console.error);
     }
-    persistChanges(tables, nextProducts, sales);
+    persistChanges(tablesRef.current, nextProducts, salesRef.current);
   };
 
   // --- Perishables (Verduras, Frutas, Insumos Bar & Cocina) Operations ---
   const addPerishable = (item: Omit<PerishableItem, 'id'>) => {
-    const newPerishable: PerishableItem = {
+    const cleanQty = normalizeNonNegativeQuantity(item.quantity);
+    const cleanMin = normalizeNonNegativeQuantity(item.minStock);
+    const newPerishable: PerishableItem = normalizePerishableRecord({
       ...item,
+      quantity: cleanQty,
+      minStock: cleanMin,
+      cantidadActual: cleanQty,
+      alertaStockMinimo: cleanMin,
       id: `perish-${Date.now()}`
-    };
-    const nextPerishables = [newPerishable, ...perishables];
+    });
+    const nextPerishables = [newPerishable, ...perishablesRef.current];
+    perishablesRef.current = nextPerishables;
     setPerishables(nextPerishables);
     if (activeUid && activeUid !== 'default') {
       saveInventoryItemToFirestore(newPerishable, activeUid).catch(console.error);
     }
-    persistChanges(tables, products, sales, nextPerishables);
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
     return { success: true };
   };
 
   const updatePerishable = (id: string, partial: Partial<PerishableItem>) => {
     let updatedTarget: PerishableItem | undefined;
-    const nextPerishables = perishables.map(p => {
+    const nextPerishables = perishablesRef.current.map(p => {
       if (p.id === id) {
-        updatedTarget = { ...p, ...partial };
+        const merged: PerishableItem = {
+          ...p,
+          ...partial,
+          ...(partial.quantity !== undefined
+            ? {
+                quantity: normalizeNonNegativeQuantity(partial.quantity),
+                cantidadActual: normalizeNonNegativeQuantity(partial.quantity)
+              }
+            : {}),
+          ...(partial.minStock !== undefined
+            ? {
+                minStock: normalizeNonNegativeQuantity(partial.minStock),
+                alertaStockMinimo: normalizeNonNegativeQuantity(partial.minStock)
+              }
+            : {})
+        };
+        updatedTarget = normalizePerishableRecord(merged);
         return updatedTarget;
       }
       return p;
     });
+    perishablesRef.current = nextPerishables;
     setPerishables(nextPerishables);
     if (updatedTarget && activeUid && activeUid !== 'default') {
       saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
     }
-    persistChanges(tables, products, sales, nextPerishables);
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
   };
 
   const deletePerishable = (id: string) => {
-    const nextPerishables = perishables.filter(p => p.id !== id);
+    const nextPerishables = perishablesRef.current.filter(p => p.id !== id);
+    perishablesRef.current = nextPerishables;
     setPerishables(nextPerishables);
     deleteInventoryItemFromFirestore(id, storeId).catch(() => {});
-    persistChanges(tables, products, sales, nextPerishables);
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
   };
 
   const adjustPerishableQuantity = (id: string, newQuantity: number) => {
     let updatedTarget: PerishableItem | undefined;
-    const nextPerishables = perishables.map(p => {
+    const cleanQty = normalizeNonNegativeQuantity(newQuantity);
+    const nextPerishables = perishablesRef.current.map(p => {
       if (p.id === id) {
-        updatedTarget = { ...p, quantity: Math.max(0, Number(newQuantity.toFixed(2))) };
+        updatedTarget = normalizePerishableRecord({
+          ...p,
+          quantity: cleanQty,
+          cantidadActual: cleanQty
+        });
         return updatedTarget;
       }
       return p;
     });
+    perishablesRef.current = nextPerishables;
     setPerishables(nextPerishables);
     if (updatedTarget && activeUid && activeUid !== 'default') {
       saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
     }
-    persistChanges(tables, products, sales, nextPerishables);
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
   };
 
   const recordPerishableWaste = (id: string, amount: number, reason: string) => {
     let updatedTarget: PerishableItem | undefined;
-    const nextPerishables = perishables.map(p => {
+    const cleanAmount = normalizeNonNegativeQuantity(amount);
+    if (cleanAmount <= 0) return;
+
+    const nextPerishables = perishablesRef.current.map(p => {
       if (p.id === id) {
-        const nextQty = Math.max(0, Number((p.quantity - amount).toFixed(2)));
-        const noteAddition = ` [Merma: -${amount} ${p.unit} (${reason})]`;
-        updatedTarget = {
+        const currentQty = p.quantity ?? p.cantidadActual ?? 0;
+        const nextQty = subtractQuantities(currentQty, cleanAmount);
+        const noteAddition = ` [Merma: -${formatQuantity(cleanAmount)} ${p.unit} (${reason})]`;
+        updatedTarget = normalizePerishableRecord({
           ...p,
           quantity: nextQty,
-          notes: (p.notes ? p.notes + noteAddition : noteAddition)
-        };
+          cantidadActual: nextQty,
+          notes: p.notes ? p.notes + noteAddition : noteAddition
+        });
         return updatedTarget;
       }
       return p;
     });
+    perishablesRef.current = nextPerishables;
     setPerishables(nextPerishables);
     if (updatedTarget && activeUid && activeUid !== 'default') {
       saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
     }
-    persistChanges(tables, products, sales, nextPerishables);
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
   };
 
   const recordPerishableRestock = (id: string, addedAmount: number, newEntryDate?: string, newExpiryDate?: string) => {
     let updatedTarget: PerishableItem | undefined;
-    const nextPerishables = perishables.map(p => {
+    const cleanAdded = normalizeNonNegativeQuantity(addedAmount);
+    if (cleanAdded <= 0) return;
+
+    const nextPerishables = perishablesRef.current.map(p => {
       if (p.id === id) {
-        updatedTarget = {
+        const currentQty = p.quantity ?? p.cantidadActual ?? 0;
+        const nextQty = addQuantities(currentQty, cleanAdded);
+        updatedTarget = normalizePerishableRecord({
           ...p,
-          quantity: Number((p.quantity + addedAmount).toFixed(2)),
+          quantity: nextQty,
+          cantidadActual: nextQty,
           entryDate: newEntryDate || p.entryDate,
           expiryDate: newExpiryDate || p.expiryDate
-        };
+        });
         return updatedTarget;
       }
       return p;
     });
+    perishablesRef.current = nextPerishables;
     setPerishables(nextPerishables);
     if (updatedTarget && activeUid && activeUid !== 'default') {
       saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
     }
-    persistChanges(tables, products, sales, nextPerishables);
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
   };
 
   // --- Suppliers (Proveedores de Despensa e Insumos) Operations ---
@@ -1904,12 +1912,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!matchedLine) return p;
 
         anyPerishableChanged = true;
-        const addedQty = Number(matchedLine.receivedQuantity ?? matchedLine.quantity) || 0;
-        const updatedItem: PerishableItem = {
+        const addedQty = normalizeNonNegativeQuantity(matchedLine.receivedQuantity ?? matchedLine.quantity);
+        const currentQty = p.quantity ?? p.cantidadActual ?? 0;
+        const nextQty = addQuantities(currentQty, addedQty);
+        const updatedItem: PerishableItem = normalizePerishableRecord({
           ...p,
-          quantity: Number((p.quantity + addedQty).toFixed(2)),
+          quantity: nextQty,
+          cantidadActual: nextQty,
           entryDate: entryDateStr || p.entryDate
-        };
+        });
         if (activeUid && activeUid !== 'default') {
           saveInventoryItemToFirestore(updatedItem, activeUid).catch(console.error);
         }

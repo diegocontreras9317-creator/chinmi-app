@@ -3,6 +3,11 @@ import { X, Calendar, AlertTriangle, Package, MapPin, Truck, Phone, PackageCheck
 import { PerishableItem, PerishableCategory, MeasurementUnit, Supplier } from '../../types';
 import { PERISHABLE_CATEGORIES, MEASUREMENT_UNITS, STORAGE_LOCATIONS, calculateDaysRemaining } from '../../utils/perishableUtils';
 import { compressImageFile } from '../../utils/imageCompressor';
+import {
+  formatQuantity,
+  normalizeNonNegativeQuantity,
+  parseQuantityInput
+} from '../../utils/quantityPrecision';
 
 interface NewPerishableModalProps {
   isOpen: boolean;
@@ -47,9 +52,9 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [category, setCategory] = useState<PerishableCategory>('Verduras & Hortalizas');
-  const [quantity, setQuantity] = useState<number>(1);
+  const [quantity, setQuantity] = useState<string>('1');
   const [unit, setUnit] = useState<MeasurementUnit>('kg');
-  const [minStock, setMinStock] = useState<number>(2);
+  const [minStock, setMinStock] = useState<string>('2');
   const [entryDate, setEntryDate] = useState<string>(getTodayIso());
   const [expiryDate, setExpiryDate] = useState<string>(getDefaultExpiryIso());
   const [location, setLocation] = useState<string>(STORAGE_LOCATIONS[0]);
@@ -87,9 +92,9 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
         setCustomCategory(editingItem.category);
       }
 
-      setQuantity(editingItem.quantity);
+      setQuantity(formatQuantity(editingItem.quantity ?? editingItem.cantidadActual ?? 0));
       setUnit(editingItem.unit);
-      setMinStock(editingItem.minStock);
+      setMinStock(formatQuantity(editingItem.minStock ?? editingItem.alertaStockMinimo ?? 0));
       setEntryDate(editingItem.entryDate);
       setExpiryDate(editingItem.expiryDate);
 
@@ -134,9 +139,9 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setCategory('Verduras & Hortalizas');
       setIsCustomCategory(false);
       setCustomCategory('');
-      setQuantity(5);
+      setQuantity('5');
       setUnit('kg');
-      setMinStock(2);
+      setMinStock('2');
       setEntryDate(getTodayIso());
       setExpiryDate(getDefaultExpiryIso());
       setLocation(STORAGE_LOCATIONS[0]);
@@ -208,7 +213,8 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setError('Por favor ingresa el nombre del alimento o insumo.');
       return;
     }
-    if (quantity < 0) {
+    const parsedQuantity = parseQuantityInput(quantity, -1);
+    if (parsedQuantity < 0) {
       setError('La cantidad en inventario no puede ser negativa.');
       return;
     }
@@ -273,12 +279,17 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       }
     }
 
+    const cleanQuantity = normalizeNonNegativeQuantity(parseQuantityInput(quantity, 0));
+    const cleanMinStock = normalizeNonNegativeQuantity(parseQuantityInput(minStock, 0));
+
     onSave({
       name: name.trim(),
       category: finalCategory,
-      quantity: Math.round(Number(quantity)) || 0,
+      quantity: cleanQuantity,
       unit,
-      minStock: Math.round(Number(minStock)) || 0,
+      minStock: cleanMinStock,
+      cantidadActual: cleanQuantity,
+      alertaStockMinimo: cleanMinStock,
       entryDate,
       expiryDate,
       location: finalLocation,
@@ -417,11 +428,11 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
               </label>
               <input
                 type="number"
-                step="1"
+                step="any"
                 min="0"
                 required
                 value={quantity}
-                onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 0)}
+                onChange={(e) => setQuantity(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold"
               />
             </div>
@@ -449,10 +460,10 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
               </label>
               <input
                 type="number"
-                step="1"
+                step="any"
                 min="0"
                 value={minStock}
-                onChange={(e) => setMinStock(parseInt(e.target.value, 10) || 0)}
+                onChange={(e) => setMinStock(e.target.value)}
                 className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
               />
             </div>

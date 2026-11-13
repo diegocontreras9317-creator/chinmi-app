@@ -26,8 +26,14 @@ import { compressImageFile } from '../../utils/imageCompressor';
 import {
   RECIPE_UNIT_OPTIONS,
   normalizeToRecipeUnit,
-  getUnitConversionFactor
+  getUnitConversionFactor,
+  convertRecipeQtyToPantry,
+  calculateExactPortions
 } from '../../utils/recipeUnits';
+import {
+  formatQuantity,
+  normalizeNonNegativeQuantity
+} from '../../utils/quantityPrecision';
 
 interface NewProductModalProps {
   isOpen: boolean;
@@ -123,12 +129,14 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       const pantryItem = perishables.find((p) => p.id === ing.insumoId);
       const conversionFactor = getUnitConversionFactor(ing.unidad, pantryItem?.unit);
       const unitCost = pantryItem?.costPerUnit ?? ing.costoUnitario ?? 0;
-      const requiredInPantryUnit = (Number(ing.cantidad) || 0) * conversionFactor;
+      const requiredInPantryUnit = convertRecipeQtyToPantry(ing.cantidad, ing.unidad, pantryItem?.unit, 1);
       const subtotal = requiredInPantryUnit * unitCost;
       totalCost += subtotal;
 
-      const available = pantryItem ? Number(pantryItem.quantity) || 0 : 0;
-      const portions = requiredInPantryUnit > 0 ? Math.floor(available / requiredInPantryUnit) : 0;
+      const available = pantryItem
+        ? normalizeNonNegativeQuantity(pantryItem.quantity ?? pantryItem.cantidadActual ?? 0)
+        : 0;
+      const portions = calculateExactPortions(available, requiredInPantryUnit);
 
       if (portions < minPortions) {
         minPortions = portions;
@@ -228,7 +236,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
       setErrorMsg('Insumo no encontrado en la Despensa.');
       return;
     }
-    const numQty = parseFloat(ingredientQty);
+    const numQty = normalizeNonNegativeQuantity(parseFloat(ingredientQty));
     if (!numQty || numQty <= 0) {
       setErrorMsg(`Ingresa una cantidad mayor a 0 para ${pantryItem.name}.`);
       return;
@@ -679,7 +687,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                     </span>{' '}
                     (quedan{' '}
                     <strong className="font-mono text-slate-900 dark:text-white">
-                      {recipeBreakdown.limitingInsumo.available} {recipeBreakdown.limitingInsumo.unit}
+                      {formatQuantity(recipeBreakdown.limitingInsumo.available)} {recipeBreakdown.limitingInsumo.unit}
                     </strong>{' '}
                     en Despensa, alcanza para{' '}
                     <strong className="font-mono text-slate-900 dark:text-white">
@@ -719,7 +727,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                       <option value="">-- Selecciona un insumo de Despensa --</option>
                       {perishables.map((item) => (
                         <option key={item.id} value={item.id}>
-                          {item.name} ({item.quantity} {item.unit} disp. · Costo: ${item.costPerUnit || 0}/{item.unit})
+                          {item.name} ({formatQuantity(item.quantity)} {item.unit} disp. · Costo: ${item.costPerUnit || 0}/{item.unit})
                         </option>
                       ))}
                     </select>
@@ -789,16 +797,16 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                             {ing.nombre}
                           </td>
                           <td className="px-3 py-2 font-mono font-bold text-orange-600 dark:text-orange-400">
-                            {ing.cantidad} {ing.unidad}
+                            {formatQuantity(ing.cantidad)} {ing.unidad}
                             {ing.conversionFactor !== 1 && ing.pantryItem && (
                               <span className="text-[10px] text-slate-400 block font-normal">
-                                (= {Math.round(ing.requiredInPantryUnit * 1000) / 1000} {ing.pantryItem.unit})
+                                (= {formatQuantity(ing.requiredInPantryUnit)} {ing.pantryItem.unit})
                               </span>
                             )}
                           </td>
                           <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-300">
                             <span className={ing.available <= 0 ? 'text-rose-600 font-bold' : ''}>
-                              {ing.available} {ing.pantryItem?.unit || ing.unidad}
+                              {formatQuantity(ing.available)} {ing.pantryItem?.unit || ing.unidad}
                             </span>
                             <span className="text-[10px] text-slate-400 block">
                               ({ing.portions} porciones)

@@ -13,6 +13,12 @@ import {
   ClipboardCheck
 } from 'lucide-react';
 import { Supplier, PerishableItem, SupplierOrderChannel, SupplierOrderItem } from '../../types';
+import {
+  addQuantities,
+  formatQuantity,
+  normalizeNonNegativeQuantity,
+  subtractQuantities
+} from '../../utils/quantityPrecision';
 
 interface NewSupplierOrderModalProps {
   isOpen: boolean;
@@ -206,25 +212,25 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
     setItems(prev => {
       const idx = prev.findIndex(it => it.name.toLowerCase() === clean.toLowerCase());
       if (idx > -1) {
-        return prev.map((it, i) =>
-          i === idx
-            ? {
-                ...it,
-                quantity: Number((it.quantity + 1).toFixed(2)),
-                receivedQuantity: Number((it.quantity + 1).toFixed(2))
-              }
-            : it
-        );
+        return prev.map((it, i) => {
+          if (i !== idx) return it;
+          const nextQty = addQuantities(it.quantity, 1);
+          return {
+            ...it,
+            quantity: nextQty,
+            receivedQuantity: nextQty
+          };
+        });
       }
       return [
         ...prev,
         {
           id: `soi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           name: clean,
-          quantity: suggestedQty,
+          quantity: normalizeNonNegativeQuantity(suggestedQty),
           unit: defaultUnit,
           received: false,
-          receivedQuantity: suggestedQty
+          receivedQuantity: normalizeNonNegativeQuantity(suggestedQty)
         }
       ];
     });
@@ -233,7 +239,7 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
   const handleAddManualItem = () => {
     const clean = productName.trim();
     if (!clean) return;
-    const qty = productQty > 0 ? productQty : 1;
+    const qty = productQty > 0 ? normalizeNonNegativeQuantity(productQty) : 1;
     setError(null);
 
     setItems(prev => {
@@ -241,15 +247,15 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
         it => it.name.toLowerCase() === clean.toLowerCase() && it.unit === productUnit
       );
       if (idx > -1) {
-        return prev.map((it, i) =>
-          i === idx
-            ? {
-                ...it,
-                quantity: Number((it.quantity + qty).toFixed(2)),
-                receivedQuantity: Number((it.quantity + qty).toFixed(2))
-              }
-            : it
-        );
+        return prev.map((it, i) => {
+          if (i !== idx) return it;
+          const nextQty = addQuantities(it.quantity, qty);
+          return {
+            ...it,
+            quantity: nextQty,
+            receivedQuantity: nextQty
+          };
+        });
       }
       return [
         ...prev,
@@ -273,7 +279,7 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
       setItems(prev => prev.filter(it => it.id !== id));
       return;
     }
-    const cleanQty = Number(nextQty.toFixed(2));
+    const cleanQty = normalizeNonNegativeQuantity(nextQty);
     setItems(prev =>
       prev.map(it =>
         it.id === id ? { ...it, quantity: cleanQty, receivedQuantity: cleanQty } : it
@@ -498,7 +504,7 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
                       <span>{inOrder ? `✓ ${cat.name}` : `+ ${cat.name}`}</span>
                       {inOrder && (
                         <span className="font-mono tabular-nums text-[10px] opacity-85">
-                          · {inOrder.quantity} {inOrder.unit}
+                          · {formatQuantity(inOrder.quantity)} {inOrder.unit}
                         </span>
                       )}
                     </button>
@@ -580,7 +586,7 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
-                        onClick={() => updateItemQuantity(item.id, item.quantity - 1)}
+                        onClick={() => updateItemQuantity(item.id, subtractQuantities(item.quantity, 1, true))}
                         className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
                       >
                         <Minus className="w-3 h-3" />
@@ -588,7 +594,7 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
 
                       <input
                         type="number"
-                        min="0.1"
+                        min="0.000001"
                         step="any"
                         value={item.quantity}
                         onChange={e => updateItemQuantity(item.id, parseFloat(e.target.value) || 0)}
@@ -597,7 +603,7 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => updateItemQuantity(item.id, item.quantity + 1)}
+                        onClick={() => updateItemQuantity(item.id, addQuantities(item.quantity, 1))}
                         className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
                       >
                         <Plus className="w-3 h-3" />

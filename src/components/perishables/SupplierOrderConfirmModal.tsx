@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { SupplierOrder, SupplierOrderItem, PerishableItem } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { formatQuantity, normalizeNonNegativeQuantity } from '../../utils/quantityPrecision';
 
 interface SupplierOrderConfirmModalProps {
   isOpen: boolean;
@@ -129,7 +130,7 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
   };
 
   const updateReceivedQty = (itemId: string, nextQty: number) => {
-    const cleanQty = Math.max(0, Number(nextQty.toFixed(2)));
+    const cleanQty = normalizeNonNegativeQuantity(nextQty);
     setCheckedItems(prev => {
       const next = prev.map(it => {
         if (it.id !== itemId) return it;
@@ -306,7 +307,7 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
                         {item.name}
                       </span>
                       <span className="text-[11px] text-slate-500 font-mono tabular-nums">
-                        Pedido: {item.quantity} {item.unit}
+                        Pedido: {formatQuantity(item.quantity)} {item.unit}
                       </span>
                     </div>
                   </button>

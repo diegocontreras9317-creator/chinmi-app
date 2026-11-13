@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import { resolveProductTax } from '../../utils/taxes';
-import { getUnitConversionFactor } from '../../utils/recipeUnits';
+import { calculateRecipeAvailability } from '../../utils/recipeUnits';
 import {
   Search,
   Plus,
@@ -437,23 +437,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
         >
           {filteredProducts.map((product) => {
             const isRecipe = product.tipoInventario === 'receta' && Array.isArray(product.receta) && product.receta.length > 0;
-            let estimatedPortions = product.stock;
-            let limitingInsumoName = '';
-            if (isRecipe) {
-              let minPortions = Infinity;
-              product.receta!.forEach((ing) => {
-                const found = perishables.find((p) => p.id === ing.insumoId);
-                const avail = found ? Number(found.quantity) || 0 : 0;
-                const factor = getUnitConversionFactor(ing.unidad, found?.unit);
-                const reqInPantryUnit = (Number(ing.cantidad) || 0) * factor;
-                const portions = reqInPantryUnit > 0 ? Math.floor(avail / reqInPantryUnit) : 0;
-                if (portions < minPortions) {
-                  minPortions = portions;
-                  limitingInsumoName = found?.name || ing.nombre;
-                }
-              });
-              estimatedPortions = minPortions === Infinity ? 0 : minPortions;
-            }
+            const recipeAvailability = isRecipe
+              ? calculateRecipeAvailability(product.receta, perishables)
+              : null;
+            const estimatedPortions = recipeAvailability ? recipeAvailability.estimatedPortions : product.stock;
+            const limitingInsumoName = recipeAvailability ? recipeAvailability.limitingInsumoName : '';
 
             const currentStock = isRecipe ? estimatedPortions : product.stock;
             const isLowStock = currentStock <= product.minStock && currentStock > 0;
@@ -955,19 +943,9 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                 {filteredProducts.map((prod) => {
                   const prodTax = resolveProductTax(prod, config.defaultTaxRate);
                   const isRecipe = prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0;
-                  let estimatedPortions = prod.stock;
-                  if (isRecipe) {
-                    let minPortions = Infinity;
-                    prod.receta!.forEach((ing) => {
-                      const found = perishables.find((p) => p.id === ing.insumoId);
-                      const avail = found ? Number(found.quantity) || 0 : 0;
-                      const factor = getUnitConversionFactor(ing.unidad, found?.unit);
-                      const reqInPantryUnit = (Number(ing.cantidad) || 0) * factor;
-                      const portions = reqInPantryUnit > 0 ? Math.floor(avail / reqInPantryUnit) : 0;
-                      if (portions < minPortions) minPortions = portions;
-                    });
-                    estimatedPortions = minPortions === Infinity ? 0 : minPortions;
-                  }
+                  const estimatedPortions = isRecipe
+                    ? calculateRecipeAvailability(prod.receta, perishables).estimatedPortions
+                    : prod.stock;
                   const currentStock = isRecipe ? estimatedPortions : prod.stock;
 
                   return (

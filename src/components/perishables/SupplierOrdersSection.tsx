@@ -13,6 +13,7 @@ import {
   Check
 } from 'lucide-react';
 import { SupplierOrder, SupplierOrderStatus } from '../../types';
+import { compareQuantities, formatQuantity } from '../../utils/quantityPrecision';
 
 interface SupplierOrdersSectionProps {
   orders: SupplierOrder[];
@@ -132,7 +133,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
 
     const rows = orders.map(o => {
       const itemsText = (o.items || [])
-        .map(it => `${it.quantity} ${it.unit} ${it.name}`)
+        .map(it => `${formatQuantity(it.quantity)} ${it.unit} ${it.name}`)
         .join(' | ');
       const statusText =
         o.status === 'recibido_completo'
@@ -391,7 +392,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                               isIncomplete &&
                               (it.received === false ||
                                 (it.receivedQuantity !== undefined &&
-                                  it.receivedQuantity < it.quantity));
+                                  compareQuantities(it.receivedQuantity, it.quantity) < 0));
                             return (
                               <div
                                 key={it.id}
@@ -408,8 +409,8 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                                 </span>
                                 <span className="font-mono tabular-nums text-[11px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
                                   {hasShortfall
-                                    ? `${it.receivedQuantity ?? 0}/${it.quantity} ${it.unit}`
-                                    : `${it.quantity} ${it.unit}`}
+                                    ? `${formatQuantity(it.receivedQuantity ?? 0)}/${formatQuantity(it.quantity)} ${it.unit}`
+                                    : `${formatQuantity(it.quantity)} ${it.unit}`}
                                 </span>
                               </div>
                             );

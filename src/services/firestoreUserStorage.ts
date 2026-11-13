@@ -17,7 +17,11 @@ import {
 import { db, auth } from '../firebase';
 import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, OrderItem, Empleado, Supplier, SupplierOrder } from '../types';
 import { AppConfig } from '../config/appConfig';
-import { getUnitConversionFactor } from '../utils/recipeUnits';
+import {
+  computeSaleInventoryUpdates,
+  normalizePerishableRecord
+} from '../utils/recipeUnits';
+import { toScaledQuantity } from '../utils/quantityPrecision';
 import {
   normalizeEmpleadoRecord,
   normalizeEmpleadoRol,
@@ -186,7 +190,7 @@ export function subscribeUserInventory(uid: string, onUpdate: (items: Perishable
   const colRef = collection(db, 'users', uid, 'inventario');
 
   return onSnapshot(colRef, (snap) => {
-    const items = snap.docs.map(d => ({ id: d.id, ...d.data() } as PerishableItem));
+    const items = snap.docs.map(d => normalizePerishableRecord({ id: d.id, ...d.data() } as PerishableItem));
     onUpdate(items);
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);
@@ -386,7 +390,7 @@ export async function getUserInventory(targetUid?: string): Promise<PerishableIt
     const colRef = collection(db, 'users', uid, 'inventario');
     const snap = await getDocs(colRef);
     if (snap.empty) return [];
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as PerishableItem));
+    return snap.docs.map(d => normalizePerishableRecord({ id: d.id, ...d.data() } as PerishableItem));
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, path);
     return [];
@@ -535,7 +539,8 @@ export async function saveUserFirestoreData(targetUid: string | undefined, data:
     // Sincronizar Inventario / Insumos
     for (const per of data.perishables || []) {
       if (per.id) {
-        await setDoc(doc(db, 'users', uid, 'inventario', per.id), sanitizeForFirestore({ ...per, userId: uid }), { merge: true });
+        const cleanPer = normalizePerishableRecord(per);
+        await setDoc(doc(db, 'users', uid, 'inventario', per.id), sanitizeForFirestore({ ...cleanPer, userId: uid }), { merge: true });
       }
     }
 
@@ -942,7 +947,17 @@ export async function saveInventoryItemToFirestore(item: PerishableItem, targetU
   if (!uid || !item.id) return;
   const path = `users/${uid}/inventario/${item.id}`;
   try {
-    await setDoc(doc(db, 'users', uid, 'inventario', item.id), sanitizeForFirestore({ ...item, userId: uid }), { merge: true });
+    const cleanItem = normalizePerishableRecord(item);
+    await setDoc(
+      doc(db, 'users', uid, 'inventario', item.id),
+      sanitizeForFirestore({
+        ...cleanItem,
+        cantidadActual: cleanItem.quantity,
+        alertaStockMinimo: cleanItem.minStock,
+        userId: uid
+      }),
+      { merge: true }
+    );
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;
@@ -1081,120 +1096,56 @@ export async function executeSaleCheckoutBatch(params: {
   const batch = writeBatch(db);
   const nowIso = new Date().toISOString();
 
-  // 1. Acumular cantidades vendidas
-  const directDeductions: Record<string, number> = {};
-  const insumoDeductions: Record<string, number> = {};
-
-  orderItems.forEach((item) => {
-    const qty = Number(item.quantity) || 0;
-    if (qty <= 0) return;
-
-    const prod = productsCatalog.find((p) => p.id === item.productId || p.name === item.name);
-    if (!prod) return;
-
-    if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
-      // Producto con receta: descontar insumos de despensa aplicando factor de conversión de unidad
-      prod.receta.forEach((ing) => {
-        const pantryItem = perishablesList.find((p) => p.id === ing.insumoId);
-        const factor = getUnitConversionFactor(ing.unidad, pantryItem?.unit);
-        const insumoRequired = (Number(ing.cantidad) || 0) * factor * qty;
-        if (insumoRequired > 0 && ing.insumoId) {
-          insumoDeductions[ing.insumoId] = (insumoDeductions[ing.insumoId] || 0) + insumoRequired;
-        }
-      });
-    } else {
-      // Producto directo: descontar stock de catálogo
-      directDeductions[prod.id] = (directDeductions[prod.id] || 0) + qty;
-    }
+  // 1-3. Calcular deducciones exactas de insumos, productos directos y porciones de recetas
+  const {
+    updatedPerishables,
+    updatedProducts,
+    deductedPerishableIds,
+    deductedDirectProductIds,
+    recipeProductIds,
+    lowStockAlerts
+  } = computeSaleInventoryUpdates({
+    orderItems,
+    productsCatalog,
+    perishablesList
   });
 
-  // 2. Preparar deducciones de insumos en Despensa / Inventario
-  const lowStockAlerts: SaleBatchResult['lowStockAlerts'] = [];
-  const updatedPerishables = perishablesList.map((item) => {
-    const deduct = insumoDeductions[item.id];
-    if (deduct !== undefined && deduct > 0) {
-      const remaining = Math.max(0, (Number(item.quantity) || 0) - deduct);
-      const minStock = Number(item.minStock) || 0;
-      const isLow = remaining <= minStock;
-      const isOut = remaining <= 0;
+  const deductedPerishableSet = new Set(deductedPerishableIds);
+  const productIdsToPersist = new Set([...deductedDirectProductIds, ...recipeProductIds]);
 
-      if (isLow || isOut) {
-        lowStockAlerts.push({
-          insumoId: item.id,
-          nombre: item.name,
-          remaining,
-          minStock,
-          isOut
-        });
-      }
+  updatedPerishables.forEach((item) => {
+    if (!deductedPerishableSet.has(item.id)) return;
+    const remaining = item.quantity;
+    const minStock = item.minStock;
+    const remainingScaled = toScaledQuantity(remaining);
+    const minScaled = toScaledQuantity(minStock);
+    const isLow = remainingScaled <= minScaled;
+    const isOut = remainingScaled <= 0n;
 
-      const invData = sanitizeForFirestore({
-        quantity: remaining,
-        cantidadActual: remaining,
-        alertaStockMinimo: minStock,
-        hasLowStockAlert: isLow,
-        isOutOfStock: isOut,
-        lastUpdated: nowIso
-      });
+    const invData = sanitizeForFirestore({
+      quantity: remaining,
+      cantidadActual: remaining,
+      alertaStockMinimo: minStock,
+      hasLowStockAlert: isLow,
+      isOutOfStock: isOut,
+      lastUpdated: nowIso
+    });
 
-      // Actualizar en users/{uid}/inventario
-      const invRef = doc(db, 'users', uid, 'inventario', item.id);
-      batch.set(invRef, invData, { merge: true });
+    // Actualizar en users/{uid}/inventario
+    const invRef = doc(db, 'users', uid, 'inventario', item.id);
+    batch.set(invRef, invData, { merge: true });
 
-      // Actualizar en users/{uid}/despensa para compatibilidad total
-      const despensaRef = doc(db, 'users', uid, 'despensa', item.id);
-      batch.set(despensaRef, { id: item.id, ...invData }, { merge: true });
-
-      return {
-        ...item,
-        quantity: remaining,
-        cantidadActual: remaining,
-        alertaStockMinimo: minStock
-      };
-    }
-    return item;
+    // Actualizar en users/{uid}/despensa para compatibilidad total
+    const despensaRef = doc(db, 'users', uid, 'despensa', item.id);
+    batch.set(despensaRef, { id: item.id, ...invData }, { merge: true });
   });
 
-  // 3. Preparar deducciones de productos directos y recalcular porciones de recetas
-  const updatedProducts = productsCatalog.map((prod) => {
-    if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
-      // Recalcular porciones disponibles estimadas según stock restante de insumos
-      let minPortions = Infinity;
-      prod.receta.forEach((ing) => {
-        const found = updatedPerishables.find((p) => p.id === ing.insumoId);
-        const avail = found ? found.quantity : 0;
-        const factor = getUnitConversionFactor(ing.unidad, found?.unit);
-        const reqInPantryUnit = (Number(ing.cantidad) || 0) * factor;
-        const portions = reqInPantryUnit > 0 ? Math.floor(avail / reqInPantryUnit) : 0;
-        if (portions < minPortions) minPortions = portions;
-      });
-      const estimatedStock = minPortions === Infinity ? 0 : minPortions;
-
-      const menuRef = doc(db, 'users', uid, 'menu', prod.id);
-      const prodRef = doc(db, 'users', uid, 'productos', prod.id);
-      batch.set(menuRef, { stock: estimatedStock, lastUpdated: nowIso }, { merge: true });
-      batch.set(prodRef, { stock: estimatedStock, lastUpdated: nowIso }, { merge: true });
-
-      return {
-        ...prod,
-        stock: estimatedStock
-      };
-    }
-
-    const deduct = directDeductions[prod.id];
-    if (deduct !== undefined && deduct > 0) {
-      const remainingStock = Math.max(0, (Number(prod.stock) || 0) - deduct);
-      const menuRef = doc(db, 'users', uid, 'menu', prod.id);
-      const prodRef = doc(db, 'users', uid, 'productos', prod.id);
-      batch.set(menuRef, { stock: remainingStock, lastUpdated: nowIso }, { merge: true });
-      batch.set(prodRef, { stock: remainingStock, lastUpdated: nowIso }, { merge: true });
-
-      return {
-        ...prod,
-        stock: remainingStock
-      };
-    }
-    return prod;
+  updatedProducts.forEach((prod) => {
+    if (!productIdsToPersist.has(prod.id)) return;
+    const menuRef = doc(db, 'users', uid, 'menu', prod.id);
+    const prodRef = doc(db, 'users', uid, 'productos', prod.id);
+    batch.set(menuRef, { stock: prod.stock, lastUpdated: nowIso }, { merge: true });
+    batch.set(prodRef, { stock: prod.stock, lastUpdated: nowIso }, { merge: true });
   });
 
   // 4. Guardar Venta

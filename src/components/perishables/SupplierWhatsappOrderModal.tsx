@@ -18,6 +18,12 @@ import { Supplier, PerishableItem } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { defaultAppConfig } from '../../config/appConfig';
+import {
+  addQuantities,
+  formatQuantity,
+  normalizeNonNegativeQuantity,
+  subtractQuantities
+} from '../../utils/quantityPrecision';
 
 interface OrderLineItem {
   id: string;
@@ -201,7 +207,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
       const idx = prev.findIndex(it => it.name.toLowerCase() === clean.toLowerCase());
       if (idx > -1) {
         return prev.map((it, i) =>
-          i === idx ? { ...it, quantity: Number((it.quantity + 1).toFixed(2)) } : it
+          i === idx ? { ...it, quantity: addQuantities(it.quantity, 1) } : it
         );
       }
       return [
@@ -209,7 +215,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
         {
           id: `ord-sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           name: clean,
-          quantity: suggestedQty,
+          quantity: normalizeNonNegativeQuantity(suggestedQty),
           unit: defaultUnit
         }
       ];
@@ -220,7 +226,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
     if (e) e.preventDefault();
     const clean = customProductName.trim();
     if (!clean) return;
-    const qty = customProductQty > 0 ? customProductQty : 1;
+    const qty = customProductQty > 0 ? normalizeNonNegativeQuantity(customProductQty) : 1;
 
     setOrderItems(prev => {
       const idx = prev.findIndex(
@@ -228,7 +234,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
       );
       if (idx > -1) {
         return prev.map((it, i) =>
-          i === idx ? { ...it, quantity: Number((it.quantity + qty).toFixed(2)) } : it
+          i === idx ? { ...it, quantity: addQuantities(it.quantity, qty) } : it
         );
       }
       return [
@@ -252,7 +258,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
       return;
     }
     setOrderItems(prev =>
-      prev.map(it => (it.id === id ? { ...it, quantity: Number(nextQty.toFixed(2)) } : it))
+      prev.map(it => (it.id === id ? { ...it, quantity: normalizeNonNegativeQuantity(nextQty) } : it))
     );
   };
 
@@ -295,7 +301,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
       lines.push('• (Agrega productos al listado)');
     } else {
       effectiveItems.forEach((it) => {
-        lines.push(`• ${it.quantity} ${it.unit} - ${it.name}`);
+        lines.push(`• ${formatQuantity(it.quantity)} ${it.unit} - ${it.name}`);
       });
     }
 
@@ -526,7 +532,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
                       <span>{inOrder ? `✓ ${catItem.name}` : `+ ${catItem.name}`}</span>
                       {inOrder && (
                         <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-emerald-700 text-white">
-                          {inOrder.quantity} {inOrder.unit}
+                          {formatQuantity(inOrder.quantity)} {inOrder.unit}
                         </span>
                       )}
                       {!inOrder && catItem.isLowStock && (
@@ -626,7 +632,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() => updateItemQty(item.id, item.quantity - 1)}
+                          onClick={() => updateItemQty(item.id, subtractQuantities(item.quantity, 1, true))}
                           className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
                         >
                           <Minus className="w-3 h-3" />
@@ -634,7 +640,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
 
                         <input
                           type="number"
-                          min="0.1"
+                          min="0.000001"
                           step="any"
                           value={item.quantity}
                           onChange={(e) =>
@@ -645,7 +651,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
 
                         <button
                           type="button"
-                          onClick={() => updateItemQty(item.id, item.quantity + 1)}
+                          onClick={() => updateItemQty(item.id, addQuantities(item.quantity, 1))}
                           className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
                         >
                           <Plus className="w-3 h-3" />

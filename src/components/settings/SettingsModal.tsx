@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole, Empleado, EmpleadoRol } from '../../types';
+import { ComandaPaperWidth } from '../../config/appConfig';
+import {
+  ComandaTicketData,
+  buildSampleComandaTicketData,
+  triggerComandaBrowserPrint,
+} from '../../utils/comandaPrint';
+import { ComandaPrintPortal, ComandaTicketView } from '../tables/ComandaTicketView';
 import {
   mapEmpleadoRolToUserRole,
   mapUserRoleToEmpleadoRol,
@@ -42,7 +50,8 @@ import {
   Power,
   Mail,
   Wine,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Printer
 } from 'lucide-react';
 import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
 import { compressImageFile } from '../../utils/imageCompressor';
@@ -74,7 +83,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     verifyManagerPin
   } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'qr' | 'team' | 'security'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'qr' | 'print' | 'team' | 'security'>('general');
 
   // General Settings State
   const [appName, setAppName] = useState(config.appName);
@@ -87,6 +96,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [logoUrl, setLogoUrl] = useState(config.logoUrl || config.qrSettings?.logoUrl || '');
   const [savedSuccess, setSavedSuccess] = useState(false);
 
+  // Comanda Manual Print Settings State
+  const [comandaPrintEnabled, setComandaPrintEnabled] = useState<boolean>(
+    config.comandaPrintSettings?.enabled ?? true
+  );
+  const [comandaPaperWidth, setComandaPaperWidth] = useState<ComandaPaperWidth>(
+    config.comandaPrintSettings?.paperWidth === '58mm' ? '58mm' : '80mm'
+  );
+  const [previewSampleReprint, setPreviewSampleReprint] = useState(false);
+  const [testPrintTicket, setTestPrintTicket] = useState<ComandaTicketData | null>(null);
+  const [printConfigSavedMsg, setPrintConfigSavedMsg] = useState<string | null>(null);
+
   useEffect(() => {
     if (isOpen) {
       setAppName(config.appName);
@@ -97,6 +117,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setCurrency(config.currency);
       setDefaultTaxRate(String(config.defaultTaxRate));
       setLogoUrl(config.logoUrl || config.qrSettings?.logoUrl || '');
+      setComandaPrintEnabled(config.comandaPrintSettings?.enabled ?? true);
+      setComandaPaperWidth(config.comandaPrintSettings?.paperWidth === '58mm' ? '58mm' : '80mm');
     }
   }, [isOpen, config]);
 
@@ -334,6 +356,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         catOverlayOpacity,
         catTextColor: catTextColor.trim(),
         catAutoContrast
+      },
+      comandaPrintSettings: {
+        enabled: comandaPrintEnabled,
+        paperWidth: comandaPaperWidth
       }
     });
 
@@ -342,6 +368,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setSavedSuccess(false);
       onClose();
     }, 800);
+  };
+
+  const handleUpdateComandaPrintSettings = (
+    nextEnabled: boolean,
+    nextPaperWidth: ComandaPaperWidth
+  ) => {
+    setComandaPrintEnabled(nextEnabled);
+    setComandaPaperWidth(nextPaperWidth);
+    updateConfig({
+      comandaPrintSettings: {
+        enabled: nextEnabled,
+        paperWidth: nextPaperWidth,
+      },
+    });
+    setPrintConfigSavedMsg('Configuración de impresión guardada para este restaurante.');
+    setTimeout(() => setPrintConfigSavedMsg(null), 2400);
+  };
+
+  const handlePrintTestComanda = () => {
+    const sample = buildSampleComandaTicketData(businessName || config.businessName, {
+      isReprint: previewSampleReprint,
+    });
+    flushSync(() => {
+      setTestPrintTicket(sample);
+    });
+    triggerComandaBrowserPrint(comandaPaperWidth);
   };
 
   const handleReset = () => {
@@ -545,11 +597,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab Selector */}
-        <div className="px-6 pt-3 pb-0 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 shrink-0 bg-slate-50/50 dark:bg-slate-900">
+        <div className="px-6 pt-3 pb-0 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 shrink-0 bg-slate-50/50 dark:bg-slate-900 overflow-x-auto whitespace-nowrap">
           <button
             type="button"
             onClick={() => setActiveTab('general')}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 shrink-0 ${
               activeTab === 'general'
                 ? 'border-rose-900 text-rose-950 dark:text-rose-300'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -561,7 +613,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('qr')}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
               activeTab === 'qr'
                 ? 'border-rose-900 text-rose-950 dark:text-rose-300'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -572,6 +624,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <span className="px-1.5 py-0.2 rounded-md bg-stone-100 dark:bg-stone-800 text-rose-900 dark:text-rose-300 text-[10px] font-extrabold border border-stone-200 dark:border-stone-700">
               Temas
             </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('print')}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+              activeTab === 'print'
+                ? 'border-rose-900 text-rose-950 dark:text-rose-300'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Impresión de comandas</span>
           </button>
           <button
             type="button"
@@ -1998,6 +2062,163 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
           </div>
+        ) : activeTab === 'print' ? (
+          /* === TAB: IMPRESIÓN MANUAL DE COMANDAS === */
+          <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
+            {printConfigSavedMsg && (
+              <div className="p-3 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900">
+                <Check className="w-4 h-4 shrink-0" />
+                <span>{printConfigSavedMsg}</span>
+              </div>
+            )}
+
+            {/* Encabezado informativo */}
+            <div className="p-4 rounded-md bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 space-y-1.5">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm">
+                <Printer className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                <span>Impresión de comandas</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                Permite a los empleados autorizados imprimir manualmente tickets de preparación desde computadores o celulares usando el cuadro de impresión del navegador. No altera inventario, ventas ni el estado de la mesa.
+              </p>
+            </div>
+
+            {/* 1. Activar o desactivar la función */}
+            <div className="p-4 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <p className="font-bold text-slate-900 dark:text-white text-xs">
+                  Activar botón "Imprimir comanda" en mesas
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Muestra el botón de impresión manual dentro del detalle de comanda para roles con acceso a mesas y pedidos.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={comandaPrintEnabled}
+                  onChange={(e) => handleUpdateComandaPrintSettings(e.target.checked, comandaPaperWidth)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-rose-950"></div>
+              </label>
+            </div>
+
+            {/* 2. Selector de ancho de papel térmico */}
+            <div className="p-4 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div>
+                <p className="font-bold text-slate-900 dark:text-white text-xs">
+                  Ancho de papel térmico
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Selecciona el formato que utiliza tu impresora térmica de cocina o barra.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {([
+                  {
+                    width: '58mm' as ComandaPaperWidth,
+                    title: 'Papel 58 mm',
+                    desc: 'Impresoras térmicas portátiles o mini (Bluetooth / USB / Wi-Fi compatibles con el sistema).'
+                  },
+                  {
+                    width: '80mm' as ComandaPaperWidth,
+                    title: 'Papel 80 mm',
+                    desc: 'Impresoras térmicas estándar de mostrador y cocina.'
+                  }
+                ]).map((opt) => {
+                  const isSelected = comandaPaperWidth === opt.width;
+                  return (
+                    <button
+                      key={opt.width}
+                      type="button"
+                      onClick={() => handleUpdateComandaPrintSettings(comandaPrintEnabled, opt.width)}
+                      className={`p-3 rounded-md border text-left transition cursor-pointer flex flex-col gap-1 ${
+                        isSelected
+                          ? 'border-rose-900 ring-2 ring-rose-900/30 bg-rose-50/30 dark:bg-slate-800'
+                          : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 bg-slate-50/50 dark:bg-slate-800/40'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-extrabold text-xs text-slate-900 dark:text-white">
+                          {opt.title}
+                        </span>
+                        {isSelected && (
+                          <span className="px-2 py-0.5 rounded-full bg-rose-950 text-white text-[10px] font-bold">
+                            Activo
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                        {opt.desc}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 3. Vista previa del ticket + Imprimir ticket de prueba */}
+            <div className="p-4 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <p className="font-bold text-slate-900 dark:text-white text-xs">
+                    Vista previa del ticket ({comandaPaperWidth})
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Alto contraste negro sobre blanco, sin precios ni impuestos.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none px-2.5 py-1.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={previewSampleReprint}
+                      onChange={(e) => setPreviewSampleReprint(e.target.checked)}
+                      className="w-3.5 h-3.5 accent-rose-900 cursor-pointer"
+                    />
+                    <span>Ver etiqueta REIMPRESIÓN</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handlePrintTestComanda}
+                    className="px-3.5 py-1.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Imprimir ticket de prueba</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-md bg-slate-200/80 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 overflow-x-auto flex justify-center">
+                <div className="shadow-md border border-slate-300">
+                  <ComandaTicketView
+                    data={buildSampleComandaTicketData(businessName || config.businessName, {
+                      isReprint: previewSampleReprint,
+                    })}
+                    paperWidth={comandaPaperWidth}
+                  />
+                </div>
+              </div>
+
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                Compatibilidad: utiliza la función de impresión del navegador en Windows, macOS, Android e iOS según las impresoras instaladas o vinculadas en el dispositivo. En el cuadro del sistema, desactiva encabezados/pies de página del navegador y ajusta los márgenes a "Ninguno" para un corte térmico limpio.
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+              >
+                Listo
+              </button>
+            </div>
+          </div>
         ) : activeTab === 'team' ? (
           /* === TAB 2: PERSONAL & ROLES (RBAC UNIFICADO CON FIRESTORE) === */
           <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
@@ -2569,6 +2790,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         )}
 
       </div>
+
+      {/* Portal de impresión térmica para ticket de prueba */}
+      <ComandaPrintPortal
+        data={testPrintTicket}
+        paperWidth={comandaPaperWidth}
+      />
     </div>
   );
 };

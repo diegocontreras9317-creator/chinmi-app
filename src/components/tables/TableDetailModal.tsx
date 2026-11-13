@@ -1,10 +1,20 @@
 import React, { useState, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
-import { Table, Product, TableStatus, OrderItem } from '../../types';
+import { Table, Product, TableStatus, OrderItem, ROLE_PERMISSIONS } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import { extractTableBillingInfo, formatCustomerDocument, hasCustomBillingData } from '../../utils/billing';
 import { calculateOrderTaxBreakdown, resolveOrderItemTax, resolveProductTax } from '../../utils/taxes';
+import {
+  ComandaTicketData,
+  buildComandaTicketData,
+  getComandaItemsSignature,
+  getComandaOrderKey,
+  getComandaPrintState,
+  registerComandaPrint,
+  triggerComandaBrowserPrint
+} from '../../utils/comandaPrint';
 import { auth, db } from '../../firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { sanitizeForFirestore } from '../../services/firestoreUserStorage';
@@ -26,10 +36,12 @@ import {
   ArrowRight,
   Save,
   RefreshCw,
-  CheckCircle2
+  CheckCircle2,
+  Printer
 } from 'lucide-react';
 import { CategoryScrollBar } from '../common/CategoryScrollBar';
 import { TableQrModal } from './TableQrModal';
+import { ComandaPrintPortal } from './ComandaTicketView';
 
 interface TableDetailModalProps {
   isOpen: boolean;
@@ -44,7 +56,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   table,
   onOpenCheckout
 }) => {
-  const { user, empleadoActivo } = useAuth();
+  const { user, empleadoActivo, activeRole } = useAuth();
   const {
     config,
     products,
@@ -67,10 +79,26 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
   const [lastAddedToast, setLastAddedToast] = useState<string | null>(null);
+  const [comandaToPrint, setComandaToPrint] = useState<ComandaTicketData | null>(null);
+  const [printCountTick, setPrintCountTick] = useState(0);
 
   const order = table?.order;
   const items: OrderItem[] = order?.items || (order as any)?.productos || [];
   const extractedCustomerBilling = extractTableBillingInfo(table);
+
+  const isComandaPrintEnabled = config.comandaPrintSettings?.enabled !== false;
+  const comandaPaperWidth = config.comandaPrintSettings?.paperWidth === '58mm' ? '58mm' : '80mm';
+  const canPrintComanda = Boolean(
+    isComandaPrintEnabled &&
+    user &&
+    ROLE_PERMISSIONS[activeRole]?.canAccessTablesAndOrders
+  );
+  const activePrintUid = auth.currentUser?.uid || user?.id || 'default';
+  const currentOrderKey = getComandaOrderKey(table, order);
+  const printStatus = useMemo(
+    () => getComandaPrintState(activePrintUid, currentOrderKey),
+    [activePrintUid, currentOrderKey, printCountTick]
+  );
 
   // Filter products for catalog with useMemo for smooth performance
   const filteredProducts = useMemo(() => {
@@ -407,6 +435,41 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     // In our order model, notes can be edited
     setActiveItemNoteId(null);
     setItemNoteText('');
+  };
+
+  // Impresión manual de comanda (operación estrictamente de lectura: no altera pedido, mesa ni inventario)
+  const handlePrintComanda = () => {
+    if (!canPrintComanda || items.length === 0) return;
+
+    const signature = getComandaItemsSignature(
+      items as unknown as Array<Partial<OrderItem> & Record<string, unknown>>
+    );
+    const { isReprint, printNumber } = registerComandaPrint(
+      activePrintUid,
+      currentOrderKey,
+      signature
+    );
+
+    const fallbackEmployee = empleadoActivo
+      ? `${empleadoActivo.nombre} (${empleadoActivo.rol})`
+      : (user?.name || '');
+
+    const ticket = buildComandaTicketData({
+      table,
+      order,
+      restaurantName: config.businessName,
+      fallbackEmployeeName: fallbackEmployee,
+      isReprint,
+      printNumber,
+      printedAt: new Date(),
+    });
+
+    flushSync(() => {
+      setComandaToPrint(ticket);
+      setPrintCountTick((prev) => prev + 1);
+    });
+
+    triggerComandaBrowserPrint(comandaPaperWidth);
   };
 
   const formattedOpenedTime = order?.openedAt
@@ -985,6 +1048,28 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                     )}
                   </button>
 
+                  {canPrintComanda && (
+                    <button
+                      type="button"
+                      onClick={handlePrintComanda}
+                      disabled={items.length === 0}
+                      title={
+                        printStatus.hasBeenPrinted
+                          ? `Reimprimir comanda completa (${comandaPaperWidth})`
+                          : `Imprimir comanda manual (${comandaPaperWidth})`
+                      }
+                      className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-40 w-full sm:w-auto"
+                    >
+                      <Printer className="w-4 h-4 shrink-0" />
+                      <span>Imprimir comanda</span>
+                      {printStatus.hasBeenPrinted && (
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-sm bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                          Reimpresión
+                        </span>
+                      )}
+                    </button>
+                  )}
+
                   <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
                     <button
                       type="button"
@@ -1029,6 +1114,12 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
           onClose();
           setCustomerViewTableId(tId);
         }}
+      />
+
+      {/* Portal oculto en pantalla para impresión térmica manual de comanda */}
+      <ComandaPrintPortal
+        data={comandaToPrint}
+        paperWidth={comandaPaperWidth}
       />
     </div>
   );

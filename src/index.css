@@ -38,7 +38,8 @@
 }
 
 /* Print portal hidden during normal screen view */
-.chinmi-print-portal {
+.chinmi-print-portal,
+.chinmi-comanda-print-portal {
   display: none;
 }
 
@@ -74,7 +75,7 @@
     display: none !important;
   }
 
-  body > .chinmi-print-portal {
+  body.chinmi-receipt-open > .chinmi-print-portal {
     display: block !important;
     position: static !important;
     width: 100% !important;
@@ -89,10 +90,42 @@
     color: #0f172a !important;
     font-family: var(--font-mono) !important;
   }
+
+  /* Portal exclusivo para impresión térmica de comandas (58mm / 80mm) */
+  body.chinmi-comanda-printing > *:not(.chinmi-comanda-print-portal) {
+    display: none !important;
+  }
+
+  body.chinmi-comanda-printing > .chinmi-comanda-print-portal:has(~ .chinmi-comanda-print-portal) {
+    display: none !important;
+  }
+
+  body.chinmi-comanda-printing > .chinmi-comanda-print-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: var(--font-mono) !important;
+  }
+
+  body.chinmi-comanda-printing > .chinmi-comanda-print-portal[data-paper='58mm'] {
+    max-width: 58mm !important;
+  }
+
+  body.chinmi-comanda-printing > .chinmi-comanda-print-portal[data-paper='80mm'] {
+    max-width: 80mm !important;
+  }
 }
 
 @media print and (min-width: 480px) {
-  body > .chinmi-print-portal {
+  body.chinmi-receipt-open > .chinmi-print-portal {
     padding: 24px 24px !important;
   }
 }

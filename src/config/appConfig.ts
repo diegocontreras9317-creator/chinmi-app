@@ -40,6 +40,13 @@ export interface QrMenuSettings {
   catAutoContrast?: boolean;          // Opción de auto-contraste
 }
 
+export type ComandaPaperWidth = '58mm' | '80mm';
+
+export interface ComandaPrintSettings {
+  enabled: boolean;
+  paperWidth: ComandaPaperWidth;
+}
+
 export interface AppConfig {
   appName: string;
   appSubtitle: string;
@@ -60,6 +67,7 @@ export interface AppConfig {
   categories: string[];
   syncIntervalMs: number;
   qrSettings: QrMenuSettings;
+  comandaPrintSettings?: ComandaPrintSettings;
 }
 
 export const defaultAppConfig: AppConfig = {
@@ -112,5 +120,9 @@ export const defaultAppConfig: AppConfig = {
     catOverlayOpacity: 0,
     catTextColor: '',
     catAutoContrast: true
+  },
+  comandaPrintSettings: {
+    enabled: true,
+    paperWidth: '80mm',
   }
 };

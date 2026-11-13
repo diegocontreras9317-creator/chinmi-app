@@ -88,6 +88,14 @@ export function buildAccountConfig(
     ...(savedCustom?.qrSettings || {})
   };
 
+  const mergedComandaPrintSettings = {
+    enabled: savedCustom?.comandaPrintSettings?.enabled ?? base.comandaPrintSettings?.enabled ?? true,
+    paperWidth:
+      savedCustom?.comandaPrintSettings?.paperWidth === '58mm' || savedCustom?.comandaPrintSettings?.paperWidth === '80mm'
+        ? savedCustom.comandaPrintSettings.paperWidth
+        : (base.comandaPrintSettings?.paperWidth ?? '80mm'),
+  };
+
   const effectiveLogoUrl = savedCustom?.logoUrl !== undefined
     ? savedCustom.logoUrl
     : (savedCustom?.qrSettings?.logoUrl || '');
@@ -112,7 +120,8 @@ export function buildAccountConfig(
     qrSettings: {
       ...mergedQrSettings,
       categories: effectiveCategories
-    }
+    },
+    comandaPrintSettings: mergedComandaPrintSettings
   };
 }
 

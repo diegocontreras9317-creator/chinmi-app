@@ -31,7 +31,7 @@ interface TablesModuleProps {
 }
 
 export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }) => {
-  const { user, isGerente } = useAuth();
+  const { activeRole, isGerente } = useAuth();
   const {
     config,
     tables,
@@ -198,13 +198,13 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
               {isGerente && (
                 <><strong>Modo Gerente (Control Total):</strong> Administra mesas, modifica precios de carta, revisa ventas y gestiona permisos de usuario.</>
               )}
-              {user?.role === 'cajero' && (
+              {activeRole === 'cajero' && (
                 <><strong>Modo Caja (Solo Mesas y Cobro):</strong> Toca una mesa para ver pedidos en curso, aplicar medios de pago y emitir facturas/tickets.</>
               )}
-              {user?.role === 'camarero' && (
+              {activeRole === 'camarero' && (
                 <><strong>Modo Camarero (Solo Mesas y Comandas):</strong> Toca una mesa para abrirla, añadir platos y bebidas o solicitar la cuenta.</>
               )}
-              {user?.role === 'barman' && (
+              {activeRole === 'barman' && (
                 <><strong>Modo Barman (Solo Barra y Bebidas):</strong> Revisa comandas de bebidas y actualiza el despacho de barra.</>
               )}
             </p>
@@ -800,7 +800,7 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                     <span className="font-black text-sm text-orange-600 dark:text-orange-400 group-hover:underline flex items-center gap-1.5">
                       <span>
                         {hasOrder
-                          ? user?.role === 'cajero'
+                          ? activeRole === 'cajero'
                             ? 'Cobrar / Ver Cuenta'
                             : 'Ver Comanda'
                           : 'Abrir Mesa'}
@@ -962,7 +962,7 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                   <span className="font-semibold text-orange-600 dark:text-orange-400 group-hover:underline flex items-center gap-1 text-[11px] sm:text-xs">
                     <span>
                       {hasOrder
-                        ? user?.role === 'cajero'
+                        ? activeRole === 'cajero'
                           ? 'Cobrar'
                           : 'Ver Comanda'
                         : 'Abrir Mesa'}

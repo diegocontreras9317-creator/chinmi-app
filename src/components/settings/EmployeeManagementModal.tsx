@@ -18,7 +18,9 @@ import {
   EyeOff,
   CheckCircle2,
   AlertCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Power,
+  Mail
 } from 'lucide-react';
 
 interface EmployeeManagementModalProps {
@@ -47,11 +49,12 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
   isOpen,
   onClose
 }) => {
-  const { empleados, empleadoActivo, crearEmpleado, actualizarEmpleado, eliminarEmpleado } = useAuth();
+  const { empleados, empleadoActivo, crearEmpleado, actualizarEmpleado, toggleEmpleadoActivo, eliminarEmpleado } = useAuth();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nombre, setNombre] = useState('');
+  const [email, setEmail] = useState('');
   const [rol, setRol] = useState<EmpleadoRol>('Mesero');
   const [pin, setPin] = useState('');
   const [avatarColor, setAvatarColor] = useState('purple');
@@ -67,6 +70,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
     setIsEditing(true);
     setEditingId(null);
     setNombre('');
+    setEmail('');
     setRol('Mesero');
     setPin('');
     setAvatarColor('emerald');
@@ -79,6 +83,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
     setIsEditing(true);
     setEditingId(emp.id);
     setNombre(emp.nombre);
+    setEmail(emp.email || '');
     setRol(emp.rol);
     setPin(emp.pin || '');
     setAvatarColor(emp.avatarColor || 'purple');
@@ -112,6 +117,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
       // Update
       const res = await actualizarEmpleado(editingId, {
         nombre: nombre.trim(),
+        email: email.trim(),
         rol,
         pin: pin.trim(),
         avatarColor
@@ -119,7 +125,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
       setIsSubmitting(false);
 
       if (res.success) {
-        setSuccessMsg('Empleado actualizado correctamente.');
+        setSuccessMsg('Empleado actualizado y sincronizado correctamente.');
         setTimeout(() => setSuccessMsg(null), 3000);
         setIsEditing(false);
         setEditingId(null);
@@ -130,19 +136,34 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
       // Create
       const res = await crearEmpleado({
         nombre: nombre.trim(),
+        email: email.trim(),
         rol,
+        activo: true,
         pin: pin.trim(),
         avatarColor
       });
       setIsSubmitting(false);
 
       if (res.success) {
-        setSuccessMsg('Nuevo empleado creado en Firestore.');
+        setSuccessMsg('Nuevo empleado creado y sincronizado en Firestore.');
         setTimeout(() => setSuccessMsg(null), 3000);
         setIsEditing(false);
       } else {
         setErrorMsg(res.error || 'Error al crear empleado.');
       }
+    }
+  };
+
+  const handleToggleActivo = async (emp: Empleado) => {
+    setErrorMsg(null);
+    const nextActivo = emp.activo === false;
+    if (!nextActivo && !confirm(`¿Desactivar el acceso de "${emp.nombre}"?`)) return;
+    const res = await toggleEmpleadoActivo(emp.id, nextActivo);
+    if (res.success) {
+      setSuccessMsg(nextActivo ? `"${emp.nombre}" reactivado.` : `"${emp.nombre}" desactivado.`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } else {
+      setErrorMsg(res.error || 'No se pudo cambiar el estado del empleado.');
     }
   };
 
@@ -154,7 +175,7 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
       setSuccessMsg('Empleado eliminado.');
       setTimeout(() => setSuccessMsg(null), 3000);
     } else {
-      alert(res.error || 'Error al eliminar empleado.');
+      setErrorMsg(res.error || 'Error al eliminar empleado.');
     }
   };
 
@@ -258,6 +279,26 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                   </div>
                 </div>
 
+                {/* Optional Email */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Mail className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Correo Electrónico</span>
+                    </span>
+                    <span className="text-[11px] font-normal text-slate-500">
+                      Opcional
+                    </span>
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="Ej. andres@restaurante.com (opcional)"
+                    className="w-full px-3.5 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs sm:text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900"
+                  />
+                </div>
+
                 {/* PIN Setting */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
@@ -351,17 +392,27 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
           )}
 
           {/* Employees List */}
+          {!isEditing && errorMsg && (
+            <div className="p-3 rounded-md bg-rose-100 dark:bg-rose-950/80 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           <div className="space-y-2 pt-1">
             {empleados.map((emp) => {
               const colorInfo = AVATAR_COLOR_MAP[emp.avatarColor || 'purple'] || AVATAR_COLOR_MAP.purple;
               const hasPin = Boolean(emp.pin && emp.pin.trim().length > 0);
               const isActive = empleadoActivo?.id === emp.id;
+              const isActivo = emp.activo !== false;
 
               return (
                 <div
                   key={emp.id}
                   className={`p-3 sm:p-3.5 rounded-md border transition flex items-center justify-between gap-3 ${
-                    isActive
+                    !isActivo
+                      ? 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 opacity-75'
+                      : isActive
                       ? 'border-rose-900/60 bg-rose-950/10 dark:bg-rose-950/20'
                       : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850/60'
                   }`}
@@ -381,13 +432,28 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                             Tú
                           </span>
                         )}
+                        <span
+                          className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-xs border ${
+                            isActivo
+                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                              : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                          }`}
+                        >
+                          {isActivo ? 'Activo' : 'Desactivado'}
+                        </span>
                       </div>
 
-                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
                         <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
                           {ROLE_ICONS[emp.rol]}
                           <span>{emp.rol}</span>
                         </span>
+                        {emp.email && (
+                          <>
+                            <span>·</span>
+                            <span className="truncate max-w-[180px]">{emp.email}</span>
+                          </>
+                        )}
                         <span>·</span>
                         {hasPin ? (
                           <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
@@ -408,20 +474,34 @@ export const EmployeeManagementModal: React.FC<EmployeeManagementModalProps> = (
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
+                      onClick={() => handleToggleActivo(emp)}
+                      className={`p-2 rounded-md transition cursor-pointer ${
+                        isActivo
+                          ? 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                          : 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                      }`}
+                      title={isActivo ? 'Desactivar empleado' : 'Reactivar empleado'}
+                    >
+                      <Power className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleOpenEdit(emp)}
                       className="p-2 rounded-md text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                       title="Editar empleado"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(emp.id, emp.nombre)}
-                      className="p-2 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                      title="Eliminar empleado"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {!isActive && (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(emp.id, emp.nombre)}
+                        className="p-2 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                        title="Eliminar empleado"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );

@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
-import { UserRole, ROLE_PERMISSIONS } from '../../types';
+import { UserRole, Empleado, EmpleadoRol } from '../../types';
+import {
+  mapEmpleadoRolToUserRole,
+  mapUserRoleToEmpleadoRol,
+  getDefaultAvatarColorForRole,
+} from '../../utils/employeeRoles';
 import {
   X,
   Settings,
@@ -20,6 +25,7 @@ import {
   UtensilsCrossed,
   Sparkles,
   Lock,
+  Unlock,
   KeyRound,
   Eye,
   EyeOff,
@@ -31,7 +37,12 @@ import {
   Upload,
   Image as ImageIcon,
   Palette,
-  Utensils
+  Utensils,
+  Edit2,
+  Power,
+  Mail,
+  Wine,
+  FileSpreadsheet
 } from 'lucide-react';
 import { QR_THEMES, QrThemeId } from '../../config/qrThemes';
 import { compressImageFile } from '../../utils/imageCompressor';
@@ -49,10 +60,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const { config, updateConfig, resetToDemoData } = useApp();
   const {
     user,
-    teamMembers,
-    updateMemberRole,
-    addTeamMember,
-    removeTeamMember,
+    empleados,
+    empleadoActivo,
+    crearEmpleado,
+    actualizarEmpleado,
+    toggleEmpleadoActivo,
+    eliminarEmpleado,
     managerPin,
     isPinProtectionEnabled,
     updateManagerPin,
@@ -254,11 +267,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setCatAutoContrast(true);
   };
 
-  // New Team Member State
+  // Unified Team / Employee Management State
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<UserRole>('camarero');
+  const [newMemberPin, setNewMemberPin] = useState('');
+  const [isSubmittingTeam, setIsSubmittingTeam] = useState(false);
   const [teamActionSuccess, setTeamActionSuccess] = useState<string | null>(null);
+  const [teamActionError, setTeamActionError] = useState<string | null>(null);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [editMemberName, setEditMemberName] = useState('');
+  const [editMemberEmail, setEditMemberEmail] = useState('');
+  const [editMemberPin, setEditMemberPin] = useState('');
+  const [editMemberRole, setEditMemberRole] = useState<EmpleadoRol>('Mesero');
 
   // Manager PIN / Security State
   const [newPin, setNewPin] = useState('');
@@ -330,32 +351,117 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleAddMember = (e: React.FormEvent) => {
+  const showTeamSuccess = (msg: string) => {
+    setTeamActionError(null);
+    setTeamActionSuccess(msg);
+    setTimeout(() => setTeamActionSuccess(null), 3200);
+  };
+
+  const showTeamError = (msg: string) => {
+    setTeamActionSuccess(null);
+    setTeamActionError(msg);
+  };
+
+  const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMemberName.trim() || !newMemberEmail.trim()) return;
-    addTeamMember(newMemberName.trim(), newMemberEmail.trim(), newMemberRole);
-    setNewMemberName('');
-    setNewMemberEmail('');
-    setNewMemberRole('camarero');
-    setTeamActionSuccess('Nuevo colaborador añadido al equipo correctamente.');
-    setTimeout(() => setTeamActionSuccess(null), 3000);
+    if (isSubmittingTeam) return;
+    if (!newMemberName.trim()) {
+      showTeamError('El nombre del empleado es obligatorio.');
+      return;
+    }
+
+    const mappedRol = mapUserRoleToEmpleadoRol(newMemberRole);
+    setIsSubmittingTeam(true);
+    setTeamActionError(null);
+    const res = await crearEmpleado({
+      nombre: newMemberName.trim(),
+      email: newMemberEmail.trim(),
+      rol: mappedRol,
+      activo: true,
+      pin: newMemberPin.trim(),
+      avatarColor: getDefaultAvatarColorForRole(mappedRol),
+    });
+    setIsSubmittingTeam(false);
+
+    if (res.success) {
+      setNewMemberName('');
+      setNewMemberEmail('');
+      setNewMemberPin('');
+      setNewMemberRole('camarero');
+      showTeamSuccess('Empleado creado y sincronizado con Firebase y el selector de perfiles.');
+    } else {
+      showTeamError(res.error || 'No se pudo agregar el empleado.');
+    }
   };
 
-  const handleRoleChange = (memberId: string, role: UserRole) => {
-    updateMemberRole(memberId, role);
-    setTeamActionSuccess('Rol y permisos actualizados correctamente.');
-    setTimeout(() => setTeamActionSuccess(null), 2500);
+  const handleRoleChange = async (memberId: string, role: UserRole) => {
+    const mappedRol = mapUserRoleToEmpleadoRol(role);
+    const res = await actualizarEmpleado(memberId, { rol: mappedRol });
+    if (res.success) {
+      showTeamSuccess('Rol y permisos actualizados en tiempo real.');
+    } else {
+      showTeamError(res.error || 'No se pudo actualizar el rol.');
+    }
   };
 
-  const handleRemoveMember = (memberId: string, memberName: string) => {
-    if (memberId === user?.id) {
-      alert('No puedes eliminar tu propio usuario activo.');
+  const handleToggleMemberActivo = async (emp: Empleado) => {
+    const nextActivo = emp.activo === false;
+    if (!nextActivo && !confirm(`¿Desactivar a "${emp.nombre}"? No podrá iniciar sesión ni operar hasta que lo reactives.`)) {
+      return;
+    }
+    const res = await toggleEmpleadoActivo(emp.id, nextActivo);
+    if (res.success) {
+      showTeamSuccess(
+        nextActivo
+          ? `"${emp.nombre}" fue reactivado correctamente.`
+          : `"${emp.nombre}" fue desactivado y bloqueado de la operación.`
+      );
+    } else {
+      showTeamError(res.error || 'No se pudo cambiar el estado del empleado.');
+    }
+  };
+
+  const handleStartEditMember = (emp: Empleado) => {
+    setEditingMemberId(emp.id);
+    setEditMemberName(emp.nombre);
+    setEditMemberEmail(emp.email || '');
+    setEditMemberPin(emp.pin || '');
+    setEditMemberRole(emp.rol);
+    setTeamActionError(null);
+  };
+
+  const handleSaveEditMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMemberId || isSubmittingTeam) return;
+    setIsSubmittingTeam(true);
+    const res = await actualizarEmpleado(editingMemberId, {
+      nombre: editMemberName.trim(),
+      email: editMemberEmail.trim(),
+      pin: editMemberPin.trim(),
+      rol: editMemberRole,
+    });
+    setIsSubmittingTeam(false);
+    if (res.success) {
+      setEditingMemberId(null);
+      showTeamSuccess('Datos del empleado actualizados correctamente.');
+    } else {
+      showTeamError(res.error || 'Error al guardar los cambios del empleado.');
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string, memberName: string) => {
+    if (memberId === empleadoActivo?.id) {
+      showTeamError('No puedes eliminar el perfil de empleado que tienes activo en este momento.');
       return;
     }
     if (confirm(`¿Eliminar a ${memberName} del equipo? Ya no tendrá acceso al sistema.`)) {
-      removeTeamMember(memberId);
-      setTeamActionSuccess(`Se eliminó a ${memberName} del equipo.`);
-      setTimeout(() => setTeamActionSuccess(null), 2500);
+      const res = await eliminarEmpleado(memberId);
+      if (res.success) {
+        if (editingMemberId === memberId) setEditingMemberId(null);
+        showTeamSuccess(`Se eliminó a ${memberName} del equipo.`);
+      } else {
+        showTeamError(res.error || 'No se pudo eliminar el empleado.');
+      }
     }
   };
 
@@ -479,7 +585,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <Users className="w-3.5 h-3.5" />
             <span>Personal & Permisos (Roles)</span>
             <span className="ml-1 px-1.5 py-0.2 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-[10px] font-extrabold border border-stone-200 dark:border-stone-700">
-              {teamMembers.length}
+              {empleados.length}
             </span>
           </button>
           <button
@@ -1893,53 +1999,89 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
         ) : activeTab === 'team' ? (
-          /* === TAB 2: PERSONAL & ROLES (RBAC) === */
+          /* === TAB 2: PERSONAL & ROLES (RBAC UNIFICADO CON FIRESTORE) === */
           <div className="p-6 overflow-y-auto space-y-5 flex-1 text-xs">
-            
+
             {teamActionSuccess && (
               <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-2 border border-emerald-200 dark:border-emerald-900 animate-in fade-in">
-                <Check className="w-4 h-4" />
+                <Check className="w-4 h-4 shrink-0" />
                 <span>{teamActionSuccess}</span>
               </div>
             )}
 
-            {/* Guía Clara de Control de Acceso según la solicitud */}
-            <div className="p-4 rounded-md bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 space-y-3">
-              <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold">
-                <ShieldCheck className="w-4 h-4 text-stone-700 dark:text-stone-300" />
-                <span>Esquema de Permisos y Roles de Personal</span>
+            {teamActionError && (
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-semibold flex items-center gap-2 border border-rose-200 dark:border-rose-900 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{teamActionError}</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
+            )}
+
+            {/* Guía Clara de Control de Acceso unificada */}
+            <div className="p-4 rounded-md bg-stone-50 dark:bg-slate-800/60 border border-stone-200 dark:border-slate-700 space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold">
+                  <ShieldCheck className="w-4 h-4 text-stone-700 dark:text-stone-300" />
+                  <span>Esquema Unificado de Permisos y Perfiles POS</span>
+                </div>
+                <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                  <Cloud className="w-3.5 h-3.5" />
+                  <span>Sincronizado con el selector de perfiles en tiempo real</span>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-[11px]">
                 <div className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-stone-300 dark:border-slate-700">
                   <div className="flex items-center gap-1.5 font-bold text-rose-950 dark:text-rose-300">
-                    <span>👑</span>
-                    <span>Gerente</span>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Admin / Gerente</span>
                   </div>
                   <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">Control Total</p>
                   <p className="text-slate-500 dark:text-slate-400 text-[10px] mt-0.5">
-                    Mesas, comandas, precios, inventario, ventas y gestión de usuarios.
+                    Mesas, carta, despensa, ventas, facturación y personal.
                   </p>
                 </div>
 
                 <div className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700">
                   <div className="flex items-center gap-1.5 font-bold text-blue-600 dark:text-blue-400">
-                    <span>💳</span>
+                    <CreditCard className="w-3.5 h-3.5" />
                     <span>Cajero</span>
                   </div>
-                  <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">Solo Mesas y Cobro</p>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">Mesas y Cobro</p>
                   <p className="text-slate-500 dark:text-slate-400 text-[10px] mt-0.5">
-                    Vista de mesas, órdenes y facturación. Sin inventario ni reportes.
+                    Vista de mesas, comandas y cobro de cuentas.
                   </p>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700">
+                <div className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-emerald-200 dark:border-slate-700">
                   <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400">
-                    <span>👩‍🍳</span>
-                    <span>Camarero</span>
+                    <UtensilsCrossed className="w-3.5 h-3.5" />
+                    <span>Mesero / Camarero</span>
                   </div>
-                  <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">Solo Mesas y Pedidos</p>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">Mesas y Pedidos</p>
                   <p className="text-slate-500 dark:text-slate-400 text-[10px] mt-0.5">
-                    Apertura de mesas y toma de comandas. Sin inventario ni finanzas.
+                    Abrir mesas y tomar comandas en salón.
+                  </p>
+                </div>
+
+                <div className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-amber-200 dark:border-slate-700">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400">
+                    <Wine className="w-3.5 h-3.5" />
+                    <span>Barman</span>
+                  </div>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">Barra y Pedidos</p>
+                  <p className="text-slate-500 dark:text-slate-400 text-[10px] mt-0.5">
+                    Pedidos de bebidas y despacho de barra.
+                  </p>
+                </div>
+
+                <div className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-indigo-200 dark:border-slate-700">
+                  <div className="flex items-center gap-1.5 font-bold text-indigo-600 dark:text-indigo-400">
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Contabilidad</span>
+                  </div>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">Solo Informes</p>
+                  <p className="text-slate-500 dark:text-slate-400 text-[10px] mt-0.5">
+                    Historial de ventas y facturación contable.
                   </p>
                 </div>
               </div>
@@ -1952,25 +2094,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <UserPlus className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
                   Agregar nuevo miembro del personal
                 </span>
-                <span className="text-[10px] text-slate-400 font-medium">Asigna su función</span>
+                <span className="text-[10px] text-slate-400 font-medium">Se guarda en Firebase y aparece en Perfiles</span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 <input
                   type="text"
                   required
                   value={newMemberName}
                   onChange={(e) => setNewMemberName(e.target.value)}
-                  placeholder="Nombre (ej. Mariana López)"
+                  placeholder="Nombre * (ej. Mariana López)"
                   className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
 
                 <input
                   type="email"
-                  required
                   value={newMemberEmail}
                   onChange={(e) => setNewMemberEmail(e.target.value)}
-                  placeholder="Email de acceso"
+                  placeholder="Email (opcional)"
                   className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 />
 
@@ -1979,88 +2120,213 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onChange={(e) => setNewMemberRole(e.target.value as UserRole)}
                   className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-rose-900"
                 >
-                  <option value="cajero">💳 Cajero (Mesas y Cobro)</option>
-                  <option value="camarero">👩‍🍳 Camarero (Mesas y Pedidos)</option>
-                  <option value="barman">🍸 Barman (Barra y Bebidas)</option>
-                  <option value="contabilidad">📊 Contabilidad (Historial y Facturación)</option>
-                  <option value="gerente">👑 Gerente (Control Total)</option>
+                  <option value="cajero">Cajero (Mesas y Cobro)</option>
+                  <option value="camarero">Mesero / Camarero (Mesas y Pedidos)</option>
+                  <option value="barman">Barman (Barra y Bebidas)</option>
+                  <option value="contabilidad">Contabilidad (Historial y Facturación)</option>
+                  <option value="gerente">Admin / Gerente (Control Total)</option>
                 </select>
+
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={newMemberPin}
+                  onChange={(e) => setNewMemberPin(e.target.value.replace(/\D/g, ''))}
+                  placeholder="PIN 4-6 dígitos (opcional)"
+                  className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-mono tracking-wider focus:outline-hidden focus:ring-2 focus:ring-rose-900"
+                />
               </div>
 
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-md bg-rose-900 hover:bg-rose-800 text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+                  disabled={isSubmittingTeam || !newMemberName.trim()}
+                  className="px-4 py-2 rounded-md bg-rose-900 hover:bg-rose-800 disabled:opacity-40 text-white text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
-                  <span>Agregar al Equipo</span>
+                  <span>{isSubmittingTeam ? 'Guardando...' : 'Agregar al Equipo'}</span>
                 </button>
               </div>
             </form>
 
-            {/* Lista del Personal Actual */}
+            {/* Lista del Personal Actual (Sincronizada con Firestore) */}
             <div className="space-y-2">
-              <h3 className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                Miembros del Equipo ({teamMembers.length})
-              </h3>
-              
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                  Miembros del Equipo ({empleados.length})
+                </h3>
+                <span className="text-[11px] text-slate-500">
+                  {empleados.filter(e => e.activo !== false).length} activos · {empleados.filter(e => e.activo === false).length} desactivados
+                </span>
+              </div>
+
               <div className="space-y-2">
-                {teamMembers.map((member) => {
-                  const roleConfig = ROLE_PERMISSIONS[member.role];
-                  const isCurrentLogged = member.id === user?.id;
+                {empleados.map((emp) => {
+                  const mappedUserRole = mapEmpleadoRolToUserRole(emp.rol);
+                  const isCurrentLogged = emp.id === empleadoActivo?.id;
+                  const isActivo = emp.activo !== false;
+                  const hasPin = Boolean(emp.pin && emp.pin.trim().length > 0);
+                  const isRowEditing = editingMemberId === emp.id;
 
                   return (
                     <div
-                      key={member.id}
-                      className="p-3 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+                      key={emp.id}
+                      className={`p-3 rounded-md border shadow-xs space-y-2.5 ${
+                        !isActivo
+                          ? 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 opacity-75'
+                          : isCurrentLogged
+                          ? 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-900/40 dark:border-rose-900/60'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                      }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={member.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80'}
-                          alt={member.name}
-                          className="w-9 h-9 rounded-md object-cover border border-slate-200 dark:border-slate-700 shrink-0"
-                        />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900 dark:text-white text-xs">
-                              {member.name}
-                            </span>
-                            {isCurrentLogged && (
-                              <span className="text-[10px] font-bold px-2 py-0.2 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                                Tú
-                              </span>
-                            )}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-md bg-rose-950 text-white flex items-center justify-center font-black text-xs border border-stone-700 shrink-0">
+                            {emp.nombre.slice(0, 2).toUpperCase()}
                           </div>
-                          <span className="text-[11px] text-slate-400 block truncate">
-                            {member.email}
-                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-900 dark:text-white text-xs truncate">
+                                {emp.nombre}
+                              </span>
+                              {isCurrentLogged && (
+                                <span className="text-[10px] font-bold px-2 py-0.2 rounded-md bg-rose-950 text-rose-100">
+                                  Tú (Activo)
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md border ${
+                                  isActivo
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                                }`}
+                              >
+                                {isActivo ? 'Activo' : 'Desactivado'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 flex-wrap">
+                              <span className="flex items-center gap-1 truncate">
+                                <Mail className="w-3 h-3 shrink-0" />
+                                <span>{emp.email || 'Perfil POS (sin correo)'}</span>
+                              </span>
+                              <span>·</span>
+                              {hasPin ? (
+                                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
+                                  <Lock className="w-3 h-3" />
+                                  <span>PIN configurado</span>
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                                  <Unlock className="w-3 h-3" />
+                                  <span>Acceso directo</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap">
+                          <select
+                            value={mappedUserRole}
+                            onChange={(e) => handleRoleChange(emp.id, e.target.value as UserRole)}
+                            className="px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-rose-900"
+                          >
+                            <option value="gerente">Admin / Gerente (Control Total)</option>
+                            <option value="cajero">Cajero (Mesas y Cobro)</option>
+                            <option value="camarero">Mesero / Camarero (Mesas y Pedidos)</option>
+                            <option value="barman">Barman (Barra)</option>
+                            <option value="contabilidad">Contabilidad (Informes)</option>
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => isRowEditing ? setEditingMemberId(null) : handleStartEditMember(emp)}
+                            title="Editar nombre, correo y PIN"
+                            className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleMemberActivo(emp)}
+                            title={isActivo ? 'Desactivar empleado (bloquear acceso)' : 'Reactivar empleado'}
+                            className={`p-1.5 rounded-md transition cursor-pointer ${
+                              isActivo
+                                ? 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                                : 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                            }`}
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+
+                          {!isCurrentLogged && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMember(emp.id, emp.nombre)}
+                              title="Eliminar empleado"
+                              className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 self-end sm:self-auto">
-                        <select
-                          value={member.role}
-                          onChange={(e) => handleRoleChange(member.id, e.target.value as UserRole)}
-                          className="px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-rose-900"
+                      {isRowEditing && (
+                        <form
+                          onSubmit={handleSaveEditMember}
+                          className="pt-2.5 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-4 gap-2 items-end"
                         >
-                          <option value="gerente">👑 Gerente (Control Total)</option>
-                          <option value="cajero">💳 Cajero (Mesas y Cobro)</option>
-                          <option value="camarero">👩‍🍳 Camarero (Mesas y Pedidos)</option>
-                          <option value="barman">🍸 Barman (Barra)</option>
-                          <option value="contabilidad">📊 Contabilidad (Informes)</option>
-                        </select>
-
-                        {!isCurrentLogged && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMember(member.id, member.name)}
-                            title="Eliminar usuario del equipo"
-                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-1">Nombre *</label>
+                            <input
+                              type="text"
+                              required
+                              value={editMemberName}
+                              onChange={(e) => setEditMemberName(e.target.value)}
+                              className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-1">Correo (opcional)</label>
+                            <input
+                              type="email"
+                              value={editMemberEmail}
+                              onChange={(e) => setEditMemberEmail(e.target.value)}
+                              placeholder="correo@ejemplo.com"
+                              className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-1">PIN (4-6 dígitos, vacío = sin PIN)</label>
+                            <input
+                              type="password"
+                              maxLength={6}
+                              value={editMemberPin}
+                              onChange={(e) => setEditMemberPin(e.target.value.replace(/\D/g, ''))}
+                              placeholder="Sin PIN"
+                              className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-mono"
+                            />
+                          </div>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setEditingMemberId(null)}
+                              className="px-2.5 py-1.5 rounded-md text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isSubmittingTeam}
+                              className="px-3 py-1.5 rounded-md bg-rose-950 hover:bg-rose-900 text-white text-xs font-bold cursor-pointer disabled:opacity-40"
+                            >
+                              Guardar
+                            </button>
+                          </div>
+                        </form>
+                      )}
                     </div>
                   );
                 })}

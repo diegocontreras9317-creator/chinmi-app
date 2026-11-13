@@ -45,6 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const {
     user,
+    activeRole,
     isGerente,
     isContabilidad,
     empleadoActivo,
@@ -83,7 +84,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     return status === 'expired' || status === 'expires_today' || status === 'expiring_soon' || item.quantity <= item.minStock;
   }).length;
 
-  const currentRoleConfig = user?.role ? ROLE_PERMISSIONS[user.role] : null;
+  const currentRoleConfig = activeRole ? ROLE_PERMISSIONS[activeRole] : null;
 
   return (
     <>
@@ -626,9 +627,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 </div>
                 <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-semibold bg-stone-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
-                  {user?.role === 'cajero' && <CreditCard className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />}
-                  {user?.role === 'camarero' && <UtensilsCrossed className="w-3.5 h-3.5 text-emerald-600" />}
-                  {user?.role === 'barman' && <Sparkles className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />}
+                  {activeRole === 'cajero' && <CreditCard className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />}
+                  {activeRole === 'camarero' && <UtensilsCrossed className="w-3.5 h-3.5 text-emerald-600" />}
+                  {activeRole === 'barman' && <Sparkles className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />}
                   <span>{currentRoleConfig?.label}</span>
                 </span>
               </div>

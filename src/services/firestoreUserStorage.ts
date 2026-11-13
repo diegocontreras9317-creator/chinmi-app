@@ -18,6 +18,12 @@ import { db, auth } from '../firebase';
 import { Table, Product, PerishableItem, SaleReceipt, AppStateData, Order, OrderItem, Empleado, Supplier, SupplierOrder } from '../types';
 import { AppConfig } from '../config/appConfig';
 import { getUnitConversionFactor } from '../utils/recipeUnits';
+import {
+  normalizeEmpleadoRecord,
+  normalizeEmpleadoRol,
+  normalizeEmployeeEmail,
+  sortEmpleados,
+} from '../utils/employeeRoles';
 
 export enum OperationType {
   CREATE = 'create',
@@ -1259,8 +1265,10 @@ export function subscribeUserEmpleados(uid: string, onUpdate: (empleados: Emplea
   const colRef = collection(db, 'users', uid, 'empleados');
 
   return onSnapshot(colRef, (snap) => {
-    const empleados = snap.docs.map(d => ({ id: d.id, ...d.data() } as Empleado));
-    onUpdate(empleados);
+    const normalized = snap.docs.map(d =>
+      normalizeEmpleadoRecord({ userId: uid, ...d.data() }, d.id)
+    );
+    onUpdate(sortEmpleados(normalized));
   }, (err) => {
     handleFirestoreError(err, OperationType.LIST, path);
     onUpdate([]);
@@ -1278,7 +1286,10 @@ export async function getUserEmpleados(targetUid?: string): Promise<Empleado[]> 
     const colRef = collection(db, 'users', uid, 'empleados');
     const snap = await getDocs(colRef);
     if (snap.empty) return [];
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Empleado));
+    const normalized = snap.docs.map(d =>
+      normalizeEmpleadoRecord({ userId: uid, ...d.data() }, d.id)
+    );
+    return sortEmpleados(normalized);
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, path);
     return [];
@@ -1292,13 +1303,21 @@ export async function saveEmpleadoToFirestore(uid: string, empleado: Empleado): 
   if (!uid || !empleado.id) return;
   const path = `users/${uid}/empleados/${empleado.id}`;
   try {
+    const nowIso = new Date().toISOString();
+    const cleanEmail = normalizeEmployeeEmail(empleado.email);
+    const normalizedRol = normalizeEmpleadoRol(empleado.rol);
     const cleanPayload = sanitizeForFirestore({
       id: empleado.id,
-      nombre: empleado.nombre || '',
-      rol: empleado.rol || 'Mesero',
-      pin: empleado.pin || '',
+      nombre: empleado.nombre?.trim() || '',
+      rol: normalizedRol,
+      email: cleanEmail,
+      activo: empleado.activo !== false,
+      pin: empleado.pin?.trim() || '',
       avatarColor: empleado.avatarColor || 'purple',
-      createdAt: empleado.createdAt || new Date().toISOString()
+      createdAt: empleado.createdAt || nowIso,
+      updatedAt: empleado.updatedAt || nowIso,
+      userId: uid,
+      ...(empleado.authUid ? { authUid: empleado.authUid } : {})
     });
     await setDoc(doc(db, 'users', uid, 'empleados', empleado.id), cleanPayload, { merge: true });
   } catch (err) {

@@ -102,13 +102,18 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
   const [pinError, setPinError] = useState<string | null>(null);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [quickName, setQuickName] = useState('');
+  const [quickEmail, setQuickEmail] = useState('');
   const [quickRole, setQuickRole] = useState<EmpleadoRol>('Mesero');
   const [quickPin, setQuickPin] = useState('');
   const [quickColor, setQuickColor] = useState('emerald');
+  const [quickError, setQuickError] = useState<string | null>(null);
   const [isSubmittingQuick, setIsSubmittingQuick] = useState(false);
+
+  const activeEmpleados = empleados.filter((emp) => emp.activo !== false);
 
   // Handle profile click
   const handleProfileClick = (emp: Empleado) => {
+    if (emp.activo === false) return;
     // If employee has a configured PIN (non-empty)
     if (emp.pin && emp.pin.trim().length > 0) {
       setSelectedEmpForPin(emp);
@@ -182,15 +187,18 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedEmpForPin, pinInput]);
 
-  // Quick add first employee if empty
+  // Quick add employee synced with Firestore
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!quickName.trim()) return;
+    if (!quickName.trim() || isSubmittingQuick) return;
 
+    setQuickError(null);
     setIsSubmittingQuick(true);
     const res = await crearEmpleado({
       nombre: quickName.trim(),
+      email: quickEmail.trim(),
       rol: quickRole,
+      activo: true,
       pin: quickPin.trim(),
       avatarColor: quickColor
     });
@@ -199,9 +207,11 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
     if (res.success) {
       setIsQuickAddOpen(false);
       setQuickName('');
+      setQuickEmail('');
       setQuickPin('');
+      setQuickError(null);
     } else {
-      alert(res.error || 'Error al crear perfil');
+      setQuickError(res.error || 'Error al crear perfil');
     }
   };
 
@@ -251,7 +261,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
 
         {/* Profiles Grid */}
         <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-8 max-w-3xl">
-          {empleados.map((emp) => {
+          {activeEmpleados.map((emp) => {
             const colorScheme = AVATAR_COLOR_MAP[emp.avatarColor || 'purple'] || AVATAR_COLOR_MAP.purple;
             const roleInfo = ROLE_BADGES[emp.rol] || ROLE_BADGES.Mesero;
             const hasPin = Boolean(emp.pin && emp.pin.trim().length > 0);
@@ -464,6 +474,13 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
             </div>
 
             <form onSubmit={handleQuickAdd} className="space-y-4">
+              {quickError && (
+                <div className="p-2.5 rounded-md bg-rose-950/80 border border-rose-800 text-rose-300 text-xs font-bold flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{quickError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">
                   Nombre del empleado *
@@ -480,6 +497,19 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1">
+                  Correo electrónico (Opcional)
+                </label>
+                <input
+                  type="email"
+                  value={quickEmail}
+                  onChange={e => setQuickEmail(e.target.value)}
+                  placeholder="Ej. carlos@restaurante.com (opcional)"
+                  className="w-full px-3.5 py-2.5 rounded-md bg-slate-800 border border-slate-700 text-white text-sm focus:outline-hidden focus:ring-2 focus:ring-rose-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
                   Rol en el Restaurante *
                 </label>
                 <select
@@ -490,6 +520,7 @@ export const ProfileSelectionScreen: React.FC<ProfileSelectionScreenProps> = ({
                   <option value="Mesero">Mesero (Solo mesas y comandas)</option>
                   <option value="Cajero">Cajero (Mesas, comandas y cobro)</option>
                   <option value="Barman">Barman (Barra y pedidos)</option>
+                  <option value="Contabilidad">Contabilidad (Historial y facturación)</option>
                   <option value="Admin">Admin (Control total y reportes)</option>
                 </select>
               </div>

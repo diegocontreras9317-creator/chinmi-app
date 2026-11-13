@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, PlanType, UserRole, BillingFrequency, Empleado, EmpleadoRol } from '../types';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
+import { User, PlanType, UserRole, BillingFrequency, Empleado } from '../types';
 import {
   signInWithPopup,
   onAuthStateChanged,
@@ -18,6 +18,17 @@ import {
   deleteEmpleadoFromFirestore
 } from '../services/firestoreUserStorage';
 import { isValidRealEmail } from '../utils/emailValidation';
+import {
+  canDeactivateOrDeleteAdmin,
+  empleadoToTeamMember,
+  getDefaultAvatarColorForRole,
+  mapEmpleadoRolToUserRole,
+  mapUserRoleToEmpleadoRol,
+  normalizeEmpleadoRecord,
+  normalizeEmpleadoRol,
+  validateEmpleadoData,
+  validateEmployeeMutationAuthorization
+} from '../utils/employeeRoles';
 
 export interface RegisteredAccount {
   id: string;
@@ -41,10 +52,12 @@ interface AuthContextType {
   teamMembers: User[];
   empleadoActivo: Empleado | null;
   empleados: Empleado[];
-  seleccionarEmpleado: (empleado: Empleado) => void;
+  activeRole: UserRole;
+  seleccionarEmpleado: (empleado: Empleado) => boolean;
   bloquearPantalla: () => void;
   crearEmpleado: (data: Omit<Empleado, 'id' | 'createdAt'>) => Promise<{ success: boolean; error?: string }>;
   actualizarEmpleado: (id: string, partial: Partial<Empleado>) => Promise<{ success: boolean; error?: string }>;
+  toggleEmpleadoActivo: (id: string, activo: boolean) => Promise<{ success: boolean; error?: string }>;
   eliminarEmpleado: (id: string) => Promise<{ success: boolean; error?: string }>;
   isGerente: boolean;
   isContabilidad: boolean;
@@ -83,9 +96,9 @@ interface AuthContextType {
   hasActivePaidSubscription: boolean;
   upgradePlan: (newPlan: PlanType, billingFrequency?: BillingFrequency, customDays?: number, isTestSubscription?: boolean) => void;
   enableDeveloperMode: () => void;
-  updateMemberRole: (userId: string, newRole: UserRole) => void;
-  addTeamMember: (name: string, email: string, role: UserRole) => void;
-  removeTeamMember: (userId: string) => void;
+  updateMemberRole: (userId: string, newRole: UserRole) => Promise<{ success: boolean; error?: string }>;
+  addTeamMember: (name: string, email: string, role: UserRole) => Promise<{ success: boolean; error?: string }>;
+  removeTeamMember: (userId: string) => Promise<{ success: boolean; error?: string }>;
   updateUserAvatar: (avatarDataUrl: string) => Promise<{ success: boolean; error?: string }>;
   removeUserAvatar: () => Promise<{ success: boolean; error?: string }>;
   isEmailVerified: boolean;
@@ -125,27 +138,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isEmailVerified, setIsEmailVerified] = useState<boolean>(true);
-  const [teamMembers, setTeamMembers] = useState<User[]>([]);
 
-  // Sub-usuarios / Perfiles de empleados (Netflix / POS)
+  // Sub-usuarios / Perfiles de empleados (Fuente única sincronizada en Firestore: users/${uid}/empleados)
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
+  const seededAdminForUidRef = useRef<string | null>(null);
+  const inFlightCreateKeysRef = useRef<Set<string>>(new Set());
+
+  const teamMembers = useMemo<User[]>(
+    () => empleados.map(emp => empleadoToTeamMember(emp, user)),
+    [empleados, user]
+  );
+
   const [empleadoActivo, setEmpleadoActivo] = useState<Empleado | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
       const saved = sessionStorage.getItem('chinmi_empleado_activo_v1');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const normalized = normalizeEmpleadoRecord(JSON.parse(saved));
+      if (normalized.activo === false) {
+        sessionStorage.removeItem('chinmi_empleado_activo_v1');
+        return null;
+      }
+      return normalized;
     } catch {
       return null;
     }
   });
 
-  const seleccionarEmpleado = (emp: Empleado) => {
-    setEmpleadoActivo(emp);
+  const seleccionarEmpleado = (emp: Empleado): boolean => {
+    const normalized = normalizeEmpleadoRecord(emp as unknown as Record<string, unknown>, emp.id);
+    if (normalized.activo === false) {
+      return false;
+    }
+    setEmpleadoActivo(normalized);
     try {
-      sessionStorage.setItem('chinmi_empleado_activo_v1', JSON.stringify(emp));
+      sessionStorage.setItem('chinmi_empleado_activo_v1', JSON.stringify(normalized));
     } catch (err) {
       console.error('Error guardando empleado activo en sessionStorage:', err);
     }
+    return true;
   };
 
   const bloquearPantalla = () => {
@@ -325,28 +356,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubEmpleados = subscribeUserEmpleados(uid, async (empList) => {
           setEmpleados(empList);
 
-          // Si no hay empleados aún, sembramos automáticamente el Administrador principal
-          if (empList.length === 0) {
+          // Si no hay empleados aún, sembramos automáticamente el Administrador principal (una sola vez por sesión/UID)
+          if (empList.length === 0 && seededAdminForUidRef.current !== uid) {
+            seededAdminForUidRef.current = uid;
             const defaultAdmin: Empleado = {
               id: `emp-admin-${uid.slice(0, 6)}`,
               nombre: initialUserName || 'Administrador',
               rol: 'Admin',
+              ...(cleanEmail ? { email: cleanEmail } : {}),
+              activo: true,
               pin: '',
               avatarColor: 'purple',
+              userId: uid,
               createdAt: new Date().toISOString()
             };
             try {
               await saveEmpleadoToFirestore(uid, defaultAdmin);
             } catch (e) {
+              seededAdminForUidRef.current = null;
               console.error('Error inicializando empleado admin:', e);
             }
           }
 
           // Mantener sincronizado el empleado activo con los datos más recientes de Firestore
+          // y bloquear inmediatamente si fue eliminado o desactivado en otro dispositivo
           setEmpleadoActivo(curr => {
             if (!curr) return null;
             const fresh = empList.find(e => e.id === curr.id);
-            if (!fresh) {
+            if (!fresh || fresh.activo === false) {
               try { sessionStorage.removeItem('chinmi_empleado_activo_v1'); } catch {}
               return null;
             }
@@ -356,6 +393,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
       } else {
+        seededAdminForUidRef.current = null;
         setUser(null);
         setEmpleados([]);
         bloquearPantalla();
@@ -844,26 +882,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateMemberRole = (userId: string, newRole: UserRole) => {
-    setTeamMembers(prev => prev.map(m => m.id === userId ? { ...m, role: newRole } : m));
+  const updateMemberRole = async (userId: string, newRole: UserRole): Promise<{ success: boolean; error?: string }> => {
+    const mappedRol = mapUserRoleToEmpleadoRol(newRole);
+    return actualizarEmpleado(userId, { rol: mappedRol });
   };
 
-  const addTeamMember = (name: string, email: string, role: UserRole) => {
-    const newMember: User = {
-      id: `usr-team-${Date.now()}`,
-      name: name.trim(),
+  const addTeamMember = async (name: string, email: string, role: UserRole): Promise<{ success: boolean; error?: string }> => {
+    const mappedRol = mapUserRoleToEmpleadoRol(role);
+    return crearEmpleado({
+      nombre: name.trim(),
       email: email.trim(),
-      role: role,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(email)}`,
-      plan: user?.plan || 'free',
-      businessName: user?.businessName || 'Mi Restaurante',
-      createdAt: new Date().toISOString()
-    };
-    setTeamMembers(prev => [...prev, newMember]);
+      rol: mappedRol,
+      activo: true,
+      pin: '',
+      avatarColor: getDefaultAvatarColorForRole(mappedRol)
+    });
   };
 
-  const removeTeamMember = (userId: string) => {
-    setTeamMembers(prev => prev.filter(m => m.id !== userId));
+  const removeTeamMember = async (userId: string): Promise<{ success: boolean; error?: string }> => {
+    return eliminarEmpleado(userId);
   };
 
   // Manager PIN state
@@ -939,15 +976,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const crearEmpleado = async (data: Omit<Empleado, 'id' | 'createdAt'>): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'No hay usuario autenticado' };
-    if (!data.nombre.trim()) return { success: false, error: 'El nombre es obligatorio' };
 
+    const authGuard = validateEmployeeMutationAuthorization(empleadoActivo);
+    if (!authGuard.allowed) {
+      return { success: false, error: authGuard.error };
+    }
+
+    const normalizedRol = normalizeEmpleadoRol(data.rol);
+    const validation = validateEmpleadoData(
+      {
+        nombre: data.nombre || '',
+        rol: normalizedRol,
+        email: data.email,
+        pin: data.pin
+      },
+      empleados
+    );
+
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
+    const dedupKey = `${user.id}|${data.nombre.trim().toLowerCase()}|${normalizedRol}|${validation.normalizedEmail}`;
+    if (inFlightCreateKeysRef.current.has(dedupKey)) {
+      return { success: false, error: 'Creación en curso, espera un momento.' };
+    }
+    inFlightCreateKeysRef.current.add(dedupKey);
+
+    const nowIso = new Date().toISOString();
     const newEmp: Empleado = {
       id: `emp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       nombre: data.nombre.trim(),
-      rol: data.rol,
-      pin: data.pin?.trim() || '',
-      avatarColor: data.avatarColor || 'purple',
-      createdAt: new Date().toISOString()
+      rol: normalizedRol,
+      ...(validation.normalizedEmail ? { email: validation.normalizedEmail } : {}),
+      activo: data.activo !== false,
+      pin: validation.normalizedPin,
+      avatarColor: data.avatarColor || getDefaultAvatarColorForRole(normalizedRol),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      userId: user.id
     };
 
     try {
@@ -956,23 +1023,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       console.error('Error creating employee:', err);
       return { success: false, error: err?.message || 'Error al guardar empleado en Firestore' };
+    } finally {
+      inFlightCreateKeysRef.current.delete(dedupKey);
     }
   };
 
   const actualizarEmpleado = async (id: string, partial: Partial<Empleado>): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'No hay usuario autenticado' };
+
+    const authGuard = validateEmployeeMutationAuthorization(empleadoActivo);
+    if (!authGuard.allowed) {
+      return { success: false, error: authGuard.error };
+    }
+
     const existing = empleados.find(e => e.id === id);
     if (!existing) return { success: false, error: 'Empleado no encontrado' };
+
+    const nextRol = partial.rol !== undefined ? normalizeEmpleadoRol(partial.rol) : existing.rol;
+    const nextActivo = partial.activo !== undefined ? partial.activo !== false : existing.activo !== false;
+
+    const adminGuard = canDeactivateOrDeleteAdmin(existing, empleados, {
+      nextRol,
+      nextActivo
+    });
+    if (!adminGuard.allowed) {
+      return { success: false, error: adminGuard.error };
+    }
+
+    const validation = validateEmpleadoData(
+      {
+        nombre: partial.nombre !== undefined ? partial.nombre : existing.nombre,
+        rol: nextRol,
+        email: partial.email !== undefined ? partial.email : existing.email,
+        pin: partial.pin !== undefined ? partial.pin : existing.pin
+      },
+      empleados,
+      id
+    );
+
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
 
     const updatedEmp: Empleado = {
       ...existing,
       ...partial,
       nombre: partial.nombre !== undefined ? partial.nombre.trim() : existing.nombre,
-      pin: partial.pin !== undefined ? partial.pin.trim() : existing.pin
+      rol: nextRol,
+      email: validation.normalizedEmail,
+      activo: nextActivo,
+      pin: validation.normalizedPin,
+      updatedAt: new Date().toISOString(),
+      userId: user.id
     };
 
     try {
       await saveEmpleadoToFirestore(user.id, updatedEmp);
+      if (empleadoActivo?.id === id && nextActivo === false) {
+        bloquearPantalla();
+      }
       return { success: true };
     } catch (err: any) {
       console.error('Error updating employee:', err);
@@ -980,14 +1089,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const toggleEmpleadoActivo = async (id: string, activo: boolean): Promise<{ success: boolean; error?: string }> => {
+    return actualizarEmpleado(id, { activo });
+  };
+
   const eliminarEmpleado = async (id: string): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'No hay usuario autenticado' };
+
+    const authGuard = validateEmployeeMutationAuthorization(empleadoActivo);
+    if (!authGuard.allowed) {
+      return { success: false, error: authGuard.error };
+    }
+
     const empToDelete = empleados.find(e => e.id === id);
     if (!empToDelete) return { success: false, error: 'Empleado no encontrado' };
 
-    const adminCount = empleados.filter(e => e.rol === 'Admin').length;
-    if (empToDelete.rol === 'Admin' && adminCount <= 1) {
-      return { success: false, error: 'No puedes eliminar el único perfil de Administrador.' };
+    const adminGuard = canDeactivateOrDeleteAdmin(empToDelete, empleados, { isDeleting: true });
+    if (!adminGuard.allowed) {
+      return { success: false, error: adminGuard.error };
     }
 
     try {
@@ -1003,10 +1122,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Roles y permisos dinámicos según el perfil de empleado activo:
-  // Si hay un perfil de empleado activo seleccionado, sus permisos mandan ("Admin", "Mesero", "Cajero", "Barman").
+  // Si hay un perfil de empleado activo seleccionado, su rol normalizado gobierna permisos y vistas.
   // Si aún no se ha seleccionado perfil, usamos el rol global del dueño.
-  const isGerente = empleadoActivo ? empleadoActivo.rol === 'Admin' : user?.role === 'gerente';
-  const isContabilidad = empleadoActivo ? empleadoActivo.rol === 'Contabilidad' : user?.role === 'contabilidad';
+  const activeRole: UserRole = empleadoActivo
+    ? mapEmpleadoRolToUserRole(empleadoActivo.rol)
+    : (user?.role || 'gerente');
+  const isGerente = activeRole === 'gerente';
+  const isContabilidad = activeRole === 'contabilidad';
   const canManageInventory = isGerente;
   const canManageBusiness = isGerente;
   const canViewSalesReports = isGerente || isContabilidad;
@@ -1030,10 +1152,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         teamMembers,
         empleadoActivo,
         empleados,
+        activeRole,
         seleccionarEmpleado,
         bloquearPantalla,
         crearEmpleado,
         actualizarEmpleado,
+        toggleEmpleadoActivo,
         eliminarEmpleado,
         isGerente,
         isContabilidad,

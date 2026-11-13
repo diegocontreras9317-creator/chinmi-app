@@ -171,6 +171,25 @@
         "descripcion": { "type": "string" }
       },
       "required": ["activo", "dias_premium"]
+    },
+    "Empleado": {
+      "title": "Empleado",
+      "description": "Perfil operativo y administrativo unificado de empleado del restaurante",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "rol": { "type": "string" },
+        "email": { "type": "string" },
+        "activo": { "type": "boolean" },
+        "pin": { "type": "string" },
+        "avatarColor": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "userId": { "type": "string" },
+        "authUid": { "type": "string" }
+      },
+      "required": ["id", "nombre", "rol", "activo"]
     }
   },
   "firestore": {
@@ -181,6 +200,10 @@
     "/users/{userId}": {
       "schema": "#/entities/User",
       "description": "Documento de perfil de usuario"
+    },
+    "/users/{userId}/empleados/{empleadoId}": {
+      "schema": "#/entities/Empleado",
+      "description": "Colección única sincronizada de empleados, roles y perfiles POS del restaurante"
     },
     "/users/{userId}/mesas/{tableId}": {
       "schema": "#/entities/Table",

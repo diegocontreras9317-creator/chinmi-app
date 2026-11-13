@@ -88,9 +88,14 @@ export interface Empleado {
   id: string;
   nombre: string;
   rol: EmpleadoRol;
+  email?: string; // Correo opcional para vinculación o referencia administrativa
+  activo?: boolean; // true por defecto; false bloquea operación sin borrar historial
   pin?: string; // 4 a 6 dígitos numéricos (opcional)
   avatarColor?: string; // 'purple' | 'blue' | 'emerald' | 'amber' | 'rose' | 'indigo' | 'orange'
   createdAt?: string;
+  updatedAt?: string;
+  userId?: string;
+  authUid?: string;
 }
 
 export type TableStatus = 'libre' | 'ocupada' | 'cuenta';

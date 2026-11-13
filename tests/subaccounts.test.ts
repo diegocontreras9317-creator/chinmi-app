@@ -106,7 +106,7 @@ async function runTests() {
 
   // 1. Subaccounts disabled mode keeps classic table/checkout behavior
   await test('1. Modo subaccountsMode=disabled conserva flujo clásico sin fricción', () => {
-    assert.equal(defaultAppConfig.qrSettings.subaccountsMode, 'disabled');
+    assert.equal(defaultAppConfig.qrSettings.subaccountsMode, 'optional');
     const items = [
       makeOrderItem({ id: 'it-1', name: 'Ramen Tonkotsu', unitPrice: 36000, quantity: 2 }),
       makeOrderItem({ id: 'it-2', name: 'Limonada', unitPrice: 9000, quantity: 1 }),

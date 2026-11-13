@@ -127,7 +127,7 @@ export const defaultAppConfig: AppConfig = {
     catOverlayOpacity: 0,
     catTextColor: '',
     catAutoContrast: true,
-    subaccountsMode: 'disabled',
+    subaccountsMode: 'optional',
     allowQrSubaccountJoin: true,
     allowQrSharedItems: true,
     allowQrVolunteerTip: true,

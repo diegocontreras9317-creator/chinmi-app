@@ -153,7 +153,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   const canOrder = qrSettings.allowOrdering && !qrSettings.menuOnlyMode;
   const canCallWaiter = qrSettings.allowCallWaiter !== false;
   const canRequestBill = qrSettings.allowRequestBill !== false;
-  const subaccountsMode: 'disabled' | 'optional' | 'required' = qrSettings.subaccountsMode || 'disabled';
+  const subaccountsMode: 'disabled' | 'optional' | 'required' = qrSettings.subaccountsMode || 'optional';
   const allowQrSubaccountJoin = qrSettings.allowQrSubaccountJoin !== false;
   const allowQrVolunteerTip = qrSettings.allowQrVolunteerTip !== false;
   const defaultSuggestedTipPercent = Math.max(0, Math.min(25, Number(qrSettings.defaultSuggestedTipPercent ?? 10) || 10));
@@ -925,7 +925,6 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
 
   const showWelcomeScreen =
     subaccountsMode !== 'disabled' &&
-    !activeSubaccountId &&
     !hasSkippedWelcome;
 
   if (showWelcomeScreen && table) {

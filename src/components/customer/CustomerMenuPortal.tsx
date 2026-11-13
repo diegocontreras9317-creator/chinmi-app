@@ -303,6 +303,20 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     } catch {}
   }, [subaccountStorageKey, activeSubaccountId, activeSubaccountName, subaccountsMode]);
 
+  // Limpiar automáticamente nombres y subcuentas del QR apenas se cierra la venta o se libera la mesa
+  useEffect(() => {
+    if (!table || !table.order || table.order.closed || table.status === 'libre') {
+      setActiveSubaccountId('');
+      setActiveSubaccountName('');
+      setHasSkippedWelcome(false);
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(subaccountStorageKey);
+        }
+      } catch {}
+    }
+  }, [table?.status, table?.order?.closed, table?.order?.id, subaccountStorageKey, table]);
+
   const [customerName, setCustomerName] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
     try {

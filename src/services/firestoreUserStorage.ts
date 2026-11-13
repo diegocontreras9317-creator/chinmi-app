@@ -901,7 +901,8 @@ export async function releaseTableInFirestore(
       closed: true,
       closedAt: nowIso,
       items: [],
-      productos: []
+      productos: [],
+      subaccounts: []
     });
 
     console.log("Intentando actualizar doc con ID:", orderId, "Datos:", orderClosedData);
@@ -2015,7 +2016,7 @@ export async function executePartialOrFullCheckoutTransaction(params: {
             settledAt: nowIso,
             pendingBalance: 0,
             paymentsTotal: (order.paymentsTotal || 0) + plan.total,
-            subaccounts: plan.updatedSubaccounts,
+            subaccounts: [],
             items: [],
             productos: [],
           }),

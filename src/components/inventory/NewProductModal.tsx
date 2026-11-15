@@ -24,12 +24,11 @@ import {
 } from 'lucide-react';
 import { compressImageFile } from '../../utils/imageCompressor';
 import {
-  RECIPE_UNIT_OPTIONS,
   normalizeToRecipeUnit,
-  getUnitConversionFactor,
-  convertRecipeQtyToPantry,
-  calculateExactPortions
+  getAvailableUnitsForPerishable
 } from '../../utils/recipeUnits';
+import { calculateRecipeCostBreakdown } from '../../utils/inventoryCosting';
+import { getEffectiveBaseUnit } from '../../utils/perishableUtils';
 import {
   formatQuantity,
   normalizeNonNegativeQuantity
@@ -64,7 +63,7 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
   productToEdit,
   onOpenSubscription
 }) => {
-  const { config, updateConfig, addProduct, updateProduct, canAddProduct, perishables } = useApp();
+  const { config, updateConfig, addProduct, updateProduct, canAddProduct, perishables, updatePerishable } = useApp();
 
   const isEditing = !!productToEdit;
   const reachedLimit = !isEditing && !canAddProduct();
@@ -103,74 +102,51 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
   const [selectedInsumoId, setSelectedInsumoId] = useState<string>('');
   const [ingredientQty, setIngredientQty] = useState<string>('');
   const [ingredientUnit, setIngredientUnit] = useState<string>('und');
+  const [quickEqQtyMap, setQuickEqQtyMap] = useState<Record<string, string>>({});
+  const [quickEqBaseMap, setQuickEqBaseMap] = useState<Record<string, string>>({});
 
-  // Cálculo de escandallo: coste total y porciones disponibles según el insumo limitante en Despensa con conversión de unidades
-  const recipeBreakdown = React.useMemo<{
-    items: Array<
-      RecipeIngredient & {
-        pantryItem?: PerishableItem;
-        unitCost: number;
-        subtotal: number;
-        available: number;
-        portions: number;
-        conversionFactor: number;
-        requiredInPantryUnit: number;
-      }
-    >;
-    totalCost: number;
-    estimatedPortions: number;
-    limitingInsumo: { name: string; available: number; unit: string; maxPortions: number } | null;
-  }>(() => {
-    let totalCost = 0;
-    let minPortions = Infinity;
-    let limitingInsumo: { name: string; available: number; unit: string; maxPortions: number } | null = null;
+  const selectedPantryItem = React.useMemo(
+    () => perishables.find((p) => p.id === selectedInsumoId) || null,
+    [perishables, selectedInsumoId]
+  );
 
-    const items = receta.map((ing) => {
-      const pantryItem = perishables.find((p) => p.id === ing.insumoId);
-      const conversionFactor = getUnitConversionFactor(ing.unidad, pantryItem?.unit);
-      const unitCost = pantryItem?.costPerUnit ?? ing.costoUnitario ?? 0;
-      const requiredInPantryUnit = convertRecipeQtyToPantry(ing.cantidad, ing.unidad, pantryItem?.unit, 1);
-      const subtotal = requiredInPantryUnit * unitCost;
-      totalCost += subtotal;
+  const availableUnitOptions = React.useMemo(
+    () => getAvailableUnitsForPerishable(selectedPantryItem),
+    [selectedPantryItem]
+  );
 
-      const available = pantryItem
-        ? normalizeNonNegativeQuantity(pantryItem.quantity ?? pantryItem.cantidadActual ?? 0)
-        : 0;
-      const portions = calculateExactPortions(available, requiredInPantryUnit);
+  // Cálculo de escandallo en tiempo real usando Costo Promedio Ponderado y equivalencias explícitas
+  const recipeBreakdown = React.useMemo(
+    () => calculateRecipeCostBreakdown(receta, perishables),
+    [receta, perishables]
+  );
 
-      if (portions < minPortions) {
-        minPortions = portions;
-        limitingInsumo = {
-          name: pantryItem?.name || ing.nombre,
-          available,
-          unit: pantryItem?.unit || ing.unidad,
-          maxPortions: portions
-        };
-      }
+  const handleSaveQuickEquivalence = (pantryItem: PerishableItem, recipeUnit: string) => {
+    const qty = parseFloat(quickEqQtyMap[pantryItem.id] || '');
+    const targetUnit = quickEqBaseMap[pantryItem.id] || getEffectiveBaseUnit(pantryItem);
+    if (!qty || qty <= 0) return;
 
-      return {
-        ...ing,
-        pantryItem,
-        unitCost,
-        subtotal,
-        available,
-        portions,
-        conversionFactor,
-        requiredInPantryUnit
-      };
-    });
-
-    const estimatedPortions = receta.length === 0 ? 0 : (minPortions === Infinity ? 0 : minPortions);
-
-    return {
-      items,
-      totalCost,
-      estimatedPortions,
-      limitingInsumo
+    const existing = pantryItem.equivalences || [];
+    const newEq = {
+      id: `eq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      unit: recipeUnit.trim().toLowerCase(),
+      quantityInBaseUnit: qty,
+      baseUnitLabel: targetUnit
     };
-  }, [receta, perishables]);
+    const filtered = existing.filter(
+      (e) => e.unit.trim().toLowerCase() !== recipeUnit.trim().toLowerCase()
+    );
+    updatePerishable(pantryItem.id, {
+      equivalences: [...filtered, newEq]
+    });
+    setQuickEqQtyMap((prev) => {
+      const next = { ...prev };
+      delete next[pantryItem.id];
+      return next;
+    });
+  };
 
-  // Recalcular automáticamente el coste del producto sumando (insumo.cantidad * insumo.costoUnitario)
+  // Recalcular automáticamente el coste del producto sumando (insumo.cantidad * costo promedio actual)
   React.useEffect(() => {
     if (tipoInventario === 'receta' && receta.length > 0) {
       setCost(recipeBreakdown.totalCost > 0 ? String(Math.round(recipeBreakdown.totalCost * 100) / 100) : '0');
@@ -751,9 +727,9 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                           value={ingredientUnit}
                           onChange={(e) => setIngredientUnit(e.target.value)}
                           className="w-full px-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-semibold focus:ring-2 focus:ring-orange-500"
-                          title="Seleccionar unidad (und, libra, kilo, tajada, gramos, ml, litros)"
+                          title="Seleccionar unidad (incluye equivalencias del insumo)"
                         >
-                          {RECIPE_UNIT_OPTIONS.map((opt) => (
+                          {availableUnitOptions.map((opt) => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}
                             </option>
@@ -777,6 +753,21 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                 </div>
               </div>
 
+              {(recipeBreakdown.hasIncompatibleUnits || recipeBreakdown.hasProvisionalCost) && (
+                <div className="space-y-1.5 text-[11px]">
+                  {recipeBreakdown.hasIncompatibleUnits && (
+                    <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 font-semibold">
+                      ⚠️ Hay ingredientes cuya unidad aún no tiene equivalencia con la unidad base de Despensa. Configúrala abajo para descontar stock exacto; si vendes así, la venta no se bloquea y quedará pendiente de conciliación.
+                    </div>
+                  )}
+                  {recipeBreakdown.hasProvisionalCost && (
+                    <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 font-medium">
+                      ℹ️ El costo de esta receta incluye insumos con costo provisional o recepción pendiente de valoración.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Lista de Insumos Agregados a la Receta */}
               {receta.length > 0 ? (
                 <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
@@ -792,28 +783,87 @@ export const NewProductModal: React.FC<NewProductModalProps> = ({
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                       {recipeBreakdown.items.map((ing) => (
-                        <tr key={ing.insumoId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                        <tr key={ing.insumoId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 align-top">
                           <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">
-                            {ing.nombre}
+                            <span>{ing.nombre}</span>
+                            {!ing.compatible && (
+                              <span className="mt-1 inline-block px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                                Sin equivalencia a {ing.pantryItem ? getEffectiveBaseUnit(ing.pantryItem) : 'base'}
+                              </span>
+                            )}
+                            {!ing.compatible && ing.pantryItem && (
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1 p-1.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[10px] font-normal">
+                                <span className="font-bold">1 {ing.unidad} =</span>
+                                <input
+                                  type="number"
+                                  min="0.0001"
+                                  step="any"
+                                  value={quickEqQtyMap[ing.pantryItem.id] || ''}
+                                  onChange={(e) =>
+                                    setQuickEqQtyMap((prev) => ({
+                                      ...prev,
+                                      [ing.pantryItem!.id]: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Cant."
+                                  className="w-14 px-1.5 py-0.5 rounded border border-amber-300 bg-white dark:bg-slate-900 font-mono font-bold"
+                                />
+                                <select
+                                  value={quickEqBaseMap[ing.pantryItem.id] || getEffectiveBaseUnit(ing.pantryItem)}
+                                  onChange={(e) =>
+                                    setQuickEqBaseMap((prev) => ({
+                                      ...prev,
+                                      [ing.pantryItem!.id]: e.target.value
+                                    }))
+                                  }
+                                  className="px-1 py-0.5 rounded border border-amber-300 bg-white dark:bg-slate-900 font-semibold"
+                                >
+                                  <option value={getEffectiveBaseUnit(ing.pantryItem)}>
+                                    {getEffectiveBaseUnit(ing.pantryItem)}
+                                  </option>
+                                  <option value="g">g</option>
+                                  <option value="ml">ml</option>
+                                  <option value="unidades">unidades</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveQuickEquivalence(ing.pantryItem!, ing.unidad)}
+                                  className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+                                >
+                                  Guardar equiv.
+                                </button>
+                              </div>
+                            )}
                           </td>
                           <td className="px-3 py-2 font-mono font-bold text-orange-600 dark:text-orange-400">
                             {formatQuantity(ing.cantidad)} {ing.unidad}
-                            {ing.conversionFactor !== 1 && ing.pantryItem && (
+                            {ing.compatible && ing.conversionFactor !== 1 && ing.pantryItem && (
                               <span className="text-[10px] text-slate-400 block font-normal">
-                                (= {formatQuantity(ing.requiredInPantryUnit)} {ing.pantryItem.unit})
+                                (= {formatQuantity(ing.requiredInPantryUnit)} {getEffectiveBaseUnit(ing.pantryItem)})
                               </span>
                             )}
                           </td>
                           <td className="px-3 py-2 font-mono text-slate-600 dark:text-slate-300">
                             <span className={ing.available <= 0 ? 'text-rose-600 font-bold' : ''}>
-                              {formatQuantity(ing.available)} {ing.pantryItem?.unit || ing.unidad}
+                              {formatQuantity(ing.available)} {ing.pantryItem ? getEffectiveBaseUnit(ing.pantryItem) : ing.unidad}
                             </span>
                             <span className="text-[10px] text-slate-400 block">
-                              ({ing.portions} porciones)
+                              {ing.compatible ? `(${ing.portions} porciones)` : '(pendiente)'}
                             </span>
                           </td>
                           <td className="px-3 py-2 font-mono font-bold text-slate-800 dark:text-slate-200">
-                            $ {new Intl.NumberFormat('es-CO').format(Math.round(ing.subtotal))}
+                            {ing.compatible ? (
+                              <>
+                                $ {new Intl.NumberFormat('es-CO').format(Math.round(ing.subtotal))}
+                                {ing.costStatus !== 'exact' && (
+                                  <span className="block text-[9px] text-amber-600 font-bold">
+                                    {ing.costStatus === 'provisional' ? 'Provisional' : 'Sin valorar'}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-[10px] text-amber-600 font-bold">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-right">
                             <button

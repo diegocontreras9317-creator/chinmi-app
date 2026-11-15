@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Table,
   Product,
@@ -20,6 +20,13 @@ import {
   PaymentBreakdownEntry,
   TablePaymentRecord,
 } from '../types';
+import {
+  deriveSubscriptionState,
+  DerivedSubscriptionState,
+  getProtectedProductIds,
+  isProductOperationalForNewOrders,
+  isTableOperationalForNewOrders
+} from '../utils/subscription';
 import { extractTableBillingInfo, normalizeBillingInfo, hasCustomBillingData } from '../utils/billing';
 import { resolveProductTax, resolveOrderItemTax, calculateOrderTaxBreakdown } from '../utils/taxes';
 import { defaultAppConfig, AppConfig, QrMenuSettings } from '../config/appConfig';
@@ -51,6 +58,10 @@ import {
   releaseTableInFirestore,
   executeSaleCheckoutBatch,
   executePartialOrFullCheckoutTransaction,
+  confirmSupplierOrderDeliveryTransaction,
+  completeReceptionValuationTransaction,
+  adjustPerishableStockTransaction,
+  resolvePendingReconciliationTransaction,
   saveUserQrConfig,
   saveUserAppConfig,
   subscribeUserAppConfig,
@@ -74,9 +85,21 @@ import { useAuth } from './AuthContext';
 import { auth } from '../firebase';
 import { playServiceBell, playNewOrderAlert } from '../utils/audioAlert';
 import {
+  addLotToPerishable,
   computeSaleInventoryUpdates,
-  normalizePerishableRecord
+  deductFromLotsFEFO,
+  normalizePerishableRecord,
+  resolveSinglePendingReconciliation
 } from '../utils/recipeUnits';
+import {
+  calculateWeightedMovingAverageCost,
+  convertPerishableBaseUnit
+} from '../utils/inventoryCosting';
+import {
+  processDelayedValuationForOrderEvent,
+  processSupplierOrderReception,
+  type ReceptionLineInput
+} from '../utils/supplierReception';
 import {
   addQuantities,
   formatQuantity,
@@ -301,8 +324,23 @@ interface AppContextType {
   updatePerishable: (id: string, partial: Partial<PerishableItem>) => void;
   deletePerishable: (id: string) => void;
   adjustPerishableQuantity: (id: string, newQuantity: number) => void;
-  recordPerishableWaste: (id: string, amount: number, reason: string) => void;
-  recordPerishableRestock: (id: string, addedAmount: number, newEntryDate?: string, newExpiryDate?: string) => void;
+  recordPerishableWaste: (id: string, amount: number, reason: string) => Promise<void> | void;
+  recordPerishableRestock: (
+    id: string,
+    addedAmount: number,
+    newEntryDate?: string,
+    newExpiryDate?: string,
+    options?: {
+      unitPrice?: number;
+      totalPrice?: number;
+      batchNumber?: string;
+    }
+  ) => Promise<void> | void;
+  resolvePerishablePendingReconciliation: (
+    insumoId: string,
+    reconciliationId: string
+  ) => Promise<{ success: boolean; deductedBaseQty?: number; error?: string }>;
+  migratePerishableBaseUnit: (id: string, newBaseUnit: string, unitsPerOldUnit: number) => void;
 
   // Suppliers (Proveedores de Despensa e Insumos)
   addSupplier: (supplier: Omit<Supplier, 'id' | 'createdAt'>) => Supplier;
@@ -326,17 +364,30 @@ interface AppContextType {
       confirmedAt?: string;
       confirmedBy?: string;
       receptionNotes?: string;
-      items?: SupplierOrderItem[];
+      items?: ReceptionLineInput[];
       restockPantry?: boolean;
+      receptionEventId?: string;
     }
-  ) => void;
+  ) => Promise<{ success: boolean; updatedOrder?: SupplierOrder; idempotentDuplicate?: boolean; error?: string }>;
+  completeReceptionValuation: (params: {
+    orderId: string;
+    receptionEventId: string;
+    orderItemId: string;
+    unitPrice?: number;
+    totalPrice?: number;
+    valuedBy?: string;
+  }) => Promise<{ success: boolean; updatedOrder?: SupplierOrder; error?: string }>;
   deleteSupplierOrder: (id: string) => void;
 
   // Receipt inspection
   latestReceipt: SaleReceipt | null;
   setLatestReceipt: (receipt: SaleReceipt | null) => void;
 
-  // Limits
+  // Limits & Subscription State
+  subscriptionState: DerivedSubscriptionState;
+  isTableOperational: (table: Table) => boolean;
+  isProductOperational: (product: Product) => boolean;
+  undoDeletedProduct: (productId: string) => { success: boolean; error?: string };
   canAddTable: () => boolean;
   canAddProduct: () => boolean;
 
@@ -349,7 +400,8 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, empleadoActivo, updateUserBusinessInfo } = useAuth();
+  const { user, empleadoActivo, updateUserBusinessInfo, serverNowMs, backendCapabilities } = useAuth();
+  const recentlyDeletedProductsRef = useRef<Map<string, { product: Product; deletedAt: number }>>(new Map());
   const activeOperatorName =
     empleadoActivo?.nombre?.trim() ||
     user?.name?.trim() ||
@@ -847,18 +899,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Freemium limit verification: ONLY diego.contreras9317@gmail.com has free lifetime PRO
-  const isPro = user?.email?.toLowerCase() === 'diego.contreras9317@gmail.com' || user?.plan === 'pro';
+  const subscriptionState = useMemo(
+    () =>
+      deriveSubscriptionState({
+        user,
+        serverNowMs,
+        tables,
+        products,
+        degradationEnabled: backendCapabilities.degradationEnabled
+      }),
+    [user, serverNowMs, tables, products, backendCapabilities.degradationEnabled]
+  );
+
+  const protectedProductIds = useMemo(() => getProtectedProductIds(tables), [tables]);
+
+  const isTableOperational = useCallback(
+    (table: Table) => isTableOperationalForNewOrders(table, subscriptionState),
+    [subscriptionState]
+  );
+
+  const isProductOperational = useCallback(
+    (product: Product) => isProductOperationalForNewOrders(product, subscriptionState, protectedProductIds),
+    [subscriptionState, protectedProductIds]
+  );
 
   const canAddTable = useCallback(() => {
-    if (isPro) return true;
-    return tables.length < config.freemiumLimits.freeMaxTables;
-  }, [isPro, tables.length, config.freemiumLimits.freeMaxTables]);
+    return subscriptionState.canCreateTable;
+  }, [subscriptionState.canCreateTable]);
 
   const canAddProduct = useCallback(() => {
-    if (isPro) return true;
-    return products.length < config.freemiumLimits.freeMaxProducts;
-  }, [isPro, products.length, config.freemiumLimits.freeMaxProducts]);
+    return subscriptionState.canCreateProduct;
+  }, [subscriptionState.canCreateProduct]);
 
   // Table operations
   const addTable = (tableData: Omit<Table, 'id' | 'status'>): { success: boolean; error?: string } => {
@@ -1484,8 +1555,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const items = order.items || (order as any)?.productos || [];
+    const preCheckoutTables = tablesRef.current;
     const preCheckoutProducts = productsRef.current;
     const preCheckoutPerishables = perishablesRef.current;
+    const preCheckoutSales = salesRef.current;
 
     const res = checkoutTable(tableId, paymentMethod, cashTendered, {
       ...options,
@@ -1493,7 +1566,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     if (res.receipt && activeUid && activeUid !== 'default') {
       try {
-        await executeSaleCheckoutBatch({
+        const txRes = await executeSaleCheckoutBatch({
           uid: activeUid,
           tableId,
           orderId: order.id,
@@ -1502,8 +1575,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productsCatalog: preCheckoutProducts,
           perishablesList: preCheckoutPerishables
         });
+        productsRef.current = txRes.updatedProducts;
+        setProducts(txRes.updatedProducts);
+        perishablesRef.current = txRes.updatedPerishables;
+        setPerishables(txRes.updatedPerishables);
+        persistChanges(tablesRef.current, txRes.updatedProducts, salesRef.current, txRes.updatedPerishables);
       } catch (error) {
-        console.error("ERROR CRÍTICO EN FIREBASE al ejecutar batch write en cobrarMesa:", error);
+        console.error("ERROR CRÍTICO EN FIREBASE al ejecutar batch write en cobrarMesa (rollback local):", error);
+        tablesRef.current = preCheckoutTables;
+        setTables(preCheckoutTables);
+        productsRef.current = preCheckoutProducts;
+        setProducts(preCheckoutProducts);
+        perishablesRef.current = preCheckoutPerishables;
+        setPerishables(preCheckoutPerishables);
+        salesRef.current = preCheckoutSales;
+        setSales(preCheckoutSales);
+        persistChanges(preCheckoutTables, preCheckoutProducts, preCheckoutSales, preCheckoutPerishables);
         throw error;
       }
     }
@@ -2040,10 +2127,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteProduct = (id: string) => {
+    const found = products.find(p => p.id === id);
+    if (found) {
+      recentlyDeletedProductsRef.current.set(id, {
+        product: found,
+        deletedAt: Date.now()
+      });
+    }
     const nextProducts = products.filter(p => p.id !== id);
     setProducts(nextProducts);
     deleteProductFromFirestore(id, storeId).catch(() => {});
     persistChanges(tables, nextProducts, sales);
+  };
+
+  const undoDeletedProduct = (id: string): { success: boolean; error?: string } => {
+    const entry = recentlyDeletedProductsRef.current.get(id);
+    if (!entry || Date.now() - entry.deletedAt > 20000) {
+      recentlyDeletedProductsRef.current.delete(id);
+      return { success: false, error: 'El tiempo para deshacer la eliminación ha expirado.' };
+    }
+    recentlyDeletedProductsRef.current.delete(id);
+
+    const isStillOverActiveLimit =
+      !subscriptionState.hasProAccess &&
+      subscriptionState.degradationEnabled &&
+      products.filter(p => p.active !== false).length >= config.freemiumLimits.freeMaxProducts;
+
+    const restoredProduct: Product = isStillOverActiveLimit
+      ? { ...entry.product, active: false, inactivatedReason: 'free_over_limit' }
+      : { ...entry.product };
+
+    const nextProducts = [restoredProduct, ...products.filter(p => p.id !== restoredProduct.id)];
+    setProducts(nextProducts);
+    if (activeUid && activeUid !== 'default') {
+      saveProductToFirestore(restoredProduct, activeUid).catch(console.error);
+    }
+    persistChanges(tables, nextProducts, sales);
+    return { success: true };
   };
 
   const adjustProductStock = (id: string, delta: number) => {
@@ -2152,58 +2272,200 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
   };
 
-  const recordPerishableWaste = (id: string, amount: number, reason: string) => {
-    let updatedTarget: PerishableItem | undefined;
+  const recordPerishableWaste = async (id: string, amount: number, reason: string) => {
     const cleanAmount = normalizeNonNegativeQuantity(amount);
     if (cleanAmount <= 0) return;
+    const prevPerishables = perishablesRef.current;
+    const target = prevPerishables.find(p => p.id === id);
+    if (!target) return;
 
-    const nextPerishables = perishablesRef.current.map(p => {
-      if (p.id === id) {
-        const currentQty = p.quantity ?? p.cantidadActual ?? 0;
-        const nextQty = subtractQuantities(currentQty, cleanAmount);
-        const noteAddition = ` [Merma: -${formatQuantity(cleanAmount)} ${p.unit} (${reason})]`;
-        updatedTarget = normalizePerishableRecord({
-          ...p,
-          quantity: nextQty,
-          cantidadActual: nextQty,
-          notes: p.notes ? p.notes + noteAddition : noteAddition
+    if (activeUid && activeUid !== 'default') {
+      try {
+        const updatedItem = await adjustPerishableStockTransaction({
+          uid: activeUid,
+          itemFallback: target,
+          mode: 'waste',
+          amountInBase: cleanAmount,
+          reason
         });
-        return updatedTarget;
+        const nextPerishables = perishablesRef.current.map(p => (p.id === id ? updatedItem : p));
+        perishablesRef.current = nextPerishables;
+        setPerishables(nextPerishables);
+        persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
+        return;
+      } catch (err) {
+        console.error('Error al registrar merma en Firestore:', err);
+        throw err;
       }
-      return p;
+    }
+
+    const fefo = deductFromLotsFEFO(target, cleanAmount);
+    const noteAddition = ` [Merma: -${formatQuantity(cleanAmount)} ${target.unit} (${reason})]`;
+    const updatedTarget = normalizePerishableRecord({
+      ...target,
+      quantity: fefo.remainingQuantity,
+      cantidadActual: fefo.remainingQuantity,
+      expiryDate: fefo.nextExpiryDate,
+      ...(fefo.updatedLots !== undefined ? { lots: fefo.updatedLots } : {}),
+      notes: target.notes ? target.notes + noteAddition : noteAddition.trim()
     });
+    const nextPerishables = prevPerishables.map(p => (p.id === id ? updatedTarget : p));
     perishablesRef.current = nextPerishables;
     setPerishables(nextPerishables);
-    if (updatedTarget && activeUid && activeUid !== 'default') {
-      saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
-    }
     persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
   };
 
-  const recordPerishableRestock = (id: string, addedAmount: number, newEntryDate?: string, newExpiryDate?: string) => {
-    let updatedTarget: PerishableItem | undefined;
+  const recordPerishableRestock = async (
+    id: string,
+    addedAmount: number,
+    newEntryDate?: string,
+    newExpiryDate?: string,
+    options?: {
+      unitPrice?: number;
+      totalPrice?: number;
+      batchNumber?: string;
+    }
+  ) => {
     const cleanAdded = normalizeNonNegativeQuantity(addedAmount);
     if (cleanAdded <= 0) return;
+    const prevPerishables = perishablesRef.current;
+    const target = prevPerishables.find(p => p.id === id);
+    if (!target) return;
 
-    const nextPerishables = perishablesRef.current.map(p => {
-      if (p.id === id) {
-        const currentQty = p.quantity ?? p.cantidadActual ?? 0;
-        const nextQty = addQuantities(currentQty, cleanAdded);
-        updatedTarget = normalizePerishableRecord({
-          ...p,
-          quantity: nextQty,
-          cantidadActual: nextQty,
-          entryDate: newEntryDate || p.entryDate,
-          expiryDate: newExpiryDate || p.expiryDate
+    if (activeUid && activeUid !== 'default') {
+      try {
+        const updatedItem = await adjustPerishableStockTransaction({
+          uid: activeUid,
+          itemFallback: target,
+          mode: 'restock',
+          amountInBase: cleanAdded,
+          newEntryDate,
+          newExpiryDate,
+          batchNumber: options?.batchNumber,
+          unitPrice: options?.unitPrice,
+          totalPrice: options?.totalPrice
         });
-        return updatedTarget;
+        const nextPerishables = perishablesRef.current.map(p => (p.id === id ? updatedItem : p));
+        perishablesRef.current = nextPerishables;
+        setPerishables(nextPerishables);
+        persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
+        return;
+      } catch (err) {
+        console.error('Error al registrar entrada de lote en Firestore:', err);
+        throw err;
       }
-      return p;
+    }
+
+    const nowIso = new Date().toISOString();
+    const entryDate = newEntryDate || nowIso.split('T')[0];
+    const expiryDate = newExpiryDate || target.expiryDate;
+    const hasPriceInput =
+      (options?.unitPrice !== undefined && options.unitPrice > 0) ||
+      (options?.totalPrice !== undefined && options.totalPrice > 0);
+    const prevQty = normalizeNonNegativeQuantity(target.quantity ?? target.cantidadActual ?? 0);
+
+    let nextCostPerUnit = target.costPerUnit || 0;
+    let nextCostStatus = target.costStatus;
+    let nextPendingCount = target.pendingValuationCount;
+    let lotUnitCost = target.costPerUnit;
+
+    if (hasPriceInput) {
+      const costRes = calculateWeightedMovingAverageCost({
+        prevQty,
+        prevCostPerUnit: target.costPerUnit || 0,
+        prevCostStatus: target.costStatus,
+        prevPendingValuationCount: target.pendingValuationCount,
+        receivedBaseQty: cleanAdded,
+        unitPriceInPurchaseUnit: options?.unitPrice,
+        purchasePresentationQty: cleanAdded,
+        totalPurchaseCost: options?.totalPrice
+      });
+      nextCostPerUnit = costRes.nextCostPerUnit;
+      nextCostStatus = costRes.costStatus;
+      nextPendingCount = costRes.pendingValuationCount;
+      lotUnitCost = costRes.batchUnitCostInBase;
+    }
+
+    const lotRes = addLotToPerishable(target, {
+      id: `lot-manual-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      batchNumber: options?.batchNumber?.trim() || `ING-${entryDate}`,
+      quantity: cleanAdded,
+      entryDate,
+      expiryDate,
+      supplierId: target.supplierId,
+      unitCost: lotUnitCost,
+      createdAt: nowIso
     });
+
+    const updatedTarget = normalizePerishableRecord({
+      ...target,
+      quantity: lotRes.totalQuantity,
+      cantidadActual: lotRes.totalQuantity,
+      entryDate,
+      expiryDate: lotRes.nextExpiryDate,
+      lots: lotRes.updatedLots,
+      costPerUnit: nextCostPerUnit,
+      ...(nextCostStatus !== undefined ? { costStatus: nextCostStatus } : {}),
+      ...(nextPendingCount !== undefined ? { pendingValuationCount: nextPendingCount } : {}),
+      lastCostUpdatedAt: nowIso
+    });
+    const nextPerishables = prevPerishables.map(p => (p.id === id ? updatedTarget : p));
     perishablesRef.current = nextPerishables;
     setPerishables(nextPerishables);
-    if (updatedTarget && activeUid && activeUid !== 'default') {
-      saveInventoryItemToFirestore(updatedTarget, activeUid).catch(console.error);
+    persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
+  };
+
+  const resolvePerishablePendingReconciliation = async (
+    insumoId: string,
+    reconciliationId: string
+  ): Promise<{ success: boolean; deductedBaseQty?: number; error?: string }> => {
+    const target = perishablesRef.current.find(p => p.id === insumoId);
+    if (!target) {
+      return { success: false, error: 'Insumo no encontrado.' };
+    }
+    try {
+      if (activeUid && activeUid !== 'default') {
+        const res = await resolvePendingReconciliationTransaction({
+          uid: activeUid,
+          itemFallback: target,
+          reconciliationId
+        });
+        const nextPerishables = perishablesRef.current.map(p => (p.id === insumoId ? res.updatedItem : p));
+        perishablesRef.current = nextPerishables;
+        setPerishables(nextPerishables);
+        persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
+        return { success: true, deductedBaseQty: res.deductedBaseQty };
+      }
+      const localRes = resolveSinglePendingReconciliation({
+        item: target,
+        reconciliationId
+      });
+      if (!localRes.resolved) {
+        return { success: false, error: localRes.error || 'No se pudo conciliar el consumo.' };
+      }
+      const nextPerishables = perishablesRef.current.map(p => (p.id === insumoId ? localRes.updatedItem : p));
+      perishablesRef.current = nextPerishables;
+      setPerishables(nextPerishables);
+      persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
+      return { success: true, deductedBaseQty: localRes.deductedBaseQty };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Error al conciliar el consumo pendiente.' };
+    }
+  };
+
+  const migratePerishableBaseUnit = (id: string, newBaseUnit: string, unitsPerOldUnit: number) => {
+    const target = perishablesRef.current.find(p => p.id === id);
+    if (!target) return;
+    const converted = convertPerishableBaseUnit({
+      item: target,
+      newBaseUnit,
+      unitsPerOldUnit
+    });
+    const nextPerishables = perishablesRef.current.map(p => (p.id === id ? converted : p));
+    perishablesRef.current = nextPerishables;
+    setPerishables(nextPerishables);
+    if (activeUid && activeUid !== 'default') {
+      saveInventoryItemToFirestore(converted, activeUid).catch(console.error);
     }
     persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
   };
@@ -2306,14 +2568,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   ): SupplierOrder => {
     const nowIso = new Date().toISOString();
-    const cleanItems: SupplierOrderItem[] = (orderData.items || []).map((it, idx) => ({
-      id: it.id || `soi-${Date.now()}-${idx}`,
-      name: it.name.trim(),
-      quantity: Number(it.quantity) || 1,
-      unit: it.unit || 'unidades',
-      received: it.received ?? false,
-      receivedQuantity: it.receivedQuantity ?? (Number(it.quantity) || 1)
-    }));
+    const cleanItems: SupplierOrderItem[] = (orderData.items || []).map((it, idx) => {
+      const qty = normalizeNonNegativeQuantity(Number(it.quantity) || 1);
+      const unitPrice = it.unitPrice !== undefined && Number(it.unitPrice) > 0 ? Number(it.unitPrice) : undefined;
+      const totalPrice =
+        it.totalPrice !== undefined && Number(it.totalPrice) > 0
+          ? Number(it.totalPrice)
+          : unitPrice !== undefined
+          ? Math.round(unitPrice * qty * 100) / 100
+          : undefined;
+      return {
+        ...it,
+        id: it.id || `soi-${Date.now()}-${idx}`,
+        name: it.name.trim(),
+        quantity: qty,
+        unit: it.unit || 'unidades',
+        received: it.received ?? false,
+        receivedQuantity: it.receivedQuantity ?? qty,
+        ...(it.insumoId ? { insumoId: it.insumoId } : {}),
+        ...(it.presentationId ? { presentationId: it.presentationId } : {}),
+        ...(it.presentationName ? { presentationName: it.presentationName } : {}),
+        ...(it.packagingType ? { packagingType: it.packagingType } : {}),
+        ...(it.contentQty !== undefined ? { contentQty: Number(it.contentQty) } : {}),
+        ...(it.contentUnit ? { contentUnit: it.contentUnit } : {}),
+        ...(it.brand ? { brand: it.brand } : {}),
+        ...(unitPrice !== undefined ? { unitPrice } : {}),
+        ...(totalPrice !== undefined ? { totalPrice } : {})
+      };
+    });
+
+    const computedOrderTotal = cleanItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0);
 
     const newOrder: SupplierOrder = {
       id: orderData.id || `sord-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -2332,7 +2616,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       confirmedAt: orderData.confirmedAt,
       confirmedBy: orderData.confirmedBy,
       receptionNotes: orderData.receptionNotes,
-      stockUpdated: orderData.stockUpdated ?? false
+      stockUpdated: orderData.stockUpdated ?? false,
+      ...(orderData.totalAmount !== undefined
+        ? { totalAmount: orderData.totalAmount }
+        : computedOrderTotal > 0
+        ? { totalAmount: computedOrderTotal }
+        : {}),
+      ...(orderData.receptionEvents ? { receptionEvents: orderData.receptionEvents } : {}),
+      ...(orderData.hasPendingValuation !== undefined ? { hasPendingValuation: orderData.hasPendingValuation } : {})
     };
 
     const existingIdx = supplierOrdersRef.current.findIndex(o => o.id === newOrder.id);
@@ -2370,83 +2661,182 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const confirmSupplierOrderDelivery = (
+  const confirmSupplierOrderDelivery = async (
     orderId: string,
     payload: {
       arrivedComplete: boolean;
       confirmedAt?: string;
       confirmedBy?: string;
       receptionNotes?: string;
-      items?: SupplierOrderItem[];
+      items?: ReceptionLineInput[];
       restockPantry?: boolean;
+      receptionEventId?: string;
     }
-  ) => {
+  ): Promise<{ success: boolean; updatedOrder?: SupplierOrder; idempotentDuplicate?: boolean; error?: string }> => {
     const targetOrder = supplierOrdersRef.current.find(o => o.id === orderId);
-    if (!targetOrder) return;
+    if (!targetOrder) {
+      return { success: false, error: 'Pedido a proveedor no encontrado.' };
+    }
 
-    const confirmedIso = payload.confirmedAt || new Date().toISOString();
-    const resolvedItems: SupplierOrderItem[] = (payload.items || targetOrder.items).map(it => ({
+    const receptionEventId =
+      payload.receptionEventId || `rec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const receptionItems: ReceptionLineInput[] = (payload.items || targetOrder.items).map(it => ({
       ...it,
       received: payload.items ? Boolean(it.received) : true,
       receivedQuantity: it.receivedQuantity !== undefined ? Number(it.receivedQuantity) : Number(it.quantity)
     }));
 
-    const shouldRestock = Boolean(payload.restockPantry) && !targetOrder.stockUpdated;
-    let didUpdateStock = Boolean(targetOrder.stockUpdated);
+    const confirmedBy = payload.confirmedBy?.trim() || activeOperatorName;
 
-    if (shouldRestock) {
-      const entryDateStr = confirmedIso.split('T')[0];
-      let anyPerishableChanged = false;
-      const nextPerishables = perishablesRef.current.map(p => {
-        const matchedLine = resolvedItems.find(
-          line =>
-            line.received !== false &&
-            (line.receivedQuantity ?? line.quantity) > 0 &&
-            line.name.trim().toLowerCase() === p.name.trim().toLowerCase()
-        );
-        if (!matchedLine) return p;
-
-        anyPerishableChanged = true;
-        const addedQty = normalizeNonNegativeQuantity(matchedLine.receivedQuantity ?? matchedLine.quantity);
-        const currentQty = p.quantity ?? p.cantidadActual ?? 0;
-        const nextQty = addQuantities(currentQty, addedQty);
-        const updatedItem: PerishableItem = normalizePerishableRecord({
-          ...p,
-          quantity: nextQty,
-          cantidadActual: nextQty,
-          entryDate: entryDateStr || p.entryDate
+    try {
+      if (activeUid && activeUid !== 'default') {
+        const txRes = await confirmSupplierOrderDeliveryTransaction({
+          uid: activeUid,
+          orderId,
+          receptionEventId,
+          orderFallback: targetOrder,
+          perishablesFallback: perishablesRef.current,
+          payload: {
+            arrivedComplete: payload.arrivedComplete,
+            confirmedAt: payload.confirmedAt,
+            confirmedBy,
+            receptionNotes: payload.receptionNotes,
+            restockPantry: payload.restockPantry,
+            items: receptionItems
+          }
         });
-        if (activeUid && activeUid !== 'default') {
-          saveInventoryItemToFirestore(updatedItem, activeUid).catch(console.error);
+
+        const nextOrders = supplierOrdersRef.current.map(o => (o.id === orderId ? txRes.updatedOrder : o));
+        supplierOrdersRef.current = nextOrders;
+        setSupplierOrders(nextOrders);
+
+        if (txRes.modifiedPerishables.length > 0) {
+          const modMap = new Map(txRes.modifiedPerishables.map(m => [m.id, m]));
+          const nextPerishables = perishablesRef.current.map(p => modMap.get(p.id) || p);
+          perishablesRef.current = nextPerishables;
+          setPerishables(nextPerishables);
+          persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
         }
-        return updatedItem;
+
+        return {
+          success: true,
+          updatedOrder: txRes.updatedOrder,
+          idempotentDuplicate: txRes.idempotentDuplicate
+        };
+      }
+
+      const localRes = processSupplierOrderReception({
+        order: targetOrder,
+        perishablesList: perishablesRef.current,
+        receptionEventId,
+        payload: {
+          arrivedComplete: payload.arrivedComplete,
+          confirmedAt: payload.confirmedAt,
+          confirmedBy,
+          receptionNotes: payload.receptionNotes,
+          restockPantry: payload.restockPantry,
+          items: receptionItems
+        }
       });
 
-      if (anyPerishableChanged) {
-        didUpdateStock = true;
+      const nextOrders = supplierOrdersRef.current.map(o => (o.id === orderId ? localRes.updatedOrder : o));
+      supplierOrdersRef.current = nextOrders;
+      setSupplierOrders(nextOrders);
+
+      if (localRes.modifiedPerishables.length > 0) {
+        perishablesRef.current = localRes.allPerishables;
+        setPerishables(localRes.allPerishables);
+        persistChanges(tablesRef.current, productsRef.current, salesRef.current, localRes.allPerishables);
+      }
+
+      return {
+        success: true,
+        updatedOrder: localRes.updatedOrder,
+        idempotentDuplicate: localRes.idempotentDuplicate
+      };
+    } catch (err: any) {
+      console.error('Error al confirmar recepción del pedido:', err);
+      return {
+        success: false,
+        error: err?.message || 'Error al registrar la recepción en inventario.'
+      };
+    }
+  };
+
+  const completeReceptionValuation = async (params: {
+    orderId: string;
+    receptionEventId: string;
+    orderItemId: string;
+    unitPrice?: number;
+    totalPrice?: number;
+    valuedBy?: string;
+  }): Promise<{ success: boolean; updatedOrder?: SupplierOrder; error?: string }> => {
+    const targetOrder = supplierOrdersRef.current.find(o => o.id === params.orderId);
+    if (!targetOrder) {
+      return { success: false, error: 'Pedido a proveedor no encontrado.' };
+    }
+    const valuedBy = params.valuedBy?.trim() || activeOperatorName;
+
+    try {
+      if (activeUid && activeUid !== 'default') {
+        const txRes = await completeReceptionValuationTransaction({
+          uid: activeUid,
+          orderId: params.orderId,
+          receptionEventId: params.receptionEventId,
+          orderItemId: params.orderItemId,
+          unitPrice: params.unitPrice,
+          totalPrice: params.totalPrice,
+          valuedBy,
+          orderFallback: targetOrder,
+          perishablesFallback: perishablesRef.current
+        });
+
+        const nextOrders = supplierOrdersRef.current.map(o => (o.id === params.orderId ? txRes.updatedOrder : o));
+        supplierOrdersRef.current = nextOrders;
+        setSupplierOrders(nextOrders);
+
+        if (txRes.updatedPerishable) {
+          const nextPerishables = perishablesRef.current.map(p =>
+            p.id === txRes.updatedPerishable!.id ? txRes.updatedPerishable! : p
+          );
+          perishablesRef.current = nextPerishables;
+          setPerishables(nextPerishables);
+          persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
+        }
+
+        return { success: true, updatedOrder: txRes.updatedOrder };
+      }
+
+      const localRes = processDelayedValuationForOrderEvent({
+        order: targetOrder,
+        perishablesList: perishablesRef.current,
+        receptionEventId: params.receptionEventId,
+        orderItemId: params.orderItemId,
+        unitPrice: params.unitPrice,
+        totalPrice: params.totalPrice,
+        valuedBy
+      });
+
+      const nextOrders = supplierOrdersRef.current.map(o => (o.id === params.orderId ? localRes.updatedOrder : o));
+      supplierOrdersRef.current = nextOrders;
+      setSupplierOrders(nextOrders);
+
+      if (localRes.updatedPerishable) {
+        const nextPerishables = perishablesRef.current.map(p =>
+          p.id === localRes.updatedPerishable!.id ? localRes.updatedPerishable! : p
+        );
         perishablesRef.current = nextPerishables;
         setPerishables(nextPerishables);
+        persistChanges(tablesRef.current, productsRef.current, salesRef.current, nextPerishables);
       }
-    }
 
-    const updatedOrder: SupplierOrder = {
-      ...targetOrder,
-      items: resolvedItems,
-      status: payload.arrivedComplete ? 'recibido_completo' : 'recibido_incompleto',
-      arrived: true,
-      arrivedComplete: payload.arrivedComplete,
-      confirmedAt: confirmedIso,
-      confirmedBy: payload.confirmedBy?.trim() || activeOperatorName,
-      receptionNotes: payload.receptionNotes?.trim() || undefined,
-      stockUpdated: didUpdateStock
-    };
-
-    const nextOrders = supplierOrdersRef.current.map(o => (o.id === orderId ? updatedOrder : o));
-    supplierOrdersRef.current = nextOrders;
-    setSupplierOrders(nextOrders);
-
-    if (activeUid && activeUid !== 'default') {
-      saveSupplierOrderToFirestore(updatedOrder, activeUid).catch(console.error);
+      return { success: true, updatedOrder: localRes.updatedOrder };
+    } catch (err: any) {
+      console.error('Error al completar valoración de recepción:', err);
+      return {
+        success: false,
+        error: err?.message || 'Error al registrar el precio de la recepción.'
+      };
     }
   };
 
@@ -2636,17 +3026,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         adjustPerishableQuantity,
         recordPerishableWaste,
         recordPerishableRestock,
+        resolvePerishablePendingReconciliation,
+        migratePerishableBaseUnit,
         addSupplier,
         updateSupplier,
         deleteSupplier,
         addSupplierOrder,
         updateSupplierOrder,
         confirmSupplierOrderDelivery,
+        completeReceptionValuation,
         deleteSupplierOrder,
         latestReceipt,
         setLatestReceipt,
         newOrderNotification,
         dismissNewOrderNotification,
+        subscriptionState,
+        isTableOperational,
+        isProductOperational,
+        undoDeletedProduct,
         canAddTable,
         canAddProduct,
         loadFullSalesHistory,

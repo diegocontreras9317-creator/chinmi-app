@@ -7,6 +7,8 @@ import { TablesModule } from './components/tables/TablesModule';
 import { InventoryModule } from './components/inventory/InventoryModule';
 import { PerishablesModule } from './components/perishables/PerishablesModule';
 import { SubscriptionModal } from './components/pricing/SubscriptionModal';
+import { SubscriptionWarningBanner } from './components/pricing/SubscriptionWarningBanner';
+import { OverLimitSelectionModal } from './components/pricing/OverLimitSelectionModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { SalesHistoryModal } from './components/sales/SalesHistoryModal';
 import { ManagerPinModal } from './components/auth/ManagerPinModal';
@@ -22,16 +24,36 @@ import { BillingModule } from './components/billing/BillingModule';
 
 const MainLayout: React.FC = () => {
   const { isGerente, isContabilidad, empleadoActivo } = useAuth();
-  const { theme, customerViewTableId, setCustomerViewTableId } = useApp();
+  const { theme, customerViewTableId, setCustomerViewTableId, subscriptionState } = useApp();
 
   const [activeTab, setActiveTab] = useState<'tables' | 'inventory' | 'perishables' | 'sales' | 'billing'>(() => {
     if (empleadoActivo?.rol === 'Contabilidad') return 'sales';
     return 'tables';
   });
   const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
+  const [isSelectionModalOpen, setIsSelectionModalOpen] = useState(false);
+  const [hasDismissedAutoSelection, setHasDismissedAutoSelection] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (
+      isGerente &&
+      empleadoActivo &&
+      subscriptionState.needsOverLimitSelection &&
+      !hasDismissedAutoSelection &&
+      !isSubscriptionOpen
+    ) {
+      setIsSelectionModalOpen(true);
+    }
+  }, [
+    isGerente,
+    empleadoActivo,
+    subscriptionState.needsOverLimitSelection,
+    hasDismissedAutoSelection,
+    isSubscriptionOpen
+  ]);
 
   // Check if current URL is public customer menu route (/menu or contains restId/uid query)
   const isPublicMenuRoute = typeof window !== 'undefined' && (
@@ -102,6 +124,12 @@ const MainLayout: React.FC = () => {
             }}
           />
 
+          {/* Avisos preventivos de vencimiento, gracia 72h o selección sobre límite */}
+          <SubscriptionWarningBanner
+            onOpenUpgrade={() => setIsSubscriptionOpen(true)}
+            onOpenSelectionModal={() => setIsSelectionModalOpen(true)}
+          />
+
           {/* Main Content Area */}
           <main className="flex-1 pb-12">
             {!isContabilidad && activeTab === 'tables' && (
@@ -146,6 +174,19 @@ const MainLayout: React.FC = () => {
             <SubscriptionModal
               isOpen={isSubscriptionOpen}
               onClose={() => setIsSubscriptionOpen(false)}
+              onOpenSelectionModal={() => setIsSelectionModalOpen(true)}
+            />
+          )}
+
+          {/* Over-limit active items picker (Gerente only) */}
+          {isGerente && (
+            <OverLimitSelectionModal
+              isOpen={isSelectionModalOpen}
+              onClose={() => {
+                setHasDismissedAutoSelection(true);
+                setIsSelectionModalOpen(false);
+              }}
+              onOpenUpgrade={() => setIsSubscriptionOpen(true)}
             />
           )}
 

@@ -4,6 +4,7 @@ import { Product } from '../../types';
 import { formatCOP } from '../../utils/currency';
 import { resolveProductTax } from '../../utils/taxes';
 import { calculateRecipeAvailability } from '../../utils/recipeUnits';
+import { getLiveProductCost } from '../../utils/inventoryCosting';
 import {
   Search,
   Plus,
@@ -30,7 +31,7 @@ interface InventoryModuleProps {
 }
 
 export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscription }) => {
-  const { config, products, addProduct, deleteProduct, adjustProductStock, canAddProduct, perishables, reorderProducts } = useApp();
+  const { config, products, addProduct, deleteProduct, undoDeletedProduct, adjustProductStock, canAddProduct, isProductOperational, perishables, reorderProducts } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas las categorías');
@@ -90,14 +91,22 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
     return matchesCat && matchesSearch && matchesStock && matchesTax;
   });
 
-  // KPI Calculations
+  // KPI Calculations (usando costo live en receta según Costo Promedio Ponderado en Despensa)
   const totalProducts = products.length;
   const lowStockCount = products.filter(p => p.stock <= p.minStock && p.stock > 0).length;
   const outOfStockCount = products.filter(p => p.stock <= 0).length;
   const inventoryTotalValue = products.reduce((sum, p) => sum + (p.price * p.stock), 0);
-  const inventoryTotalCost = products.reduce((sum, p) => sum + (p.cost * p.stock), 0);
+  const inventoryTotalCost = products.reduce((sum, p) => {
+    const liveCost = getLiveProductCost(p, perishables).cost;
+    return sum + (liveCost * p.stock);
+  }, 0);
   const averageMargin = products.length > 0
-    ? Math.round(products.reduce((acc, p) => acc + ((p.price - p.cost) / (p.price || 1)) * 100, 0) / products.length)
+    ? Math.round(
+        products.reduce((acc, p) => {
+          const liveCost = getLiveProductCost(p, perishables).cost;
+          return acc + ((p.price - liveCost) / (p.price || 1)) * 100;
+        }, 0) / products.length
+      )
     : 0;
 
   const handleEdit = (product: Product) => {
@@ -174,7 +183,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
   const handleUndo = () => {
     if (deletedToast) {
       clearTimeout(deletedToast.timer);
-      addProduct(deletedToast.product);
+      undoDeletedProduct(deletedToast.product.id);
       setDeletedToast(null);
     }
   };
@@ -446,7 +455,10 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
             const currentStock = isRecipe ? estimatedPortions : product.stock;
             const isLowStock = currentStock <= product.minStock && currentStock > 0;
             const isOutOfStock = currentStock <= 0;
-            const margin = Math.round(((product.price - product.cost) / (product.price || 1)) * 100);
+            const isOperational = isProductOperational(product);
+            const liveCostInfo = getLiveProductCost(product, perishables);
+            const effectiveCost = liveCostInfo.cost;
+            const margin = Math.round(((product.price - effectiveCost) / (product.price || 1)) * 100);
             const resolvedTax = resolveProductTax(product, config.defaultTaxRate);
 
             {/* === MENÚ TAMAÑO PEQUEÑO (COMPACTO) === */}
@@ -455,7 +467,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                 <div
                   key={product.id}
                   id={`inventory-card-${product.id}`}
-                  className="group p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md transition flex flex-col justify-between"
+                  className={`group p-2.5 rounded-xl bg-white dark:bg-slate-900 border shadow-xs hover:shadow-md transition flex flex-col justify-between ${
+                    isOperational
+                      ? 'border-slate-200 dark:border-slate-800'
+                      : 'border-dashed border-amber-300 dark:border-amber-800/70 opacity-75'
+                  }`}
                 >
                   <div>
                     {/* Foto Compacta */}
@@ -469,6 +485,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       <span className="absolute top-1.5 left-1.5 text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-slate-900/80 text-white backdrop-blur-xs">
                         {product.sku}
                       </span>
+                      {!isOperational && (
+                        <span className="absolute bottom-1.5 right-1.5 text-[8px] font-extrabold px-1.5 py-0.5 rounded bg-amber-600 text-white shadow-xs">
+                          Pausado (Plan Gratis)
+                        </span>
+                      )}
                       {isRecipe && (
                         <span className="absolute bottom-1.5 left-1.5 text-[8px] font-bold px-1 py-0.2 rounded bg-orange-600 text-white flex items-center gap-0.5">
                           <ChefHat className="w-2.5 h-2.5" />
@@ -584,7 +605,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                 <div
                   key={product.id}
                   id={`inventory-card-${product.id}`}
-                  className="group p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-xl transition flex flex-col justify-between"
+                  className={`group p-5 rounded-3xl bg-white dark:bg-slate-900 border shadow-sm hover:shadow-xl transition flex flex-col justify-between ${
+                    isOperational
+                      ? 'border-slate-200 dark:border-slate-800'
+                      : 'border-dashed border-amber-300 dark:border-amber-800/70 opacity-75'
+                  }`}
                 >
                   <div>
                     {/* Foto Grande */}
@@ -598,6 +623,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       <span className="absolute top-3 left-3 text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-slate-900/80 text-white backdrop-blur-xs">
                         SKU: {product.sku}
                       </span>
+                      {!isOperational && (
+                        <span className="absolute bottom-3 right-3 text-xs font-extrabold px-2.5 py-1 rounded-lg bg-amber-600 text-white shadow-xs">
+                          Pausado (Plan Gratis)
+                        </span>
+                      )}
                       {isRecipe && (
                         <span className="absolute bottom-3 left-3 text-xs font-bold px-2.5 py-1 rounded-lg bg-orange-600 text-white shadow-xs flex items-center gap-1.5">
                           <ChefHat className="w-3.5 h-3.5" />
@@ -753,7 +783,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
               <div
                 key={product.id}
                 id={`inventory-card-${product.id}`}
-                className="group p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:shadow-md transition flex flex-col justify-between"
+                className={`group p-3 rounded-2xl bg-white dark:bg-slate-900 border shadow-xs hover:shadow-md transition flex flex-col justify-between ${
+                  isOperational
+                    ? 'border-slate-200 dark:border-slate-800'
+                    : 'border-dashed border-amber-300 dark:border-amber-800/70 opacity-75'
+                }`}
               >
                 <div>
                   {/* Photo with badges */}
@@ -767,6 +801,11 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                     <span className="absolute top-2 left-2 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-900/80 text-white backdrop-blur-xs">
                       {product.sku}
                     </span>
+                    {!isOperational && (
+                      <span className="absolute bottom-2 right-2 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-600 text-white shadow-xs">
+                        Pausado (Plan Gratis)
+                      </span>
+                    )}
                     {isRecipe && (
                       <span className="absolute bottom-2 left-2 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-orange-600 text-white flex items-center gap-1 shadow-xs">
                         <ChefHat className="w-3 h-3" />
@@ -817,8 +856,13 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                     <div className="text-right">
                       <span className="text-[10px] text-slate-400 block leading-tight">Coste / Margen</span>
                       <span className="font-mono text-slate-600 dark:text-slate-400">
-                        {formatCOP(product.cost, false)} <span className="text-emerald-600 font-bold">({margin}%)</span>
+                        {formatCOP(effectiveCost, false)} <span className="text-emerald-600 font-bold">({margin}%)</span>
                       </span>
+                      {(liveCostInfo.hasProvisionalCost || liveCostInfo.hasIncompatibleUnits) && (
+                        <span className="block text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                          {liveCostInfo.hasIncompatibleUnits ? 'Falta equiv.' : 'Costo prov.'}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -947,14 +991,20 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                     ? calculateRecipeAvailability(prod.receta, perishables).estimatedPortions
                     : prod.stock;
                   const currentStock = isRecipe ? estimatedPortions : prod.stock;
+                  const isOperational = isProductOperational(prod);
 
                   return (
-                  <tr key={prod.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                  <tr key={prod.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition ${!isOperational ? 'opacity-70 bg-amber-50/30 dark:bg-amber-950/10' : ''}`}>
                     <td className="px-4 py-3 flex items-center gap-3">
                       <img src={prod.imageUrl} alt={prod.name} className="w-9 h-9 rounded-lg object-cover" />
                       <div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <p className="font-bold text-slate-900 dark:text-white">{prod.name}</p>
+                          {!isOperational && (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                              Pausado (Plan Gratis)
+                            </span>
+                          )}
                           {isRecipe && (
                             <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300 flex items-center gap-0.5">
                               <ChefHat className="w-2.5 h-2.5" />
@@ -974,7 +1024,19 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({ onOpenSubscrip
                       {formatCOP(prod.price, false)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono tabular-nums text-slate-500">
-                      {formatCOP(prod.cost, false)}
+                      {(() => {
+                        const live = getLiveProductCost(prod, perishables);
+                        return (
+                          <div>
+                            <span>{formatCOP(live.cost, false)}</span>
+                            {(live.hasProvisionalCost || live.hasIncompatibleUnits) && (
+                              <span className="block text-[9px] font-bold text-amber-600">
+                                {live.hasIncompatibleUnits ? 'Falta equiv.' : 'Prov.'}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`inline-block font-mono font-bold px-2 py-0.5 rounded-full ${

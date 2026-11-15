@@ -84,6 +84,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
     splitOrderItemBetweenSubaccounts,
     mergeTableSubaccounts,
     unmergeTableSubaccounts,
+    isTableOperational,
+    isProductOperational,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -279,6 +281,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
         name: table.name || 'Mesa',
         seats: Number(table.seats) || 2,
         zone: table.zone || 'Salón Principal',
+        ...(table.active !== undefined ? { active: table.active } : {}),
+        ...(table.inactivatedReason !== undefined ? { inactivatedReason: table.inactivatedReason } : {}),
         status: (table.status === 'libre' && cleanItems.length > 0 ? 'ocupada' : table.status) as TableStatus,
         order: sanitizedOrderPayload,
         updatedAt: nowIso,
@@ -295,7 +299,7 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
       };
 
       const sanitizedTablePayload = sanitizeForFirestore(rawTablePayload);
-      await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), sanitizedTablePayload);
+      await setDoc(doc(db, 'users', activeUid, 'mesas', table.id), sanitizedTablePayload, { merge: true });
 
       setSaveSuccessMsg('Comanda guardada');
       setTimeout(() => {
@@ -486,7 +490,17 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
 
   if (!isOpen) return null;
 
+  const tableOperational = isTableOperational(table);
+
   const handleProductTap = (product: Product) => {
+    if (!tableOperational) {
+      setSaveErrorMsg('Esta mesa está pausada en el Plan Gratis y no admite nuevos pedidos.');
+      return;
+    }
+    if (!isProductOperational(product)) {
+      setSaveErrorMsg(`El producto "${product.name}" está pausado en el Plan Gratis.`);
+      return;
+    }
     addItemToOrder(table.id, product, 1);
     setLastAddedToast(`+1 ${product.name}`);
     setTimeout(() => {
@@ -765,6 +779,8 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                 {filteredProducts.map((product) => {
                   const isLowStock = product.stock <= product.minStock;
                   const isOutOfStock = product.stock <= 0;
+                  const isProdOperational = isProductOperational(product);
+                  const isButtonDisabled = isOutOfStock || !isProdOperational || !tableOperational;
                   const inOrderQty = items.reduce((sum, it) => it.productId === product.id ? sum + it.quantity : sum, 0);
 
                   return (
@@ -772,11 +788,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                       key={product.id}
                       id={`prod-card-${product.id}`}
                       onClick={() => handleProductTap(product)}
-                      disabled={isOutOfStock}
-                      className={`group flex flex-col text-left p-2.5 rounded-2xl border transition-all duration-150 cursor-pointer ${
-                        isOutOfStock
-                          ? 'opacity-40 bg-slate-100 dark:bg-slate-800/40 border-dashed border-slate-300 dark:border-slate-700 cursor-not-allowed'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700/80 hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-md active:scale-[0.98]'
+                      disabled={isButtonDisabled}
+                      className={`group flex flex-col text-left p-2.5 rounded-2xl border transition-all duration-150 ${
+                        isButtonDisabled
+                          ? 'opacity-45 bg-slate-100 dark:bg-slate-800/40 border-dashed border-slate-300 dark:border-slate-700 cursor-not-allowed'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700/80 hover:border-orange-500 dark:hover:border-orange-500 hover:shadow-md active:scale-[0.98] cursor-pointer'
                       }`}
                     >
                       <div className="relative aspect-4/3 w-full rounded-xl overflow-hidden mb-2 bg-slate-100 dark:bg-slate-700">
@@ -789,6 +805,11 @@ export const TableDetailModal: React.FC<TableDetailModalProps> = ({
                         {inOrderQty > 0 && (
                           <span className="absolute bottom-1 left-1 bg-orange-600 text-white font-mono font-black text-[10px] px-2 py-0.5 rounded-full shadow-md">
                             {inOrderQty} en comanda
+                          </span>
+                        )}
+                        {!isProdOperational && (
+                          <span className="absolute top-1 left-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded-sm bg-amber-600 text-white shadow-xs">
+                            Pausado (Gratis)
                           </span>
                         )}
                         {isLowStock && !isOutOfStock && (

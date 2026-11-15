@@ -4,7 +4,7 @@ import { verifySubscriptionWithBackend } from '../../services/epaycoService';
 import { CheckCircle2, Clock, AlertCircle, X, FlaskConical } from 'lucide-react';
 
 export const EpaycoReturnHandler: React.FC = () => {
-  const { user, isLoading, upgradePlan } = useAuth();
+  const { user, isLoading, refreshSubscriptionStatus } = useAuth();
   const [notification, setNotification] = useState<{
     type: 'success' | 'pending' | 'error';
     message: string;
@@ -15,58 +15,58 @@ export const EpaycoReturnHandler: React.FC = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // 1. Extraer la referencia de ePayco de los parámetros URL (redirección PSE / ePayco)
     const params = new URLSearchParams(window.location.search);
     const urlRef = params.get('ref_payco') || params.get('x_ref_payco') || params.get('refPayco');
+    const urlInvoice = params.get('x_id_invoice') || params.get('invoice');
 
     if (urlRef && urlRef.trim()) {
       const cleanUrlRef = urlRef.trim();
       try {
         sessionStorage.setItem('chinmi_pending_epayco_ref', cleanUrlRef);
+        if (urlInvoice && urlInvoice.trim()) {
+          sessionStorage.setItem('chinmi_pending_epayco_invoice', urlInvoice.trim());
+        }
       } catch {}
 
-      // Limpiar parámetros de la URL inmediatamente para evitar ejecuciones o recargas erróneas
       const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
       window.history.replaceState({}, document.title, cleanUrl);
     }
 
-    // 2. Esperar a que la autenticación de Firebase haya finalizado la carga inicial y el usuario esté listo
-    if (isLoading) return;
+    if (isLoading || !user) return;
 
     let pendingRef = '';
+    let pendingInvoice = '';
     try {
       pendingRef = sessionStorage.getItem('chinmi_pending_epayco_ref') || '';
+      pendingInvoice = sessionStorage.getItem('chinmi_pending_epayco_invoice') || '';
     } catch {}
 
     if (!pendingRef || !pendingRef.trim()) return;
 
     const cleanRef = pendingRef.trim();
-
-    // Comprobar si esta referencia ya fue procesada en esta sesión
     const processedKey = `chinmi_processed_epayco_${cleanRef}`;
     if (sessionStorage.getItem(processedKey) === 'true') {
       return;
     }
 
-    // 3. Procesar la verificación en el servidor con los datos del usuario activo
     const processReturn = async () => {
       try {
         const result = await verifySubscriptionWithBackend({
           refPayco: cleanRef,
+          invoice: pendingInvoice || undefined,
           planId: 'monthly',
-          userEmail: user?.email,
-          userId: user?.id
+          userEmail: user.email,
+          userId: user.id
         });
 
         sessionStorage.setItem(processedKey, 'true');
         try {
           sessionStorage.removeItem('chinmi_pending_epayco_ref');
+          sessionStorage.removeItem('chinmi_pending_epayco_invoice');
         } catch {}
 
         if (result.verified && result.status === 'approved') {
-          if (upgradePlan) {
-            upgradePlan('pro', (result.planId as any) || 'monthly', undefined, Boolean(result.isTest));
-          }
+          await refreshSubscriptionStatus();
           setNotification({
             type: 'success',
             message: result.isTest
@@ -85,7 +85,7 @@ export const EpaycoReturnHandler: React.FC = () => {
         } else {
           setNotification({
             type: 'error',
-            message: result.message || 'La transacción ePayco no fue aprobada por la entidad financiera.',
+            message: result.message || result.error || 'La transacción ePayco no fue aprobada por la entidad financiera.',
             refPayco: cleanRef,
             isTest: Boolean(result.isTest)
           });
@@ -100,7 +100,7 @@ export const EpaycoReturnHandler: React.FC = () => {
     };
 
     processReturn();
-  }, [user, isLoading, upgradePlan]);
+  }, [user, isLoading, refreshSubscriptionStatus]);
 
   if (!notification) return null;
 

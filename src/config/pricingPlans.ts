@@ -100,61 +100,61 @@ export interface PlanDifferenceItem {
 export const PLAN_DIFFERENCES: PlanDifferenceItem[] = [
   {
     category: 'Capacidad y Aforo',
-    feature: 'Límite de Mesas Simultáneas',
+    feature: 'Límite de Mesas Activas',
     freeText: 'Hasta 6 mesas activas',
-    proText: 'Mesas ilimitadas (sin tope)',
+    proText: 'Mesas activas sin límite comercial',
     isDifferent: true,
     highlight: true
   },
   {
     category: 'Menú e Inventario',
-    feature: 'Catálogo de Productos',
+    feature: 'Catálogo de Productos Activos',
     freeText: 'Hasta 15 productos en carta',
-    proText: 'Productos y categorías ilimitadas',
+    proText: 'Productos y categorías sin límite comercial',
     isDifferent: true,
     highlight: true
   },
   {
     category: 'Distribución del Local',
     feature: 'Zonas y Ambientes',
-    freeText: '1 zona estándar predeterminada',
-    proText: 'Zonas ilimitadas (Terraza, Salón, Barra, VIP...)',
-    isDifferent: true
+    freeText: 'Incluido (hasta 6 mesas activas)',
+    proText: 'Incluido con mesas sin límite (Terraza, Salón, Barra, VIP...)',
+    isDifferent: false
   },
   {
     category: 'Cocina & Materia Prima',
     feature: 'Despensa de Perecederos e Insumos',
-    freeText: 'No disponible en Gratis',
-    proText: 'Control de caducidades, mermas y semáforo de frescura',
-    isDifferent: true,
-    highlight: true
+    freeText: 'Incluido (recetas, caducidades y mermas)',
+    proText: 'Incluido sin límite de productos asociados',
+    isDifferent: false
   },
   {
     category: 'Experiencia del Cliente',
-    feature: 'Cartas QR en Mesas',
-    freeText: 'QR solo lectura (ver menú)',
-    proText: 'QR interactivo con pedidos móviles y llamada a mesero',
+    feature: 'Cartas QR en Mesas y Subcuentas',
+    freeText: 'Incluido en tus mesas activas (hasta 6)',
+    proText: 'Incluido en todas tus mesas sin límite',
     isDifferent: true
   },
   {
     category: 'Reportes y Administración',
     feature: 'Historial y Exportación de Ventas',
-    freeText: 'Registro básico del turno actual',
-    proText: 'Historial completo sin límite y exportación a Excel / CSV',
-    isDifferent: true
+    freeText: 'Incluido (Excel, CSV y formatos contables)',
+    proText: 'Incluido sin límite de crecimiento de carta',
+    isDifferent: false
   },
   {
     category: 'Operación en Sala',
     feature: 'Sincronización Multi-pantalla',
-    freeText: '1 dispositivo a la vez',
-    proText: 'Tiempo real en múltiples pantallas (Barra, Cocina, Meseros, Caja)',
-    isDifferent: true
+    freeText: 'Incluido en la nube en tiempo real',
+    proText: 'Tiempo real en todas las pantallas y operación ilimitada',
+    isDifferent: false
   },
   {
-    category: 'Tranquilidad y Respaldo',
-    feature: 'Copias de Seguridad y Soporte',
-    freeText: 'Soporte estándar comunitario',
-    proText: 'Soporte prioritario 24/7 y copias continuas en la nube',
-    isDifferent: true
+    category: 'Continuidad y Respaldo',
+    feature: 'Período de Gracia y Soporte',
+    freeText: 'Datos siempre conservados',
+    proText: '72 horas de gracia ante vencimiento + soporte prioritario',
+    isDifferent: true,
+    highlight: true
   }
 ];

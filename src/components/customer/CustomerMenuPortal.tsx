@@ -479,9 +479,10 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
     return basePrice;
   };
 
-  // Filter products
+  // Filter products (hide paused products marked active === false)
   const filteredProducts = useMemo(() => {
     const list = activeProducts.filter(p => {
+      if (p.active === false) return false;
       const matchesCat = selectedCategory === 'Todas las categorías' || p.category === selectedCategory;
       const matchesQuery = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            (p.description || '').toLowerCase().includes(searchQuery.toLowerCase());
@@ -581,6 +582,7 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   // Add product to cart
   const handleAddToCart = (product: Product, notes?: string) => {
     if (!canOrder) return;
+    if (product.active === false) return;
     if (product.stock <= 0) return;
 
     setCart(prev => {
@@ -637,6 +639,11 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
   // Submit cart order directly to kitchen/POS using atomic transaction (prevents multi-phone overwrites)
   const handleSendOrder = async () => {
     if (!table || cart.length === 0 || !canOrder) return;
+    const hasOpenOrder = Boolean(table.order && !table.order.closed && Array.isArray(table.order.items) && table.order.items.length > 0);
+    if (table.active === false && !hasOpenOrder) {
+      setPortalErrorMsg('Esta mesa se encuentra temporalmente pausada en el plan actual del restaurante.');
+      return;
+    }
     setPortalErrorMsg(null);
 
     const desiredGuestName = (activeSubaccountName || customerName).trim();
@@ -916,6 +923,40 @@ export const CustomerMenuPortal: React.FC<CustomerMenuPortalProps> = ({
             <span className="w-5 h-5 rounded-md bg-rose-950 text-white flex items-center justify-center font-bold text-[10px]">3</span>
             <span>Accede al menú interactivo</span>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  const hasOpenOrderOnTable = Boolean(
+    table.order &&
+    !table.order.closed &&
+    Array.isArray(table.order.items) &&
+    table.order.items.length > 0
+  );
+
+  if (table.active === false && !hasOpenOrderOnTable) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/70 rounded-3xl p-6 sm:p-8 shadow-xl space-y-4">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center">
+            <AlertCircle className="w-7 h-7" />
+          </div>
+          <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
+            Mesa temporalmente pausada
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            La mesa <strong>{table.name}</strong> se encuentra temporalmente pausada en el plan actual del restaurante. Por favor solicita atención a un mesero para ubicarte en una mesa habilitada.
+          </p>
+          {onExit && (
+            <button
+              type="button"
+              onClick={handleExitPortal}
+              className="mt-2 px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold cursor-pointer"
+            >
+              Volver
+            </button>
+          )}
         </div>
       </div>
     );

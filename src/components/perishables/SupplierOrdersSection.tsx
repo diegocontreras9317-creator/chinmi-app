@@ -10,10 +10,13 @@ import {
   Trash2,
   ClipboardCheck,
   Truck,
-  Check
+  Check,
+  DollarSign
 } from 'lucide-react';
 import { SupplierOrder, SupplierOrderStatus } from '../../types';
 import { compareQuantities, formatQuantity } from '../../utils/quantityPrecision';
+import { formatCOP } from '../../utils/currency';
+import { formatPackagingLabel } from '../../utils/perishableUtils';
 
 interface SupplierOrdersSectionProps {
   orders: SupplierOrder[];
@@ -21,6 +24,13 @@ interface SupplierOrdersSectionProps {
   onOpenConfirmModal: (order: SupplierOrder) => void;
   onQuickConfirmComplete: (order: SupplierOrder) => void;
   onDeleteOrder: (orderId: string) => void;
+  onCompleteValuation?: (params: {
+    orderId: string;
+    receptionEventId: string;
+    orderItemId: string;
+    unitPrice?: number;
+    totalPrice?: number;
+  }) => Promise<{ success: boolean; error?: string } | void> | void;
 }
 
 type OrderFilter = 'all' | SupplierOrderStatus;
@@ -64,12 +74,19 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
   onOpenNewOrder,
   onOpenConfirmModal,
   onQuickConfirmComplete,
-  onDeleteOrder
+  onDeleteOrder,
+  onCompleteValuation
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderFilter>('all');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const [valuingKey, setValuingKey] = useState<string | null>(null);
+  const [valMode, setValMode] = useState<'total' | 'unit'>('total');
+  const [valAmount, setValAmount] = useState<string>('');
+  const [valError, setValError] = useState<string | null>(null);
+  const [valSaving, setValSaving] = useState(false);
 
   const stats = useMemo(() => {
     let pending = 0;
@@ -112,6 +129,40 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
     });
   }, [orders, searchQuery, selectedDate, statusFilter]);
 
+  const handleSaveValuation = async (
+    orderId: string,
+    receptionEventId: string,
+    orderItemId: string
+  ) => {
+    if (!onCompleteValuation || valSaving) return;
+    const num = parseFloat(valAmount);
+    if (isNaN(num) || num <= 0) {
+      setValError('Ingresa un valor mayor a 0.');
+      return;
+    }
+    setValError(null);
+    setValSaving(true);
+    try {
+      const res = await onCompleteValuation({
+        orderId,
+        receptionEventId,
+        orderItemId,
+        ...(valMode === 'unit' ? { unitPrice: num } : { totalPrice: num })
+      });
+      if (res && res.success === false) {
+        setValError(res.error || 'Error al registrar precio.');
+        setValSaving(false);
+        return;
+      }
+      setValuingKey(null);
+      setValAmount('');
+    } catch (err: any) {
+      setValError(err?.message || 'Error al registrar precio.');
+    } finally {
+      setValSaving(false);
+    }
+  };
+
   const handleExportOrdersCSV = () => {
     if (orders.length === 0) return;
 
@@ -126,6 +177,8 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
       'Estado',
       'Llego',
       'Llego Completo',
+      'Total Valorado COP',
+      'Valoracion Pendiente',
       'Fecha y Hora Confirmacion',
       'Recibido Por',
       'Notas Recepcion'
@@ -156,6 +209,8 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
         `"${statusText}"`,
         o.arrived ? 'SI' : 'NO',
         o.arrivedComplete ? 'SI' : 'NO',
+        o.totalAmount || 0,
+        o.hasPendingValuation ? 'SI' : 'NO',
         `"${confirmedStr}"`,
         `"${(o.confirmedBy || '').replace(/"/g, '""')}"`,
         `"${(o.receptionNotes || o.notes || '').replace(/"/g, '""')}"`
@@ -177,7 +232,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* KPI Summary Strip - Single elevation, hairline dividers, tabular figures */}
+      {/* KPI Summary Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 dark:divide-slate-800 overflow-hidden">
         <div className="p-4">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
@@ -208,7 +263,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
 
         <div className="p-4">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
-            Con faltantes o novedad
+            Con faltantes o parciales
           </span>
           <span className="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums mt-1 block">
             {stats.incomplete}
@@ -219,7 +274,6 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
       {/* Filters & Primary Action Toolbar */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Search */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -240,7 +294,6 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
             )}
           </div>
 
-          {/* Date Picker Filter */}
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-850">
               <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -283,7 +336,6 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
           </div>
         </div>
 
-        {/* Segmented Status Controls */}
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-850 rounded-lg border border-slate-200/70 dark:border-slate-800 overflow-x-auto">
           {(
             [
@@ -309,7 +361,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
         </div>
       </div>
 
-      {/* Orders List / Table */}
+      {/* Orders Table */}
       {filteredOrders.length === 0 ? (
         <div className="p-10 sm:p-12 text-center bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
           <div className="w-12 h-12 mx-auto rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-center">
@@ -345,7 +397,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                   <th className="py-3 px-4 whitespace-nowrap">Fecha y Hora</th>
                   <th className="py-3 px-4 whitespace-nowrap">Distribuidor</th>
                   <th className="py-3 px-4">Productos Solicitados</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Confirmación de Llegada</th>
+                  <th className="py-3 px-4 whitespace-nowrap">Recepción & Valoración</th>
                   <th className="py-3 px-4 text-right whitespace-nowrap">Acciones</th>
                 </tr>
               </thead>
@@ -353,13 +405,19 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                 {filteredOrders.map(order => {
                   const isComplete = order.status === 'recibido_completo';
                   const isIncomplete = order.status === 'recibido_incompleto';
+                  const events = order.receptionEvents || [];
+                  const unvaluedItems = events.flatMap(ev =>
+                    ev.items
+                      .filter(ei => ei.valuationStatus === 'pending_valuation')
+                      .map(ei => ({ evId: ev.id, ei }))
+                  );
 
                   return (
                     <tr
                       key={order.id}
                       className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors align-top"
                     >
-                      {/* Fecha y hora del pedido */}
+                      {/* Fecha y hora */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="font-bold text-slate-900 dark:text-white font-mono tabular-nums">
                           {formatDatePart(order.orderedAt)}
@@ -382,34 +440,46 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                             {order.supplierPhone}
                           </div>
                         )}
+                        {order.totalAmount && order.totalAmount > 0 ? (
+                          <div className="text-[11px] font-mono font-bold text-emerald-700 dark:text-emerald-400 mt-1">
+                            Total: {formatCOP(order.totalAmount)}
+                          </div>
+                        ) : null}
                       </td>
 
                       {/* Productos solicitados */}
-                      <td className="py-3.5 px-4 min-w-[220px]">
-                        <div className="space-y-1">
+                      <td className="py-3.5 px-4 min-w-[230px]">
+                        <div className="space-y-1.5">
                           {(order.items || []).map(it => {
+                            const cum = it.cumulativeReceivedQty ?? (it.received ? it.receivedQuantity ?? 0 : 0);
                             const hasShortfall =
                               isIncomplete &&
-                              (it.received === false ||
-                                (it.receivedQuantity !== undefined &&
-                                  compareQuantities(it.receivedQuantity, it.quantity) < 0));
+                              (it.received === false || compareQuantities(cum, it.quantity) < 0);
                             return (
                               <div
                                 key={it.id}
                                 className="flex items-baseline justify-between gap-3 text-xs"
                               >
-                                <span
-                                  className={`font-medium ${
-                                    hasShortfall
-                                      ? 'text-amber-700 dark:text-amber-300'
-                                      : 'text-slate-800 dark:text-slate-200'
-                                  }`}
-                                >
-                                  {it.name}
-                                </span>
+                                <div className="min-w-0">
+                                  <span
+                                    className={`font-medium block ${
+                                      hasShortfall
+                                        ? 'text-amber-700 dark:text-amber-300'
+                                        : 'text-slate-800 dark:text-slate-200'
+                                    }`}
+                                  >
+                                    {it.name}
+                                  </span>
+                                  {it.contentQty && it.contentUnit && (
+                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
+                                      {it.presentationName || formatPackagingLabel(it.packagingType)} (x
+                                      {formatQuantity(it.contentQty)} {it.contentUnit})
+                                    </span>
+                                  )}
+                                </div>
                                 <span className="font-mono tabular-nums text-[11px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
                                   {hasShortfall
-                                    ? `${formatQuantity(it.receivedQuantity ?? 0)}/${formatQuantity(it.quantity)} ${it.unit}`
+                                    ? `${formatQuantity(cum)}/${formatQuantity(it.quantity)} ${it.unit}`
                                     : `${formatQuantity(it.quantity)} ${it.unit}`}
                                 </span>
                               </div>
@@ -423,18 +493,23 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                         )}
                       </td>
 
-                      {/* Estado y confirmación de llegada completa */}
-                      <td className="py-3.5 px-4 min-w-[210px]">
+                      {/* Estado, recepciones y valoración tardía */}
+                      <td className="py-3.5 px-4 min-w-[230px]">
                         {isComplete ? (
                           <div className="space-y-0.5">
                             <div className="font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
                               <CheckCircle2 className="w-4 h-4 shrink-0" />
-                              <span>Todo llegó y llegó completo</span>
+                              <span>Todo llegó completo</span>
                             </div>
                             {order.confirmedAt && (
                               <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                                 {formatDatePart(order.confirmedAt)} · {formatTimePart(order.confirmedAt)}
                                 {order.confirmedBy ? ` · ${order.confirmedBy}` : ''}
+                              </div>
+                            )}
+                            {events.length > 0 && (
+                              <div className="text-[11px] text-slate-600 dark:text-slate-300 font-medium">
+                                Entregas registradas: {events.length}
                               </div>
                             )}
                             {order.stockUpdated && (
@@ -452,12 +527,17 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                           <div className="space-y-0.5">
                             <div className="font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
                               <AlertTriangle className="w-4 h-4 shrink-0" />
-                              <span>Llegó incompleto / con novedad</span>
+                              <span>Recepción parcial / novedad</span>
                             </div>
                             {order.confirmedAt && (
                               <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                                 {formatDatePart(order.confirmedAt)} · {formatTimePart(order.confirmedAt)}
                                 {order.confirmedBy ? ` · ${order.confirmedBy}` : ''}
+                              </div>
+                            )}
+                            {events.length > 0 && (
+                              <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                                Entregas registradas: {events.length}
                               </div>
                             )}
                             {order.receptionNotes && (
@@ -477,6 +557,94 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                             </div>
                           </div>
                         )}
+
+                        {/* Valoración pendiente */}
+                        {unvaluedItems.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-extrabold">
+                              <DollarSign className="w-3 h-3" />
+                              <span>Precio pendiente ({unvaluedItems.length})</span>
+                            </span>
+
+                            {unvaluedItems.map(({ evId, ei }) => {
+                              const k = `${order.id}-${evId}-${ei.orderItemId}`;
+                              const isOpenInline = valuingKey === k;
+                              return (
+                                <div key={k} className="text-[11px] space-y-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-slate-700 dark:text-slate-300 truncate">
+                                      {ei.insumoName} ({formatQuantity(ei.receivedPresentationQty)})
+                                    </span>
+                                    {onCompleteValuation && !isOpenInline && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setValuingKey(k);
+                                          setValMode('total');
+                                          setValAmount('');
+                                          setValError(null);
+                                        }}
+                                        className="px-2 py-0.5 rounded bg-slate-900 dark:bg-slate-700 text-white text-[10px] font-bold hover:bg-slate-800 cursor-pointer shrink-0"
+                                      >
+                                        Completar precio
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {isOpenInline && (
+                                    <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700 space-y-1.5">
+                                      <div className="flex items-center gap-1">
+                                        <select
+                                          value={valMode}
+                                          onChange={e =>
+                                            setValMode(e.target.value as 'total' | 'unit')
+                                          }
+                                          className="px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[10px] font-bold"
+                                        >
+                                          <option value="total">Total COP</option>
+                                          <option value="unit">Unit. COP</option>
+                                        </select>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          step="any"
+                                          value={valAmount}
+                                          onChange={e => setValAmount(e.target.value)}
+                                          placeholder="Valor COP"
+                                          className="w-full px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
+                                        />
+                                      </div>
+                                      {valError && (
+                                        <p className="text-[10px] text-rose-600 font-semibold">
+                                          {valError}
+                                        </p>
+                                      )}
+                                      <div className="flex justify-end gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => setValuingKey(null)}
+                                          className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] font-bold cursor-pointer"
+                                        >
+                                          Cancelar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={valSaving}
+                                          onClick={() =>
+                                            handleSaveValuation(order.id, evId, ei.orderItemId)
+                                          }
+                                          className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold cursor-pointer disabled:opacity-50"
+                                        >
+                                          {valSaving ? 'Guardando...' : 'Guardar'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </td>
 
                       {/* Acciones */}
@@ -487,7 +655,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onQuickConfirmComplete(order)}
-                                title="Confirmar en un clic que todo llegó y llegó completo"
+                                title="Confirmar en un clic que todo llegó completo"
                                 className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold transition inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -499,7 +667,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                                 onClick={() => onOpenConfirmModal(order)}
                                 className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold transition cursor-pointer whitespace-nowrap"
                               >
-                                Verificar
+                                Recibir / Detalle
                               </button>
                             </>
                           )}
@@ -510,7 +678,7 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                               onClick={() => onOpenConfirmModal(order)}
                               className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition cursor-pointer whitespace-nowrap"
                             >
-                              Completar Entrega
+                              Registrar Nueva Entrega
                             </button>
                           )}
 

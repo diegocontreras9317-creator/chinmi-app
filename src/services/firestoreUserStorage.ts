@@ -34,9 +34,22 @@ import {
 import { AppConfig } from '../config/appConfig';
 import {
   computeSaleInventoryUpdates,
-  normalizePerishableRecord
+  deductFromLotsFEFO,
+  addLotToPerishable,
+  normalizePerishableRecord,
+  resolveSinglePendingReconciliation
 } from '../utils/recipeUnits';
-import { toScaledQuantity } from '../utils/quantityPrecision';
+import { calculateWeightedMovingAverageCost } from '../utils/inventoryCosting';
+import {
+  processDelayedValuationForOrderEvent,
+  processSupplierOrderReception,
+  ReceptionLineInput
+} from '../utils/supplierReception';
+import {
+  normalizeNonNegativeQuantity,
+  scaledToNumber,
+  toScaledQuantity
+} from '../utils/quantityPrecision';
 import {
   normalizeEmpleadoRecord,
   normalizeEmpleadoRol,
@@ -966,22 +979,32 @@ export async function deleteProductFromFirestore(productId: string, targetUid?: 
   }
 }
 
+function buildInventoryPersistencePayload(item: PerishableItem, uid: string, nowIso: string) {
+  const cleanItem = normalizePerishableRecord(item);
+  const remainingScaled = toScaledQuantity(cleanItem.quantity);
+  const minScaled = toScaledQuantity(cleanItem.minStock);
+  return sanitizeForFirestore({
+    ...cleanItem,
+    cantidadActual: cleanItem.quantity,
+    alertaStockMinimo: cleanItem.minStock,
+    hasLowStockAlert: remainingScaled <= minScaled,
+    isOutOfStock: remainingScaled <= 0n,
+    lastUpdated: nowIso,
+    userId: uid
+  });
+}
+
 export async function saveInventoryItemToFirestore(item: PerishableItem, targetUid?: string): Promise<void> {
   const uid = getActiveUserId(targetUid);
   if (!uid || !item.id) return;
   const path = `users/${uid}/inventario/${item.id}`;
   try {
-    const cleanItem = normalizePerishableRecord(item);
-    await setDoc(
-      doc(db, 'users', uid, 'inventario', item.id),
-      sanitizeForFirestore({
-        ...cleanItem,
-        cantidadActual: cleanItem.quantity,
-        alertaStockMinimo: cleanItem.minStock,
-        userId: uid
-      }),
-      { merge: true }
-    );
+    const nowIso = new Date().toISOString();
+    const payload = buildInventoryPersistencePayload(item, uid, nowIso);
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'users', uid, 'inventario', item.id), payload, { merge: true });
+    batch.set(doc(db, 'users', uid, 'despensa', item.id), payload, { merge: true });
+    await batch.commit();
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
     throw err;
@@ -993,7 +1016,10 @@ export async function deleteInventoryItemFromFirestore(itemId: string, targetUid
   if (!uid || !itemId) return;
   const path = `users/${uid}/inventario/${itemId}`;
   try {
-    await deleteDoc(doc(db, 'users', uid, 'inventario', itemId));
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users', uid, 'inventario', itemId));
+    batch.delete(doc(db, 'users', uid, 'despensa', itemId));
+    await batch.commit();
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
     throw err;
@@ -1102,6 +1128,43 @@ export interface SaleBatchResult {
  * - Libera la mesa en users/{uid}/mesas/{tableId}.
  * - Cierra la comanda en users/{uid}/pedidos/{orderId}.
  */
+function collectTouchedInventoryAndProductIds(
+  orderItems: Array<{ productId?: string; name?: string }>,
+  productsCatalog: Product[]
+): { insumoIds: string[]; directProductIds: string[]; recipeProductIds: string[] } {
+  const insumoSet = new Set<string>();
+  const directSet = new Set<string>();
+  const recipeSet = new Set<string>();
+
+  (orderItems || []).forEach((item) => {
+    const prod = productsCatalog.find(
+      (p) => (item.productId && p.id === item.productId) || (item.name && p.name === item.name)
+    );
+    if (!prod) return;
+    if (prod.tipoInventario === 'receta' && Array.isArray(prod.receta) && prod.receta.length > 0) {
+      recipeSet.add(prod.id);
+      prod.receta.forEach((ing) => {
+        if (ing.insumoId) insumoSet.add(ing.insumoId);
+      });
+    } else {
+      directSet.add(prod.id);
+    }
+  });
+
+  return {
+    insumoIds: Array.from(insumoSet),
+    directProductIds: Array.from(directSet),
+    recipeProductIds: Array.from(recipeSet)
+  };
+}
+
+/**
+ * Procesa la venta y el descuento de inventario mediante Firestore runTransaction con idempotencia por saleId:
+ * - Lee el estado fresco de inventario en Firestore antes de descontar para evitar race conditions.
+ * - Soporta consumo FEFO por lotes y registra conciliaciones pendientes en lugar de descontar 1:1 silenciosamente.
+ * - Para productos 'directo': descuenta stock de menu/{id} y productos/{id}.
+ * - Registra la venta en users/{uid}/ventas/{sale.id}, libera mesa y cierra comanda atómicamente.
+ */
 export async function executeSaleCheckoutBatch(params: {
   uid: string;
   tableId: string;
@@ -1117,115 +1180,142 @@ export async function executeSaleCheckoutBatch(params: {
     throw new Error('executeSaleCheckoutBatch abortado: UID no autenticado');
   }
 
-  const batch = writeBatch(db);
-  const nowIso = new Date().toISOString();
+  const saleRef = doc(db, 'users', uid, 'ventas', receipt.id);
+  const tableRef = doc(db, 'users', uid, 'mesas', tableId);
+  const orderRef = orderId ? doc(db, 'users', uid, 'pedidos', orderId) : null;
+  const touched = collectTouchedInventoryAndProductIds(orderItems, productsCatalog);
 
-  // 1-3. Calcular deducciones exactas de insumos, productos directos y porciones de recetas
-  const {
-    updatedPerishables,
-    updatedProducts,
-    deductedPerishableIds,
-    deductedDirectProductIds,
-    recipeProductIds,
-    lowStockAlerts
-  } = computeSaleInventoryUpdates({
-    orderItems,
-    productsCatalog,
-    perishablesList
-  });
+  return runTransaction(db, async (tx) => {
+    const nowIso = new Date().toISOString();
 
-  const deductedPerishableSet = new Set(deductedPerishableIds);
-  const productIdsToPersist = new Set([...deductedDirectProductIds, ...recipeProductIds]);
+    const saleSnap = await tx.get(saleRef);
+    if (saleSnap.exists()) {
+      return {
+        updatedProducts: productsCatalog,
+        updatedPerishables: perishablesList,
+        lowStockAlerts: []
+      };
+    }
 
-  updatedPerishables.forEach((item) => {
-    if (!deductedPerishableSet.has(item.id)) return;
-    const remaining = item.quantity;
-    const minStock = item.minStock;
-    const remainingScaled = toScaledQuantity(remaining);
-    const minScaled = toScaledQuantity(minStock);
-    const isLow = remainingScaled <= minScaled;
-    const isOut = remainingScaled <= 0n;
+    const invSnaps = await Promise.all(
+      touched.insumoIds.map((id) => tx.get(doc(db, 'users', uid, 'inventario', id)))
+    );
+    const directSnaps = await Promise.all(
+      touched.directProductIds.map((id) => tx.get(doc(db, 'users', uid, 'menu', id)))
+    );
 
-    const invData = sanitizeForFirestore({
-      quantity: remaining,
-      cantidadActual: remaining,
-      alertaStockMinimo: minStock,
-      hasLowStockAlert: isLow,
-      isOutOfStock: isOut,
-      lastUpdated: nowIso
+    const livePerishablesMap = new Map<string, PerishableItem>();
+    perishablesList.forEach((p) => livePerishablesMap.set(p.id, p));
+    invSnaps.forEach((snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as PerishableItem;
+        livePerishablesMap.set(snap.id, { ...data, id: snap.id });
+      }
     });
 
-    // Actualizar en users/{uid}/inventario
-    const invRef = doc(db, 'users', uid, 'inventario', item.id);
-    batch.set(invRef, invData, { merge: true });
+    const liveProductsMap = new Map<string, Product>();
+    productsCatalog.forEach((p) => liveProductsMap.set(p.id, p));
+    directSnaps.forEach((snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as Product;
+        liveProductsMap.set(snap.id, { ...data, id: snap.id });
+      }
+    });
 
-    // Actualizar en users/{uid}/despensa para compatibilidad total
-    const despensaRef = doc(db, 'users', uid, 'despensa', item.id);
-    batch.set(despensaRef, { id: item.id, ...invData }, { merge: true });
-  });
+    const comp = computeSaleInventoryUpdates({
+      orderItems,
+      productsCatalog: Array.from(liveProductsMap.values()),
+      perishablesList: Array.from(livePerishablesMap.values()),
+      saleId: receipt.id,
+      paymentId: receipt.paymentId,
+      nowIso
+    });
 
-  updatedProducts.forEach((prod) => {
-    if (!productIdsToPersist.has(prod.id)) return;
-    const menuRef = doc(db, 'users', uid, 'menu', prod.id);
-    const prodRef = doc(db, 'users', uid, 'productos', prod.id);
-    batch.set(menuRef, { stock: prod.stock, lastUpdated: nowIso }, { merge: true });
-    batch.set(prodRef, { stock: prod.stock, lastUpdated: nowIso }, { merge: true });
-  });
+    const touchedPerishablesSet = new Set([
+      ...comp.deductedPerishableIds,
+      ...comp.reconciledPerishableIds
+    ]);
+    const productIdsToPersist = new Set([
+      ...comp.deductedDirectProductIds,
+      ...comp.recipeProductIds
+    ]);
 
-  // 4. Guardar Venta
-  const saleRef = doc(db, 'users', uid, 'ventas', receipt.id);
-  batch.set(saleRef, sanitizeForFirestore({ ...receipt, userId: uid }), { merge: true });
+    comp.updatedPerishables.forEach((item) => {
+      if (!touchedPerishablesSet.has(item.id)) return;
+      const payload = buildInventoryPersistencePayload(item, uid, nowIso);
+      tx.set(doc(db, 'users', uid, 'inventario', item.id), payload, { merge: true });
+      tx.set(doc(db, 'users', uid, 'despensa', item.id), payload, { merge: true });
+    });
 
-  // 5. Liberar Mesa
-  const tableRef = doc(db, 'users', uid, 'mesas', tableId);
-  batch.set(
-    tableRef,
-    sanitizeForFirestore({
-      id: tableId,
-      status: 'libre',
-      estado: 'libre',
-      order: null,
-      currentOrder: null,
-      pedidoActual: null,
-      waiterCall: null,
-      updatedAt: nowIso,
-      userId: uid
-    }),
-    { merge: true }
-  );
+    comp.updatedProducts.forEach((prod) => {
+      if (!productIdsToPersist.has(prod.id)) return;
+      tx.set(doc(db, 'users', uid, 'menu', prod.id), { stock: prod.stock, lastUpdated: nowIso }, { merge: true });
+      tx.set(doc(db, 'users', uid, 'productos', prod.id), { stock: prod.stock, lastUpdated: nowIso }, { merge: true });
+    });
 
-  // 6. Cerrar Comanda
-  if (orderId) {
-    const orderRef = doc(db, 'users', uid, 'pedidos', orderId);
-    batch.set(
-      orderRef,
+    const annotatedItems = (receipt.items || []).map((it, idx) => {
+      const status = comp.orderItemInventoryStatuses[it.id || `line-${idx}`];
+      const recIds = comp.pendingReconciliations
+        .filter((r) => (it.id ? r.orderItemId === it.id : r.productId === it.productId))
+        .map((r) => r.id);
+      return {
+        ...it,
+        inventoryDeducted: status === 'deducted',
+        ...(status ? { inventoryStatus: status } : {}),
+        ...(recIds.length > 0 ? { pendingReconciliationIds: recIds } : {})
+      };
+    });
+
+    tx.set(
+      saleRef,
       sanitizeForFirestore({
-        id: orderId,
-        estado: 'pagada',
-        status: 'pagada',
-        closed: true,
-        closedAt: nowIso,
-        items: [],
-        productos: []
+        ...receipt,
+        items: annotatedItems,
+        userId: uid
       }),
       { merge: true }
     );
-  }
 
-  // 7. Ejecutar transacción / Batch Write atómico
-  try {
-    await batch.commit();
-    console.log('Éxito al ejecutar executeSaleCheckoutBatch en Firebase para venta:', receipt.id);
-  } catch (error) {
-    console.error('ERROR CRÍTICO EN FIREBASE al ejecutar batch write de venta:', error);
-    throw error;
-  }
+    tx.set(
+      tableRef,
+      sanitizeForFirestore({
+        id: tableId,
+        status: 'libre',
+        estado: 'libre',
+        order: null,
+        currentOrder: null,
+        pedidoActual: null,
+        waiterCall: null,
+        tableSessionId: null,
+        subaccounts: [],
+        updatedAt: nowIso,
+        userId: uid
+      }),
+      { merge: true }
+    );
 
-  return {
-    updatedProducts,
-    updatedPerishables,
-    lowStockAlerts
-  };
+    if (orderRef) {
+      tx.set(
+        orderRef,
+        sanitizeForFirestore({
+          id: orderId,
+          estado: 'pagada',
+          status: 'pagada',
+          closed: true,
+          closedAt: nowIso,
+          items: [],
+          productos: []
+        }),
+        { merge: true }
+      );
+    }
+
+    return {
+      updatedProducts: comp.updatedProducts,
+      updatedPerishables: comp.updatedPerishables,
+      lowStockAlerts: comp.lowStockAlerts
+    };
+  });
 }
 
 /**
@@ -1557,6 +1647,12 @@ export async function submitQrOrderTransaction(params: {
           items: mergedPedidoItems,
         };
       }
+    }
+
+    if (tableData.active === false && !activeOrder) {
+      throw new Error(
+        'Esta mesa está temporalmente inactiva en el plan actual del restaurante. Por favor consulta con el personal o escanea una mesa activa.'
+      );
     }
 
     const tableSessionId =
@@ -1895,28 +1991,10 @@ export async function executePartialOrFullCheckoutTransaction(params: {
     throw new Error('executePartialOrFullCheckoutTransaction abortado: UID no autenticado');
   }
 
-  // Calcular deducciones únicamente para los ítems que todavía no han descontado inventario
-  const inventoryResult =
-    plan.itemsRequiringInventoryDeduction.length > 0
-      ? computeSaleInventoryUpdates({
-          orderItems: plan.itemsRequiringInventoryDeduction,
-          productsCatalog,
-          perishablesList,
-        })
-      : {
-          updatedPerishables: perishablesList,
-          updatedProducts: productsCatalog,
-          deductedPerishableIds: [],
-          deductedDirectProductIds: [],
-          recipeProductIds: [],
-          lowStockAlerts: [],
-        };
-
-  const deductedPerishableSet = new Set(inventoryResult.deductedPerishableIds);
-  const productIdsToPersist = new Set([
-    ...inventoryResult.deductedDirectProductIds,
-    ...inventoryResult.recipeProductIds,
-  ]);
+  const touched = collectTouchedInventoryAndProductIds(
+    plan.itemsRequiringInventoryDeduction,
+    productsCatalog
+  );
 
   const paymentRef = doc(db, 'users', uid, 'pagos_mesa', paymentRecord.id);
   const saleRef = doc(db, 'users', uid, 'ventas', receipt.id);
@@ -1928,7 +2006,12 @@ export async function executePartialOrFullCheckoutTransaction(params: {
 
     const paymentSnap = await tx.get(paymentRef);
     if (paymentSnap.exists()) {
-      return { idempotentDuplicate: true };
+      return {
+        idempotentDuplicate: true,
+        updatedProducts: productsCatalog,
+        updatedPerishables: perishablesList,
+        lowStockAlerts: []
+      };
     }
 
     const tableSnap = await tx.get(tableRef);
@@ -1940,6 +2023,62 @@ export async function executePartialOrFullCheckoutTransaction(params: {
         throw new Error('Esta comanda ya fue pagada y cerrada.');
       }
     }
+
+    const invSnaps = await Promise.all(
+      touched.insumoIds.map((id) => tx.get(doc(db, 'users', uid, 'inventario', id)))
+    );
+    const directSnaps = await Promise.all(
+      touched.directProductIds.map((id) => tx.get(doc(db, 'users', uid, 'menu', id)))
+    );
+
+    const livePerishablesMap = new Map<string, PerishableItem>();
+    perishablesList.forEach((p) => livePerishablesMap.set(p.id, p));
+    invSnaps.forEach((snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as PerishableItem;
+        livePerishablesMap.set(snap.id, { ...data, id: snap.id });
+      }
+    });
+
+    const liveProductsMap = new Map<string, Product>();
+    productsCatalog.forEach((p) => liveProductsMap.set(p.id, p));
+    directSnaps.forEach((snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as Product;
+        liveProductsMap.set(snap.id, { ...data, id: snap.id });
+      }
+    });
+
+    const inventoryResult =
+      plan.itemsRequiringInventoryDeduction.length > 0
+        ? computeSaleInventoryUpdates({
+            orderItems: plan.itemsRequiringInventoryDeduction,
+            productsCatalog: Array.from(liveProductsMap.values()),
+            perishablesList: Array.from(livePerishablesMap.values()),
+            saleId: receipt.id,
+            paymentId: paymentRecord.id,
+            nowIso,
+          })
+        : {
+            updatedPerishables: Array.from(livePerishablesMap.values()),
+            updatedProducts: Array.from(liveProductsMap.values()),
+            deductedPerishableIds: [],
+            deductedDirectProductIds: [],
+            recipeProductIds: [],
+            pendingReconciliations: [],
+            reconciledPerishableIds: [],
+            orderItemInventoryStatuses: {},
+            lowStockAlerts: [],
+          };
+
+    const touchedPerishablesSet = new Set([
+      ...inventoryResult.deductedPerishableIds,
+      ...inventoryResult.reconciledPerishableIds,
+    ]);
+    const productIdsToPersist = new Set([
+      ...inventoryResult.deductedDirectProductIds,
+      ...inventoryResult.recipeProductIds,
+    ]);
 
     // 1. Guardar pago idempotente
     tx.set(
@@ -1959,23 +2098,12 @@ export async function executePartialOrFullCheckoutTransaction(params: {
       })
     );
 
-    // 3. Persistir inventario/despensa/productos descontados en este turno
+    // 3. Persistir inventario/despensa/productos descontados o conciliados en este turno
     inventoryResult.updatedPerishables.forEach((item) => {
-      if (!deductedPerishableSet.has(item.id)) return;
-      const remaining = item.quantity;
-      const minStock = item.minStock;
-      const remainingScaled = toScaledQuantity(remaining);
-      const minScaled = toScaledQuantity(minStock);
-      const invData = sanitizeForFirestore({
-        quantity: remaining,
-        cantidadActual: remaining,
-        alertaStockMinimo: minStock,
-        hasLowStockAlert: remainingScaled <= minScaled,
-        isOutOfStock: remainingScaled <= 0n,
-        lastUpdated: nowIso,
-      });
-      tx.set(doc(db, 'users', uid, 'inventario', item.id), invData, { merge: true });
-      tx.set(doc(db, 'users', uid, 'despensa', item.id), { id: item.id, ...invData }, { merge: true });
+      if (!touchedPerishablesSet.has(item.id)) return;
+      const payload = buildInventoryPersistencePayload(item, uid, nowIso);
+      tx.set(doc(db, 'users', uid, 'inventario', item.id), payload, { merge: true });
+      tx.set(doc(db, 'users', uid, 'despensa', item.id), payload, { merge: true });
     });
 
     inventoryResult.updatedProducts.forEach((prod) => {
@@ -2069,14 +2197,342 @@ export async function executePartialOrFullCheckoutTransaction(params: {
       }
     }
 
-    return { idempotentDuplicate: false };
+    return {
+      idempotentDuplicate: false,
+      updatedProducts: inventoryResult.updatedProducts,
+      updatedPerishables: inventoryResult.updatedPerishables,
+      lowStockAlerts: inventoryResult.lowStockAlerts,
+    };
   });
 
-  return {
-    updatedProducts: inventoryResult.updatedProducts,
-    updatedPerishables: inventoryResult.updatedPerishables,
-    lowStockAlerts: inventoryResult.lowStockAlerts,
-    idempotentDuplicate: txResult.idempotentDuplicate,
+  return txResult;
+}
+
+/**
+ * Confirma transaccionalmente una recepción de mercancía de pedido a proveedor:
+ * - Idempotente por receptionEventId.
+ * - Lee el estado más reciente de orden e insumos en Firestore antes de sumar stock.
+ * - Convierte presentaciones, actualiza costo promedio ponderado, crea lotes y mantiene inventario/despensa sincronizados.
+ */
+export async function confirmSupplierOrderDeliveryTransaction(params: {
+  uid: string;
+  orderId: string;
+  receptionEventId: string;
+  orderFallback: SupplierOrder;
+  perishablesFallback: PerishableItem[];
+  payload: {
+    arrivedComplete: boolean;
+    confirmedAt?: string;
+    confirmedBy?: string;
+    receptionNotes?: string;
+    restockPantry?: boolean;
+    items: ReceptionLineInput[];
   };
+}): Promise<{
+  idempotentDuplicate: boolean;
+  updatedOrder: SupplierOrder;
+  modifiedPerishables: PerishableItem[];
+}> {
+  const { uid, orderId, receptionEventId, orderFallback, perishablesFallback, payload } = params;
+  if (!uid || !orderId) {
+    throw new Error('confirmSupplierOrderDeliveryTransaction requiere uid y orderId válidos.');
+  }
+
+  const orderRef = doc(db, 'users', uid, 'ordenes_proveedores', orderId);
+
+  const candidateInsumoIds = new Set<string>();
+  payload.items.forEach((line) => {
+    const directId = line.overrideInsumoId || line.insumoId;
+    if (directId) candidateInsumoIds.add(directId);
+    const cleanName = (line.name || '').trim().toLowerCase();
+    perishablesFallback.forEach((p) => {
+      if ((p.name || '').trim().toLowerCase() === cleanName) {
+        candidateInsumoIds.add(p.id);
+      }
+    });
+  });
+
+  return runTransaction(db, async (tx) => {
+    const nowIso = new Date().toISOString();
+    const orderSnap = await tx.get(orderRef);
+    const liveOrder = orderSnap.exists()
+      ? ({ id: orderSnap.id, ...orderSnap.data() } as SupplierOrder)
+      : orderFallback;
+
+    const invSnaps = await Promise.all(
+      Array.from(candidateInsumoIds).map((id) => tx.get(doc(db, 'users', uid, 'inventario', id)))
+    );
+
+    const liveMap = new Map<string, PerishableItem>();
+    perishablesFallback.forEach((p) => liveMap.set(p.id, p));
+    invSnaps.forEach((snap) => {
+      if (snap.exists()) {
+        liveMap.set(snap.id, { ...(snap.data() as PerishableItem), id: snap.id });
+      }
+    });
+
+    const res = processSupplierOrderReception({
+      order: liveOrder,
+      perishablesList: Array.from(liveMap.values()),
+      receptionEventId,
+      payload
+    });
+
+    if (res.idempotentDuplicate) {
+      return {
+        idempotentDuplicate: true,
+        updatedOrder: res.updatedOrder,
+        modifiedPerishables: []
+      };
+    }
+
+    tx.set(orderRef, sanitizeForFirestore({ ...res.updatedOrder, userId: uid }), { merge: true });
+
+    res.modifiedPerishables.forEach((item) => {
+      const invPayload = buildInventoryPersistencePayload(item, uid, nowIso);
+      tx.set(doc(db, 'users', uid, 'inventario', item.id), invPayload, { merge: true });
+      tx.set(doc(db, 'users', uid, 'despensa', item.id), invPayload, { merge: true });
+    });
+
+    return {
+      idempotentDuplicate: false,
+      updatedOrder: res.updatedOrder,
+      modifiedPerishables: res.modifiedPerishables
+    };
+  });
+}
+
+/**
+ * Completa transaccionalmente el precio pendiente de una recepción previa sin re-sumar inventario ni alterar ventas históricas.
+ */
+export async function completeReceptionValuationTransaction(params: {
+  uid: string;
+  orderId: string;
+  receptionEventId: string;
+  orderItemId: string;
+  unitPrice?: number;
+  totalPrice?: number;
+  valuedBy?: string;
+  orderFallback: SupplierOrder;
+  perishablesFallback: PerishableItem[];
+}): Promise<{
+  idempotentDuplicate: boolean;
+  updatedOrder: SupplierOrder;
+  updatedPerishable?: PerishableItem;
+}> {
+  const {
+    uid,
+    orderId,
+    receptionEventId,
+    orderItemId,
+    unitPrice,
+    totalPrice,
+    valuedBy,
+    orderFallback,
+    perishablesFallback
+  } = params;
+
+  if (!uid || !orderId) {
+    throw new Error('completeReceptionValuationTransaction requiere uid y orderId válidos.');
+  }
+
+  const orderRef = doc(db, 'users', uid, 'ordenes_proveedores', orderId);
+  const candidateEvent = (orderFallback.receptionEvents || []).find((e) => e.id === receptionEventId);
+  const candidateItem = candidateEvent?.items.find((it) => it.orderItemId === orderItemId);
+  const targetInsumoId = candidateItem?.insumoId;
+
+  return runTransaction(db, async (tx) => {
+    const nowIso = new Date().toISOString();
+    const orderSnap = await tx.get(orderRef);
+    const liveOrder = orderSnap.exists()
+      ? ({ id: orderSnap.id, ...orderSnap.data() } as SupplierOrder)
+      : orderFallback;
+
+    const liveEvent = (liveOrder.receptionEvents || []).find((e) => e.id === receptionEventId);
+    const liveEventItem = liveEvent?.items.find((it) => it.orderItemId === orderItemId);
+    const resolvedInsumoId = liveEventItem?.insumoId || targetInsumoId;
+
+    const livePerishablesMap = new Map<string, PerishableItem>();
+    perishablesFallback.forEach((p) => livePerishablesMap.set(p.id, p));
+
+    if (resolvedInsumoId) {
+      const invSnap = await tx.get(doc(db, 'users', uid, 'inventario', resolvedInsumoId));
+      if (invSnap.exists()) {
+        livePerishablesMap.set(invSnap.id, { ...(invSnap.data() as PerishableItem), id: invSnap.id });
+      }
+    }
+
+    const res = processDelayedValuationForOrderEvent({
+      order: liveOrder,
+      perishablesList: Array.from(livePerishablesMap.values()),
+      receptionEventId,
+      orderItemId,
+      unitPrice,
+      totalPrice,
+      valuedBy,
+      nowIso
+    });
+
+    if (res.idempotentDuplicate) {
+      return {
+        idempotentDuplicate: true,
+        updatedOrder: res.updatedOrder
+      };
+    }
+
+    tx.set(orderRef, sanitizeForFirestore({ ...res.updatedOrder, userId: uid }), { merge: true });
+
+    if (res.updatedPerishable) {
+      const invPayload = buildInventoryPersistencePayload(res.updatedPerishable, uid, nowIso);
+      tx.set(doc(db, 'users', uid, 'inventario', res.updatedPerishable.id), invPayload, { merge: true });
+      tx.set(doc(db, 'users', uid, 'despensa', res.updatedPerishable.id), invPayload, { merge: true });
+    }
+
+    return {
+      idempotentDuplicate: false,
+      updatedOrder: res.updatedOrder,
+      updatedPerishable: res.updatedPerishable
+    };
+  });
+}
+
+/**
+ * Registra merma (con FEFO) o entrada/reabastecimiento (con lotes y costo promedio opcional)
+ * de forma transaccional en Firestore.
+ */
+export async function adjustPerishableStockTransaction(params: {
+  uid: string;
+  itemFallback: PerishableItem;
+  mode: 'waste' | 'restock';
+  amountInBase: number;
+  reason?: string;
+  newEntryDate?: string;
+  newExpiryDate?: string;
+  batchNumber?: string;
+  unitPrice?: number;
+  totalPrice?: number;
+}): Promise<PerishableItem> {
+  const { uid, itemFallback, mode, amountInBase, reason, newEntryDate, newExpiryDate, batchNumber, unitPrice, totalPrice } = params;
+  const invRef = doc(db, 'users', uid, 'inventario', itemFallback.id);
+  const despRef = doc(db, 'users', uid, 'despensa', itemFallback.id);
+
+  return runTransaction(db, async (tx) => {
+    const nowIso = new Date().toISOString();
+    const snap = await tx.get(invRef);
+    const currentItem = snap.exists()
+      ? normalizePerishableRecord({ ...(snap.data() as PerishableItem), id: snap.id })
+      : normalizePerishableRecord(itemFallback);
+
+    let updated: PerishableItem;
+    if (mode === 'waste') {
+      const cleanAmt = normalizeNonNegativeQuantity(amountInBase);
+      const fefo = deductFromLotsFEFO(currentItem, cleanAmt);
+      const noteAddition = ` [Merma: -${cleanAmt} ${currentItem.unit}${reason ? ` (${reason})` : ''}]`;
+      updated = normalizePerishableRecord({
+        ...currentItem,
+        quantity: fefo.remainingQuantity,
+        cantidadActual: fefo.remainingQuantity,
+        expiryDate: fefo.nextExpiryDate,
+        ...(fefo.updatedLots !== undefined ? { lots: fefo.updatedLots } : {}),
+        notes: currentItem.notes ? currentItem.notes + noteAddition : noteAddition.trim()
+      });
+    } else {
+      const cleanAdded = normalizeNonNegativeQuantity(amountInBase);
+      const entryDate = newEntryDate || nowIso.split('T')[0];
+      const expiryDate = newExpiryDate || currentItem.expiryDate;
+      const hasPriceInput = (unitPrice !== undefined && unitPrice > 0) || (totalPrice !== undefined && totalPrice > 0);
+      const prevQty = normalizeNonNegativeQuantity(currentItem.quantity ?? currentItem.cantidadActual ?? 0);
+
+      let nextCostPerUnit = currentItem.costPerUnit || 0;
+      let nextCostStatus = currentItem.costStatus;
+      let nextPendingCount = currentItem.pendingValuationCount;
+      let lotUnitCost = currentItem.costPerUnit;
+
+      if (hasPriceInput) {
+        const costRes = calculateWeightedMovingAverageCost({
+          prevQty,
+          prevCostPerUnit: currentItem.costPerUnit || 0,
+          prevCostStatus: currentItem.costStatus,
+          prevPendingValuationCount: currentItem.pendingValuationCount,
+          receivedBaseQty: cleanAdded,
+          unitPriceInPurchaseUnit: unitPrice,
+          purchasePresentationQty: cleanAdded,
+          totalPurchaseCost: totalPrice
+        });
+        nextCostPerUnit = costRes.nextCostPerUnit;
+        nextCostStatus = costRes.costStatus;
+        nextPendingCount = costRes.pendingValuationCount;
+        lotUnitCost = costRes.batchUnitCostInBase;
+      }
+
+      const lotResult = addLotToPerishable(currentItem, {
+        id: `lot-manual-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        batchNumber: batchNumber?.trim() || `ING-${entryDate}`,
+        quantity: cleanAdded,
+        entryDate,
+        expiryDate,
+        supplierId: currentItem.supplierId,
+        unitCost: lotUnitCost,
+        createdAt: nowIso
+      });
+
+      updated = normalizePerishableRecord({
+        ...currentItem,
+        quantity: lotResult.totalQuantity,
+        cantidadActual: lotResult.totalQuantity,
+        entryDate,
+        expiryDate: lotResult.nextExpiryDate,
+        lots: lotResult.updatedLots,
+        costPerUnit: nextCostPerUnit,
+        ...(nextCostStatus !== undefined ? { costStatus: nextCostStatus } : {}),
+        ...(nextPendingCount !== undefined ? { pendingValuationCount: nextPendingCount } : {}),
+        lastCostUpdatedAt: nowIso
+      });
+    }
+
+    const payload = buildInventoryPersistencePayload(updated, uid, nowIso);
+    tx.set(invRef, payload, { merge: true });
+    tx.set(despRef, payload, { merge: true });
+    return updated;
+  });
+}
+
+/**
+ * Resuelve transaccionalmente una conciliación pendiente de consumo tras configurar la equivalencia faltante.
+ */
+export async function resolvePendingReconciliationTransaction(params: {
+  uid: string;
+  itemFallback: PerishableItem;
+  reconciliationId: string;
+}): Promise<{ updatedItem: PerishableItem; deductedBaseQty: number }> {
+  const { uid, itemFallback, reconciliationId } = params;
+  const invRef = doc(db, 'users', uid, 'inventario', itemFallback.id);
+  const despRef = doc(db, 'users', uid, 'despensa', itemFallback.id);
+
+  return runTransaction(db, async (tx) => {
+    const nowIso = new Date().toISOString();
+    const snap = await tx.get(invRef);
+    const currentItem = snap.exists()
+      ? normalizePerishableRecord({ ...(snap.data() as PerishableItem), id: snap.id })
+      : normalizePerishableRecord(itemFallback);
+
+    const res = resolveSinglePendingReconciliation({
+      item: currentItem,
+      reconciliationId,
+      nowIso
+    });
+    if (!res.resolved) {
+      throw new Error(res.error || 'No se pudo conciliar el consumo pendiente.');
+    }
+
+    const payload = buildInventoryPersistencePayload(res.updatedItem, uid, nowIso);
+    tx.set(invRef, payload, { merge: true });
+    tx.set(despRef, payload, { merge: true });
+
+    return {
+      updatedItem: res.updatedItem,
+      deductedBaseQty: res.deductedBaseQty
+    };
+  });
 }
 

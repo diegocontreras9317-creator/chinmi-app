@@ -31,8 +31,10 @@ import {
   PERISHABLE_CATEGORIES,
   calculateDaysRemaining,
   getExpiryStatus,
-  getExpiryBadgeConfig
+  getExpiryBadgeConfig,
+  needsLegacyMigrationNotice
 } from '../../utils/perishableUtils';
+import { computeSecondaryDisplay } from '../../utils/inventoryCosting';
 import { playExpiryAlarm } from '../../utils/audioAlert';
 import { formatCOP } from '../../utils/currency';
 import {
@@ -65,11 +67,13 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
     deletePerishable,
     recordPerishableWaste,
     recordPerishableRestock,
+    resolvePerishablePendingReconciliation,
     addSupplier,
     updateSupplier,
     deleteSupplier,
     addSupplierOrder,
     confirmSupplierOrderDelivery,
+    completeReceptionValuation,
     deleteSupplierOrder
   } = useApp();
 
@@ -130,11 +134,24 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
   const [orderModalSupplierId, setOrderModalSupplierId] = useState<string | null>(null);
   const [confirmingOrder, setConfirmingOrder] = useState<SupplierOrder | null>(null);
+  const [reconciliationFeedback, setReconciliationFeedback] = useState<string | null>(null);
 
   const pendingOrdersCount = useMemo(
     () => supplierOrders.filter(o => o.status === 'pendiente').length,
     [supplierOrders]
   );
+
+  const pendingReconciliationItems = useMemo(() => {
+    return perishables.flatMap((item) =>
+      (item.pendingReconciliations || [])
+        .filter((r) => r.status === 'pending')
+        .map((r) => ({ item, rec: r }))
+    );
+  }, [perishables]);
+
+  const legacyAmbiguousItems = useMemo(() => {
+    return perishables.filter((item) => needsLegacyMigrationNotice(item));
+  }, [perishables]);
 
   const resolveItemSupplier = (item: PerishableItem) => {
     const matched =
@@ -543,6 +560,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
               restockPantry: !order.stockUpdated
             });
           }}
+          onCompleteValuation={(valParams) => completeReceptionValuation(valParams)}
           onDeleteOrder={(orderId) => deleteSupplierOrder(orderId)}
         />
       ) : activeSection === 'proveedores' ? (
@@ -896,6 +914,92 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
               Ver Próximos
             </button>
           </div>
+        </div>
+      )}
+
+      {/* BANNER DE CONSUMOS PENDIENTES DE CONCILIACIÓN O UNIDADES LEGACY AMBIGUAS */}
+      {(pendingReconciliationItems.length > 0 || legacyAmbiguousItems.length > 0) && (
+        <div className="space-y-2.5">
+          {pendingReconciliationItems.length > 0 && (
+            <div className="p-3.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 space-y-2 text-xs">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 font-extrabold text-amber-900 dark:text-amber-200">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    {pendingReconciliationItems.length} consumo(s) pendiente(s) por equivalencia de unidad
+                  </span>
+                </div>
+                {reconciliationFeedback && (
+                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    {reconciliationFeedback}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                {pendingReconciliationItems.slice(0, 4).map(({ item, rec }) => (
+                  <div
+                    key={rec.id}
+                    className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-900/60"
+                  >
+                    <span className="text-slate-700 dark:text-slate-200">
+                      <strong>{item.name}</strong>: venta de {rec.soldQty} × {rec.productName} ({rec.recipeQty}{' '}
+                      {rec.recipeUnit}/plato)
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingItem(item);
+                          setIsNewModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-[11px] font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                      >
+                        Configurar equiv.
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const res = await resolvePerishablePendingReconciliation(item.id, rec.id);
+                          if (!res.success) {
+                            setReconciliationFeedback(res.error || 'Configura primero la equivalencia.');
+                            setEditingItem(item);
+                            setIsNewModalOpen(true);
+                          } else {
+                            setReconciliationFeedback(
+                              `Conciliado ${item.name}: -${formatQuantity(res.deductedBaseQty || 0)} ${item.unit}`
+                            );
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer"
+                      >
+                        Conciliar ahora
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {legacyAmbiguousItems.length > 0 && (
+            <div className="p-3 rounded-2xl bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="text-blue-900 dark:text-blue-200">
+                <strong>Aviso de unidad legacy:</strong> {legacyAmbiguousItems.length} insumo(s) (
+                {legacyAmbiguousItems.slice(0, 3).map(i => i.name).join(', ')}
+                {legacyAmbiguousItems.length > 3 ? '...' : ''}) están medidos en empaques sin presentación ni equivalencia.
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingItem(legacyAmbiguousItems[0]);
+                  setIsNewModalOpen(true);
+                }}
+                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer"
+              >
+                Configurar / Migrar ({legacyAmbiguousItems[0].name})
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1300,15 +1404,25 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                     </div>
 
                     {/* Stock & Expiry */}
-                    <div className="mt-2 p-1.5 rounded-md bg-slate-50 dark:bg-slate-850 flex items-center justify-between text-xs">
-                      <span className="font-mono font-black text-xs text-stone-900 dark:text-stone-100">
-                        {formatQuantity(item.quantity)} <span className="text-[10px] font-normal">{item.unit}</span>
-                      </span>
-                      <span className={`text-[10px] font-bold ${
-                        daysRemaining < 0 ? 'text-rose-600' : daysRemaining <= 3 ? 'text-amber-600' : 'text-slate-500'
-                      }`}>
-                        Vence: {item.expiryDate.split('-').slice(1).join('/')}
-                      </span>
+                    <div className="mt-2 p-1.5 rounded-md bg-slate-50 dark:bg-slate-850 space-y-0.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-black text-xs text-stone-900 dark:text-stone-100">
+                          {formatQuantity(item.quantity)} <span className="text-[10px] font-normal">{item.unit}</span>
+                        </span>
+                        <span className={`text-[10px] font-bold ${
+                          daysRemaining < 0 ? 'text-rose-600' : daysRemaining <= 3 ? 'text-amber-600' : 'text-slate-500'
+                        }`}>
+                          Vence: {item.expiryDate.split('-').slice(1).join('/')}
+                        </span>
+                      </div>
+                      {(() => {
+                        const sec = computeSecondaryDisplay(item);
+                        return sec ? (
+                          <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 block truncate">
+                            {sec.text}
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
 
@@ -1445,7 +1559,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                       </div>
 
                       {/* Stock Grande */}
-                      <div className="flex items-center justify-between p-3.5 rounded-md bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between p-3.5 rounded-md bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800 gap-3">
                         <div>
                           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                             Existencias en Despensa
@@ -1458,6 +1572,19 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                               {item.unit}
                             </span>
                           </div>
+                          {(() => {
+                            const sec = computeSecondaryDisplay(item);
+                            return sec ? (
+                              <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 block mt-0.5">
+                                {sec.text}
+                              </span>
+                            ) : null;
+                          })()}
+                          {item.lots && item.lots.length > 1 && (
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                              {item.lots.length} lotes FEFO activos
+                            </span>
+                          )}
                         </div>
 
                         <div className="text-right">
@@ -1469,6 +1596,11 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                               {formatCOP(item.costPerUnit)} / {item.unit}
                             </span>
                           ) : null}
+                          {item.costStatus && item.costStatus !== 'exact' && (
+                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                              {item.costStatus === 'provisional' ? 'Costo provisional' : 'Sin valorar'}
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -1648,8 +1780,8 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                     </div>
 
                     {/* Inventory Level & Units */}
-                    <div className="flex items-baseline justify-between p-2.5 rounded-md bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800">
-                      <div>
+                    <div className="flex items-baseline justify-between p-2.5 rounded-md bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800 gap-2">
+                      <div className="min-w-0">
                         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
                           Stock Disponible
                         </span>
@@ -1661,17 +1793,35 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                             {item.unit}
                           </span>
                         </div>
+                        {(() => {
+                          const sec = computeSecondaryDisplay(item);
+                          return sec ? (
+                            <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 block truncate mt-0.5">
+                              {sec.text}
+                            </span>
+                          ) : null;
+                        })()}
+                        {item.lots && item.lots.length > 1 && (
+                          <span className="text-[10px] text-slate-500 block">
+                            {item.lots.length} lotes FEFO
+                          </span>
+                        )}
                       </div>
 
-                      <div className="text-right">
+                      <div className="text-right shrink-0">
                         <span className="text-[10px] font-bold text-slate-400 block">
                           Mínimo: {formatQuantity(item.minStock)} {item.unit}
                         </span>
                         {item.costPerUnit ? (
-                          <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                          <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 block">
                             {formatCOP(item.costPerUnit)}/{item.unit}
                           </span>
                         ) : null}
+                        {item.costStatus && item.costStatus !== 'exact' && (
+                          <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[9px] font-bold">
+                            {item.costStatus === 'provisional' ? 'Provisional' : 'Sin valorar'}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1938,6 +2088,19 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                         <span className="font-mono font-black text-sm text-stone-900 dark:text-stone-100">
                           {formatQuantity(item.quantity)} {item.unit}
                         </span>
+                        {(() => {
+                          const sec = computeSecondaryDisplay(item);
+                          return sec ? (
+                            <span className="block text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold">
+                              {sec.text}
+                            </span>
+                          ) : null;
+                        })()}
+                        {item.costStatus && item.costStatus !== 'exact' && (
+                          <span className="inline-block text-[9px] text-amber-700 dark:text-amber-300 font-bold">
+                            {item.costStatus === 'provisional' ? 'Costo provisional' : 'Sin valorar'}
+                          </span>
+                        )}
                         {isLowStock && (
                           <span className="block text-[10px] text-blue-600 font-bold">
                             Min: {formatQuantity(item.minStock)}
@@ -2040,8 +2203,8 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         onConfirmWaste={(id, amount, reason) => {
           recordPerishableWaste(id, amount, reason);
         }}
-        onConfirmRestock={(id, amount, newEntryDate, newExpiryDate) => {
-          recordPerishableRestock(id, amount, newEntryDate, newExpiryDate);
+        onConfirmRestock={(id, amount, newEntryDate, newExpiryDate, options) => {
+          recordPerishableRestock(id, amount, newEntryDate, newExpiryDate, options);
         }}
       />
 
@@ -2087,9 +2250,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         onClose={() => setConfirmingOrder(null)}
         order={confirmingOrder}
         perishables={perishables}
-        onConfirm={(orderId, payload) => {
-          confirmSupplierOrderDelivery(orderId, payload);
-        }}
+        onConfirm={(orderId, payload) => confirmSupplierOrderDelivery(orderId, payload)}
       />
 
     </div>

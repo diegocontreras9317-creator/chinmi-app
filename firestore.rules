@@ -101,10 +101,59 @@ service cloud.firestore {
         (!('tipAmount' in data) || (data.tipAmount is number && data.tipAmount >= 0 && data.tipAmount <= 50000000));
     }
 
+    function protectedUserSubscriptionFields() {
+      return [
+        'plan',
+        'plan_expira',
+        'planExpiresAt',
+        'planMode',
+        'billingFrequency',
+        'isTestSubscription',
+        'subscriptionStatus',
+        'graceEndsAt',
+        'cancelAtPeriodEnd',
+        'cancelledAt',
+        'subscriptionId',
+        'lastPaymentRef',
+        'codigo_canjeado',
+        'fecha_canje',
+        'subscriptionSelection',
+        'lastQuotaReconciliationAt'
+      ];
+    }
+
+    function isMasterAdminToken() {
+      return isSignedIn() && request.auth.token.email == 'diego.contreras9317@gmail.com';
+    }
+
     match /users/{userId} {
-      // PII isolated strictly to the authenticated tenant owner
-      allow get, list, create, update: if isOwner(userId) && isValidId(userId);
+      // PII isolated strictly to the authenticated tenant owner; subscription fields are server-authoritative
+      allow get, list: if isOwner(userId) && isValidId(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && (
+        isMasterAdminToken() ||
+        (
+          incoming().get('plan', 'free') == 'free' &&
+          incoming().get('planExpiresAt', null) == null &&
+          incoming().get('plan_expira', null) == null &&
+          incoming().get('graceEndsAt', null) == null &&
+          incoming().get('subscriptionStatus', 'free') == 'free' &&
+          incoming().get('cancelAtPeriodEnd', false) == false &&
+          !incoming().keys().hasAny([
+            'isTestSubscription', 'planMode', 'lastPaymentRef',
+            'subscriptionId', 'codigo_canjeado', 'fecha_canje'
+          ])
+        )
+      );
+      allow update: if isOwner(userId) && isValidId(userId) && (
+        isMasterAdminToken() ||
+        !incoming().diff(existing()).affectedKeys().hasAny(protectedUserSubscriptionFields())
+      );
       allow delete: if false;
+
+      match /subscription_audit/{auditId} {
+        allow get, list: if isOwner(userId);
+        allow write: if false;
+      }
 
       match /config/{configId} {
         allow get: if isValidId(configId) && (isOwner(userId) || configId in ['qrSettings', 'appConfig']);
@@ -130,15 +179,19 @@ service cloud.firestore {
         allow list: if isOwner(userId);
         allow create: if isValidId(tableId) && (
           isOwner(userId) ||
-          isValidQrTableWrite(incoming(), userId)
+          (
+            isValidQrTableWrite(incoming(), userId) &&
+            incoming().get('active', true) == true
+          )
         );
         allow update: if isValidId(tableId) && (
           isOwner(userId) ||
           (
             existing().get('userId', userId) == userId &&
+            (existing().get('active', true) == true || (existing().get('order', null) != null && isOrderNotClosed(existing().order))) &&
             (existing().get('order', null) == null || isOrderNotClosed(existing().order)) &&
             isValidQrTableWrite(incoming(), userId) &&
-            !incoming().diff(existing()).affectedKeys().hasAny(['paymentsTotal', 'settledAt', 'closedAt'])
+            !incoming().diff(existing()).affectedKeys().hasAny(['paymentsTotal', 'settledAt', 'closedAt', 'active', 'inactivatedReason'])
           )
         );
         allow delete: if isOwner(userId) && isValidId(tableId);
@@ -229,10 +282,21 @@ service cloud.firestore {
       }
     }
 
-    // Canje de códigos promocionales: solo lectura puntual por usuarios autenticados
+    // Colecciones exclusivas de servidor (Firebase Admin SDK)
     match /codigos_promocionales/{codigoId} {
-      allow get: if isSignedIn() && isValidId(codigoId);
-      allow list, create, update, delete: if false;
+      allow read, write: if false;
+    }
+
+    match /epayco_payments/{paymentId} {
+      allow read, write: if false;
+    }
+
+    match /epayco_transactions/{txId} {
+      allow read, write: if false;
+    }
+
+    match /subscription_intents/{intentId} {
+      allow read, write: if false;
     }
   }
 }

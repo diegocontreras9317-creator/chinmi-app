@@ -10,15 +10,27 @@ import {
   PackageCheck,
   Phone,
   AlertTriangle,
-  ClipboardCheck
+  ClipboardCheck,
+  Package
 } from 'lucide-react';
-import { Supplier, PerishableItem, SupplierOrderChannel, SupplierOrderItem } from '../../types';
+import {
+  Supplier,
+  PerishableItem,
+  SupplierOrderChannel,
+  SupplierOrderItem,
+  InsumoPresentation
+} from '../../types';
 import {
   addQuantities,
   formatQuantity,
   normalizeNonNegativeQuantity,
   subtractQuantities
 } from '../../utils/quantityPrecision';
+import {
+  formatPackagingLabel,
+  formatPresentationSummary,
+  getEffectiveBaseUnit
+} from '../../utils/perishableUtils';
 
 interface NewSupplierOrderModalProps {
   isOpen: boolean;
@@ -43,6 +55,8 @@ const ORDER_UNITS = [
   'cajas',
   'paquetes',
   'bolsas',
+  'bloques',
+  'bandejas',
   'litros',
   'atados',
   'canastas',
@@ -81,8 +95,11 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
 
   const [items, setItems] = useState<SupplierOrderItem[]>([]);
   const [productName, setProductName] = useState('');
+  const [selectedInsumoId, setSelectedInsumoId] = useState<string>('');
+  const [selectedPresentationId, setSelectedPresentationId] = useState<string>('');
   const [productQty, setProductQty] = useState<number>(1);
   const [productUnit, setProductUnit] = useState<string>('kg');
+  const [productUnitPrice, setProductUnitPrice] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -93,8 +110,11 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
     setOrderTime(getLocalTimeString(now));
     setItems([]);
     setProductName('');
+    setSelectedInsumoId('');
+    setSelectedPresentationId('');
     setProductQty(1);
     setProductUnit('kg');
+    setProductUnitPrice('');
     setNotes('');
     setError(null);
 
@@ -130,7 +150,16 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
 
   const supplierCatalog = useMemo(() => {
     if (!activeSupplier) return [];
-    const map = new Map<string, { name: string; defaultUnit: string; suggestedQty: number }>();
+    const map = new Map<
+      string,
+      {
+        insumoId?: string;
+        name: string;
+        defaultUnit: string;
+        suggestedQty: number;
+        presentations: InsumoPresentation[];
+      }
+    >();
 
     perishables
       .filter(
@@ -147,10 +176,13 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
         const suggested = isLow
           ? Math.max(1, Math.ceil((p.minStock || 1) * 2 - p.quantity))
           : Math.max(1, p.minStock || 2);
+        const presentations = (p.presentations || []).filter(pr => pr.active !== false);
         map.set(key, {
+          insumoId: p.id,
           name: p.name.trim(),
-          defaultUnit: p.unit || 'kg',
-          suggestedQty: suggested
+          defaultUnit: getEffectiveBaseUnit(p),
+          suggestedQty: suggested,
+          presentations
         });
       });
 
@@ -161,10 +193,16 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
       .forEach(label => {
         const key = label.toLowerCase();
         if (!map.has(key)) {
+          const uniqueMatch = perishables.filter(p => p.name.trim().toLowerCase() === key);
+          const matchedPantry = uniqueMatch.length === 1 ? uniqueMatch[0] : undefined;
           map.set(key, {
+            insumoId: matchedPantry?.id,
             name: label,
-            defaultUnit: 'unidades',
-            suggestedQty: 1
+            defaultUnit: matchedPantry ? getEffectiveBaseUnit(matchedPantry) : 'unidades',
+            suggestedQty: 1,
+            presentations: matchedPantry
+              ? (matchedPantry.presentations || []).filter(pr => pr.active !== false)
+              : []
           });
         }
       });
@@ -172,20 +210,60 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
     return Array.from(map.values());
   }, [activeSupplier, perishables]);
 
+  const selectedManualPantry = useMemo(() => {
+    if (!selectedInsumoId) return undefined;
+    return perishables.find(p => p.id === selectedInsumoId);
+  }, [selectedInsumoId, perishables]);
+
+  const selectedManualPresentations = useMemo(
+    () => (selectedManualPantry?.presentations || []).filter(pr => pr.active !== false),
+    [selectedManualPantry]
+  );
+
   const effectiveItems = useMemo(() => {
     const base = [...items];
-    if (productName.trim()) {
+    const cleanName = productName.trim() || selectedManualPantry?.name || '';
+    if (cleanName) {
+      const pres = selectedPresentationId
+        ? selectedManualPresentations.find(pr => pr.id === selectedPresentationId)
+        : undefined;
+      const qty = productQty > 0 ? productQty : 1;
+      const parsedUnitPrice = parseFloat(productUnitPrice);
+      const validPrice = !isNaN(parsedUnitPrice) && parsedUnitPrice > 0 ? parsedUnitPrice : undefined;
       base.push({
         id: `soi-inline-${Date.now()}`,
-        name: productName.trim(),
-        quantity: productQty > 0 ? productQty : 1,
-        unit: productUnit,
+        ...(selectedManualPantry ? { insumoId: selectedManualPantry.id } : {}),
+        name: cleanName,
+        quantity: qty,
+        unit: pres ? formatPackagingLabel(pres.packagingType, qty !== 1) : productUnit,
+        ...(pres
+          ? {
+              presentationId: pres.id,
+              presentationName: pres.name,
+              packagingType: pres.packagingType,
+              contentQty: pres.contentQty,
+              contentUnit: pres.contentUnit,
+              brand: pres.brand
+            }
+          : {}),
+        ...(validPrice !== undefined
+          ? { unitPrice: validPrice, totalPrice: Math.round(validPrice * qty * 100) / 100 }
+          : {}),
         received: false,
-        receivedQuantity: productQty > 0 ? productQty : 1
+        receivedQuantity: qty
       });
     }
     return base;
-  }, [items, productName, productQty, productUnit]);
+  }, [
+    items,
+    productName,
+    selectedManualPantry,
+    selectedPresentationId,
+    selectedManualPresentations,
+    productQty,
+    productUnit,
+    productUnitPrice
+  ]);
 
   if (!isOpen) return null;
 
@@ -205,12 +283,28 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
     }
   };
 
-  const addCatalogItem = (itemName: string, defaultUnit = 'unidades', suggestedQty = 1) => {
-    const clean = itemName.trim();
+  const addCatalogItem = (cat: {
+    insumoId?: string;
+    name: string;
+    defaultUnit: string;
+    suggestedQty: number;
+    presentations: InsumoPresentation[];
+  }) => {
+    const clean = cat.name.trim();
     if (!clean) return;
     setError(null);
+
+    const supplierPres =
+      cat.presentations.find(pr => pr.supplierId && pr.supplierId === activeSupplier?.id) ||
+      cat.presentations.find(pr => pr.isDefault) ||
+      cat.presentations[0];
+
     setItems(prev => {
-      const idx = prev.findIndex(it => it.name.toLowerCase() === clean.toLowerCase());
+      const idx = prev.findIndex(
+        it =>
+          (cat.insumoId && it.insumoId === cat.insumoId) ||
+          it.name.toLowerCase() === clean.toLowerCase()
+      );
       if (idx > -1) {
         return prev.map((it, i) => {
           if (i !== idx) return it;
@@ -218,33 +312,92 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
           return {
             ...it,
             quantity: nextQty,
-            receivedQuantity: nextQty
+            receivedQuantity: nextQty,
+            ...(it.unitPrice ? { totalPrice: Math.round(it.unitPrice * nextQty * 100) / 100 } : {})
           };
         });
       }
+      const qty = normalizeNonNegativeQuantity(cat.suggestedQty);
+      const unitLabel = supplierPres
+        ? formatPackagingLabel(supplierPres.packagingType, qty !== 1)
+        : cat.defaultUnit;
       return [
         ...prev,
         {
           id: `soi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          ...(cat.insumoId ? { insumoId: cat.insumoId } : {}),
           name: clean,
-          quantity: normalizeNonNegativeQuantity(suggestedQty),
-          unit: defaultUnit,
+          quantity: qty,
+          unit: unitLabel,
+          ...(supplierPres
+            ? {
+                presentationId: supplierPres.id,
+                presentationName: supplierPres.name,
+                packagingType: supplierPres.packagingType,
+                contentQty: supplierPres.contentQty,
+                contentUnit: supplierPres.contentUnit,
+                brand: supplierPres.brand
+              }
+            : {}),
           received: false,
-          receivedQuantity: normalizeNonNegativeQuantity(suggestedQty)
+          receivedQuantity: qty
         }
       ];
     });
   };
 
+  const handleSelectManualInsumo = (insumoId: string) => {
+    setSelectedInsumoId(insumoId);
+    setSelectedPresentationId('');
+    if (!insumoId) return;
+    const found = perishables.find(p => p.id === insumoId);
+    if (!found) return;
+    if (!productName.trim()) {
+      setProductName(found.name);
+    }
+    const activePres = (found.presentations || []).filter(pr => pr.active !== false);
+    const preferred =
+      activePres.find(pr => pr.supplierId && pr.supplierId === activeSupplier?.id) ||
+      activePres.find(pr => pr.isDefault) ||
+      activePres[0];
+    if (preferred) {
+      setSelectedPresentationId(preferred.id);
+      setProductUnit(formatPackagingLabel(preferred.packagingType, true));
+    } else {
+      setProductUnit(getEffectiveBaseUnit(found));
+    }
+  };
+
   const handleAddManualItem = () => {
-    const clean = productName.trim();
+    const clean = (productName.trim() || selectedManualPantry?.name || '').trim();
     if (!clean) return;
     const qty = productQty > 0 ? normalizeNonNegativeQuantity(productQty) : 1;
     setError(null);
 
+    const pres = selectedPresentationId
+      ? selectedManualPresentations.find(pr => pr.id === selectedPresentationId)
+      : undefined;
+    const resolvedUnit = pres ? formatPackagingLabel(pres.packagingType, qty !== 1) : productUnit;
+
+    const parsedUnitPrice = parseFloat(productUnitPrice);
+    const validPrice = !isNaN(parsedUnitPrice) && parsedUnitPrice > 0 ? parsedUnitPrice : undefined;
+
+    let resolvedInsumoId = selectedInsumoId || undefined;
+    if (!resolvedInsumoId) {
+      const exactMatches = perishables.filter(
+        p => p.name.trim().toLowerCase() === clean.toLowerCase()
+      );
+      if (exactMatches.length === 1) {
+        resolvedInsumoId = exactMatches[0].id;
+      }
+    }
+
     setItems(prev => {
       const idx = prev.findIndex(
-        it => it.name.toLowerCase() === clean.toLowerCase() && it.unit === productUnit
+        it =>
+          it.name.toLowerCase() === clean.toLowerCase() &&
+          it.unit === resolvedUnit &&
+          (it.presentationId || '') === (pres?.id || '')
       );
       if (idx > -1) {
         return prev.map((it, i) => {
@@ -253,7 +406,12 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
           return {
             ...it,
             quantity: nextQty,
-            receivedQuantity: nextQty
+            receivedQuantity: nextQty,
+            ...(validPrice !== undefined
+              ? { unitPrice: validPrice, totalPrice: Math.round(validPrice * nextQty * 100) / 100 }
+              : it.unitPrice
+              ? { totalPrice: Math.round(it.unitPrice * nextQty * 100) / 100 }
+              : {})
           };
         });
       }
@@ -261,9 +419,23 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
         ...prev,
         {
           id: `soi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          ...(resolvedInsumoId ? { insumoId: resolvedInsumoId } : {}),
           name: clean,
           quantity: qty,
-          unit: productUnit,
+          unit: resolvedUnit,
+          ...(pres
+            ? {
+                presentationId: pres.id,
+                presentationName: pres.name,
+                packagingType: pres.packagingType,
+                contentQty: pres.contentQty,
+                contentUnit: pres.contentUnit,
+                brand: pres.brand
+              }
+            : {}),
+          ...(validPrice !== undefined
+            ? { unitPrice: validPrice, totalPrice: Math.round(validPrice * qty * 100) / 100 }
+            : {}),
           received: false,
           receivedQuantity: qty
         }
@@ -271,7 +443,10 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
     });
 
     setProductName('');
+    setSelectedInsumoId('');
+    setSelectedPresentationId('');
     setProductQty(1);
+    setProductUnitPrice('');
   };
 
   const updateItemQuantity = (id: string, nextQty: number) => {
@@ -281,14 +456,84 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
     }
     const cleanQty = normalizeNonNegativeQuantity(nextQty);
     setItems(prev =>
-      prev.map(it =>
-        it.id === id ? { ...it, quantity: cleanQty, receivedQuantity: cleanQty } : it
-      )
+      prev.map(it => {
+        if (it.id !== id) return it;
+        return {
+          ...it,
+          quantity: cleanQty,
+          receivedQuantity: cleanQty,
+          ...(it.unitPrice ? { totalPrice: Math.round(it.unitPrice * cleanQty * 100) / 100 } : {})
+        };
+      })
     );
   };
 
   const updateItemUnit = (id: string, nextUnit: string) => {
-    setItems(prev => prev.map(it => (it.id === id ? { ...it, unit: nextUnit } : it)));
+    setItems(prev =>
+      prev.map(it =>
+        it.id === id
+          ? {
+              ...it,
+              unit: nextUnit,
+              presentationId: undefined,
+              presentationName: undefined,
+              packagingType: undefined,
+              contentQty: undefined,
+              contentUnit: undefined
+            }
+          : it
+      )
+    );
+  };
+
+  const updateItemPresentation = (id: string, presentationId: string) => {
+    setItems(prev =>
+      prev.map(it => {
+        if (it.id !== id) return it;
+        const pantry = it.insumoId ? perishables.find(p => p.id === it.insumoId) : undefined;
+        if (!presentationId) {
+          return {
+            ...it,
+            presentationId: undefined,
+            presentationName: undefined,
+            packagingType: undefined,
+            contentQty: undefined,
+            contentUnit: undefined,
+            unit: pantry ? getEffectiveBaseUnit(pantry) : it.unit
+          };
+        }
+        const pres = (pantry?.presentations || []).find(pr => pr.id === presentationId);
+        if (!pres) return it;
+        return {
+          ...it,
+          presentationId: pres.id,
+          presentationName: pres.name,
+          packagingType: pres.packagingType,
+          contentQty: pres.contentQty,
+          contentUnit: pres.contentUnit,
+          brand: pres.brand,
+          unit: formatPackagingLabel(pres.packagingType, it.quantity !== 1)
+        };
+      })
+    );
+  };
+
+  const updateItemUnitPrice = (id: string, rawVal: string) => {
+    const parsed = parseFloat(rawVal);
+    setItems(prev =>
+      prev.map(it => {
+        if (it.id !== id) return it;
+        if (!rawVal.trim() || isNaN(parsed) || parsed <= 0) {
+          const { unitPrice: _up, totalPrice: _tp, ...rest } = it;
+          return rest;
+        }
+        return {
+          ...it,
+          unitPrice: parsed,
+          totalPrice: Math.round(parsed * it.quantity * 100) / 100
+        };
+      })
+    );
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -346,7 +591,7 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
                 Registrar Pedido a Distribuidor
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Guarda fecha, hora y detalle solicitado para verificar su llegada completa
+                Guarda presentaciones, empaques y precios opcionales acordados para recibir sin fricción
               </p>
             </div>
           </div>
@@ -488,13 +733,15 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
               <div className="flex flex-wrap gap-1.5">
                 {supplierCatalog.map(cat => {
                   const inOrder = items.find(
-                    it => it.name.toLowerCase() === cat.name.toLowerCase()
+                    it =>
+                      (cat.insumoId && it.insumoId === cat.insumoId) ||
+                      it.name.toLowerCase() === cat.name.toLowerCase()
                   );
                   return (
                     <button
-                      key={cat.name}
+                      key={`${cat.insumoId || 'sup'}-${cat.name}`}
                       type="button"
-                      onClick={() => addCatalogItem(cat.name, cat.defaultUnit, cat.suggestedQty)}
+                      onClick={() => addCatalogItem(cat)}
                       className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
                         inOrder
                           ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100'
@@ -520,6 +767,51 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
               Productos solicitados *
             </label>
 
+            {/* Vinculación opcional con Despensa + Presentación */}
+            {perishables.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <select
+                  value={selectedInsumoId}
+                  onChange={e => handleSelectManualInsumo(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold text-[11px] cursor-pointer"
+                >
+                  <option value="">-- Vincular a insumo de Despensa (opcional) --</option>
+                  {perishables.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({getEffectiveBaseUnit(p)})
+                    </option>
+                  ))}
+                </select>
+
+                {selectedManualPresentations.length > 0 && (
+                  <select
+                    value={selectedPresentationId}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setSelectedPresentationId(val);
+                      const pres = selectedManualPresentations.find(pr => pr.id === val);
+                      if (pres) {
+                        setProductUnit(formatPackagingLabel(pres.packagingType, productQty !== 1));
+                        if (pres.referencePrice && !productUnitPrice) {
+                          setProductUnitPrice(String(pres.referencePrice));
+                        }
+                      } else if (selectedManualPantry) {
+                        setProductUnit(getEffectiveBaseUnit(selectedManualPantry));
+                      }
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20 text-slate-800 dark:text-slate-200 font-semibold text-[11px] cursor-pointer"
+                  >
+                    <option value="">Usar unidad base ({getEffectiveBaseUnit(selectedManualPantry)})</option>
+                    {selectedManualPresentations.map(pr => (
+                      <option key={pr.id} value={pr.id}>
+                        {formatPresentationSummary(pr)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
               <input
                 type="text"
@@ -531,13 +823,13 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
                     handleAddManualItem();
                   }
                 }}
-                placeholder="Ej. Papa sabanera, Limón Tahití, Aceite..."
-                className="sm:col-span-6 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-2 focus:ring-rose-900/30"
+                placeholder="Ej. Pan hamburguesa, Queso mozzarella..."
+                className="sm:col-span-4 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-2 focus:ring-rose-900/30"
               />
 
               <input
                 type="number"
-                min="0.1"
+                min="0.01"
                 step="any"
                 value={productQty}
                 onChange={e => setProductQty(parseFloat(e.target.value) || 0)}
@@ -547,20 +839,36 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
                     handleAddManualItem();
                   }
                 }}
-                className="sm:col-span-2 px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums font-bold text-center"
+                className="sm:col-span-2 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums font-bold text-center"
+                title="Cantidad"
               />
 
               <select
                 value={productUnit}
+                disabled={Boolean(selectedPresentationId)}
                 onChange={e => setProductUnit(e.target.value)}
-                className="sm:col-span-2 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold cursor-pointer"
+                className="sm:col-span-2 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold cursor-pointer disabled:opacity-60"
               >
+                {!ORDER_UNITS.includes(productUnit) && (
+                  <option value={productUnit}>{productUnit}</option>
+                )}
                 {ORDER_UNITS.map(u => (
                   <option key={u} value={u}>
                     {u}
                   </option>
                 ))}
               </select>
+
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={productUnitPrice}
+                onChange={e => setProductUnitPrice(e.target.value)}
+                placeholder="Precio unit. opc."
+                className="sm:col-span-2 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums text-[11px]"
+                title="Precio unitario opcional (COP)"
+              />
 
               <button
                 type="button"
@@ -574,64 +882,120 @@ export const NewSupplierOrderModal: React.FC<NewSupplierOrderModalProps> = ({
 
             {items.length > 0 && (
               <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900 overflow-hidden">
-                {items.map(item => (
-                  <div
-                    key={item.id}
-                    className="px-3 py-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2"
-                  >
-                    <span className="font-bold text-slate-900 dark:text-white truncate min-w-0 flex-1">
-                      {item.name}
-                    </span>
+                {items.map(item => {
+                  const linkedPantry = item.insumoId
+                    ? perishables.find(p => p.id === item.insumoId)
+                    : undefined;
+                  const itemPresentations = (linkedPantry?.presentations || []).filter(
+                    pr => pr.active !== false
+                  );
 
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => updateItemQuantity(item.id, subtractQuantities(item.quantity, 1, true))}
-                        className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
+                  return (
+                    <div key={item.id} className="px-3 py-2.5 space-y-1.5">
+                      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-bold text-slate-900 dark:text-white truncate block">
+                            {item.name}
+                          </span>
+                          {item.contentQty && item.contentUnit && (
+                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
+                              <Package className="w-3 h-3 shrink-0" />
+                              <span>
+                                {item.presentationName || formatPackagingLabel(item.packagingType)} ·{' '}
+                                {formatQuantity(item.contentQty)} {item.contentUnit} c/u
+                                {' · '}Total: {formatQuantity(item.quantity * item.contentQty)}{' '}
+                                {item.contentUnit}
+                              </span>
+                            </span>
+                          )}
+                        </div>
 
-                      <input
-                        type="number"
-                        min="0.000001"
-                        step="any"
-                        value={item.quantity}
-                        onChange={e => updateItemQuantity(item.id, parseFloat(e.target.value) || 0)}
-                        className="w-16 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-mono tabular-nums font-bold text-slate-900 dark:text-white"
-                      />
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateItemQuantity(item.id, subtractQuantities(item.quantity, 1, true))
+                            }
+                            className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => updateItemQuantity(item.id, addQuantities(item.quantity, 1))}
-                        className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
+                          <input
+                            type="number"
+                            min="0.000001"
+                            step="any"
+                            value={item.quantity}
+                            onChange={e => updateItemQuantity(item.id, parseFloat(e.target.value) || 0)}
+                            className="w-16 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-mono tabular-nums font-bold text-slate-900 dark:text-white"
+                          />
 
-                      <select
-                        value={item.unit}
-                        onChange={e => updateItemUnit(item.id, e.target.value)}
-                        className="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
-                      >
-                        {ORDER_UNITS.map(u => (
-                          <option key={u} value={u}>
-                            {u}
-                          </option>
-                        ))}
-                      </select>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateItemQuantity(item.id, addQuantities(item.quantity, 1))
+                            }
+                            className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setItems(prev => prev.filter(it => it.id !== item.id))}
-                        className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                        title="Quitar producto"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                          {itemPresentations.length > 0 ? (
+                            <select
+                              value={item.presentationId || ''}
+                              onChange={e => updateItemPresentation(item.id, e.target.value)}
+                              className="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer max-w-[160px]"
+                            >
+                              <option value="">
+                                {linkedPantry ? getEffectiveBaseUnit(linkedPantry) : item.unit} (base)
+                              </option>
+                              {itemPresentations.map(pr => (
+                                <option key={pr.id} value={pr.id}>
+                                  {pr.name || formatPackagingLabel(pr.packagingType)} (x{formatQuantity(pr.contentQty)} {pr.contentUnit})
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <select
+                              value={item.unit}
+                              onChange={e => updateItemUnit(item.id, e.target.value)}
+                              className="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
+                            >
+                              {!ORDER_UNITS.includes(item.unit) && (
+                                <option value={item.unit}>{item.unit}</option>
+                              )}
+                              {ORDER_UNITS.map(u => (
+                                <option key={u} value={u}>
+                                  {u}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={item.unitPrice ?? ''}
+                            onChange={e => updateItemUnitPrice(item.id, e.target.value)}
+                            placeholder="$ opc."
+                            className="w-20 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono tabular-nums text-[11px] text-slate-800 dark:text-slate-200"
+                            title="Precio unitario acordado (opcional)"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => setItems(prev => prev.filter(it => it.id !== item.id))}
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                            title="Quitar producto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

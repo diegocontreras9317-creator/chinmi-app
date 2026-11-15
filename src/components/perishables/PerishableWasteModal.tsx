@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Trash2, Plus, Calendar, AlertTriangle } from 'lucide-react';
+import { X, Trash2, Plus, Calendar, AlertTriangle, DollarSign, Hash } from 'lucide-react';
 import { PerishableItem } from '../../types';
 import {
   addQuantities,
@@ -15,7 +15,17 @@ interface PerishableWasteModalProps {
   item: PerishableItem | null;
   mode: 'waste' | 'restock';
   onConfirmWaste: (id: string, amount: number, reason: string) => void;
-  onConfirmRestock: (id: string, amount: number, newEntryDate?: string, newExpiryDate?: string) => void;
+  onConfirmRestock: (
+    id: string,
+    amount: number,
+    newEntryDate?: string,
+    newExpiryDate?: string,
+    options?: {
+      unitPrice?: number;
+      totalPrice?: number;
+      batchNumber?: string;
+    }
+  ) => void;
 }
 
 const getTodayIso = () => new Date().toISOString().split('T')[0];
@@ -37,12 +47,16 @@ export const PerishableWasteModal: React.FC<PerishableWasteModalProps> = ({
   const [reason, setReason] = useState<string>('Vencimiento / Descomposición');
   const [newEntryDate, setNewEntryDate] = useState<string>(getTodayIso());
   const [newExpiryDate, setNewExpiryDate] = useState<string>(getDefaultExpiryIso(5));
+  const [totalCostInput, setTotalCostInput] = useState<string>('');
+  const [batchNumberInput, setBatchNumberInput] = useState<string>('');
 
   useEffect(() => {
     if (isOpen) {
       setAmountInput('1');
       setNewEntryDate(getTodayIso());
       setNewExpiryDate(getDefaultExpiryIso(5));
+      setTotalCostInput('');
+      setBatchNumberInput('');
     }
   }, [isOpen, item?.id, mode]);
 
@@ -60,7 +74,11 @@ export const PerishableWasteModal: React.FC<PerishableWasteModalProps> = ({
     if (mode === 'waste') {
       onConfirmWaste(item.id, parsedAmount, reason);
     } else {
-      onConfirmRestock(item.id, parsedAmount, newEntryDate, newExpiryDate);
+      const parsedTotalCost = parseFloat(totalCostInput);
+      onConfirmRestock(item.id, parsedAmount, newEntryDate, newExpiryDate, {
+        ...(parsedTotalCost > 0 ? { totalPrice: parsedTotalCost } : {}),
+        ...(batchNumberInput.trim() ? { batchNumber: batchNumberInput.trim() } : {})
+      });
     }
     onClose();
   };
@@ -152,30 +170,63 @@ export const PerishableWasteModal: React.FC<PerishableWasteModalProps> = ({
             </div>
           ) : (
             <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-850 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-1">
-                  <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Nueva Fecha de Ingreso</span>
-                </label>
-                <input
-                  type="date"
-                  value={newEntryDate}
-                  onChange={(e) => setNewEntryDate(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-1">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Fecha Ingreso</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={newEntryDate}
+                    onChange={(e) => setNewEntryDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Vencimiento</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={newExpiryDate}
+                    onChange={(e) => setNewExpiryDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Nueva Fecha de Vencimiento</span>
-                </label>
-                <input
-                  type="date"
-                  value={newExpiryDate}
-                  onChange={(e) => setNewExpiryDate(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                />
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/70 dark:border-slate-800">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                    <DollarSign className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Costo total lote (opc.)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={totalCostInput}
+                    onChange={(e) => setTotalCostInput(e.target.value)}
+                    placeholder="Opcional COP"
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                    <Hash className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Código de lote (opc.)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={batchNumberInput}
+                    onChange={(e) => setBatchNumberInput(e.target.value)}
+                    placeholder="LOT-..."
+                    className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
               </div>
             </div>
           )}

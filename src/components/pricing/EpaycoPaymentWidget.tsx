@@ -8,6 +8,7 @@ import {
   setRuntimeEpaycoPublicKey,
   getEpaycoTestMode,
   verifySubscriptionWithBackend,
+  createEpaycoSubscriptionIntent,
   EpaycoValidationData
 } from '../../services/epaycoService';
 import {
@@ -43,7 +44,7 @@ export const EpaycoPaymentWidget: React.FC<EpaycoPaymentWidgetProps> = ({
   onSuccess,
   onCancel
 }) => {
-  const [reference] = useState(
+  const [reference, setReference] = useState(
     () => `SUB-PRO-${planData.id.toUpperCase()}-${Date.now()}`
   );
   const [isOpening, setIsOpening] = useState(false);
@@ -69,15 +70,16 @@ export const EpaycoPaymentWidget: React.FC<EpaycoPaymentWidgetProps> = ({
     setCurrentPublicKey(inputPublicKey.trim());
   };
 
-  const processServerVerification = async (txData: EpaycoValidationData) => {
+  const processServerVerification = async (txData: EpaycoValidationData, activeInvoice: string) => {
     setIsVerifying(true);
     setStatusMessage('');
 
-    const candidateRef = txData.x_ref_payco || reference;
+    const candidateRef = txData.x_ref_payco || activeInvoice;
     setRefPayco(candidateRef);
 
     const verification = await verifySubscriptionWithBackend({
       refPayco: candidateRef,
+      invoice: activeInvoice,
       planId: planData.id,
       userEmail,
       userId
@@ -86,6 +88,9 @@ export const EpaycoPaymentWidget: React.FC<EpaycoPaymentWidgetProps> = ({
     setIsVerifying(false);
 
     if (verification.verified && verification.status === 'approved') {
+      try {
+        sessionStorage.removeItem('chinmi_pending_epayco_invoice');
+      } catch {}
       setPaymentStatus('approved');
       setTimeout(() => {
         onSuccess();
@@ -114,25 +119,40 @@ export const EpaycoPaymentWidget: React.FC<EpaycoPaymentWidgetProps> = ({
     setIsOpening(true);
     setStatusMessage('');
 
+    let activeInvoice = reference;
+    try {
+      const intent = await createEpaycoSubscriptionIntent(planData.id, userEmail);
+      activeInvoice = intent.invoice;
+      setReference(intent.invoice);
+      try {
+        sessionStorage.setItem('chinmi_pending_epayco_invoice', intent.invoice);
+      } catch {}
+    } catch (err: any) {
+      setIsOpening(false);
+      setPaymentStatus('rejected');
+      setStatusMessage(err?.message || 'No se pudo inicializar el cobro en el servidor.');
+      return;
+    }
+
     await openEpaycoCheckout(
       {
         restaurantName: businessName,
         description: `Suscripción ${planData.name} (${planData.frequencyLabel})`,
-        invoice: reference,
+        invoice: activeInvoice,
         amount: planData.billedAmount,
         taxBase: planData.billedAmount,
         tax: 0,
         taxIco: 0,
-        extra1: reference,
-        extra2: planData.id,
-        extra3: userId || userEmail,
+        extra1: userId || userEmail,
+        extra2: activeInvoice,
+        extra3: planData.id,
         nameBilling: userName,
         emailBilling: userEmail
       },
       {
         onApproved: async (txData) => {
           setIsOpening(false);
-          await processServerVerification(txData);
+          await processServerVerification(txData, activeInvoice);
         },
         onRejected: (txData) => {
           setIsOpening(false);
@@ -147,7 +167,7 @@ export const EpaycoPaymentWidget: React.FC<EpaycoPaymentWidgetProps> = ({
           setPaymentStatus('pending');
           setRefPayco(txData.x_ref_payco || '');
           setStatusMessage(
-            `Pago por PSE en proceso de autorización por tu banco (Ref: ${txData.x_ref_payco || reference}). Tu suscripción se activará tan pronto como el banco envíe la confirmación.`
+            `Pago por PSE en proceso de autorización por tu banco (Ref: ${txData.x_ref_payco || activeInvoice}). Tu suscripción se activará tan pronto como el banco envíe la confirmación.`
           );
         },
         onModalClosed: () => {

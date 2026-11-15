@@ -14,7 +14,7 @@ import {
   Edit2,
   Send
 } from 'lucide-react';
-import { Supplier, PerishableItem } from '../../types';
+import { Supplier, PerishableItem, InsumoPresentation, PackagingType } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { defaultAppConfig } from '../../config/appConfig';
@@ -24,12 +24,27 @@ import {
   normalizeNonNegativeQuantity,
   subtractQuantities
 } from '../../utils/quantityPrecision';
+import {
+  formatPackagingLabel,
+  getEffectiveBaseUnit,
+  normalizeWhatsappPhone,
+  buildSupplierWhatsappMessage
+} from '../../utils/perishableUtils';
+
+export { normalizeWhatsappPhone, buildSupplierWhatsappMessage };
 
 interface OrderLineItem {
   id: string;
+  insumoId?: string;
   name: string;
   quantity: number;
   unit: string;
+  presentationId?: string;
+  presentationName?: string;
+  packagingType?: PackagingType;
+  contentQty?: number;
+  contentUnit?: string;
+  brand?: string;
 }
 
 interface SupplierWhatsappOrderModalProps {
@@ -37,7 +52,18 @@ interface SupplierWhatsappOrderModalProps {
   onClose: () => void;
   supplier: Supplier | null;
   linkedPantryItems?: PerishableItem[];
-  initialItems?: Array<{ name: string; quantity: number; unit: string }>;
+  initialItems?: Array<{
+    insumoId?: string;
+    name: string;
+    quantity: number;
+    unit: string;
+    presentationId?: string;
+    presentationName?: string;
+    packagingType?: PackagingType;
+    contentQty?: number;
+    contentUnit?: string;
+    brand?: string;
+  }>;
 }
 
 const ORDER_UNITS = [
@@ -46,6 +72,7 @@ const ORDER_UNITS = [
   'cajas',
   'paquetes',
   'bolsas',
+  'bloques',
   'litros',
   'atados',
   'canastas',
@@ -53,19 +80,6 @@ const ORDER_UNITS = [
   'ml',
   'libra'
 ];
-
-export function normalizeWhatsappPhone(rawPhone: string): string {
-  let digits = (rawPhone || '').replace(/\D/g, '');
-  if (!digits) return '';
-  if (digits.startsWith('00')) {
-    digits = digits.slice(2);
-  }
-  // Si es celular colombiano de 10 dígitos (ej. 3001234567), anteponer indicativo 57
-  if (digits.length === 10 && digits.startsWith('3')) {
-    return `57${digits}`;
-  }
-  return digits;
-}
 
 export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProps> = ({
   isOpen,
@@ -109,6 +123,16 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
   const [copiedMessage, setCopiedMessage] = useState(false);
   const [loggedOrderId, setLoggedOrderId] = useState<string | null>(null);
 
+  const pickPreferredPresentation = (p: PerishableItem): InsumoPresentation | undefined => {
+    const active = (p.presentations || []).filter(pr => pr.active !== false);
+    if (active.length === 0) return undefined;
+    return (
+      active.find(pr => pr.supplierId && supplier && pr.supplierId === supplier.id) ||
+      active.find(pr => pr.isDefault) ||
+      active[0]
+    );
+  };
+
   useEffect(() => {
     if (!isOpen || !supplier) return;
 
@@ -124,25 +148,51 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
 
     if (initialItems.length > 0) {
       setOrderItems(
-        initialItems.map((it, idx) => ({
-          id: `init-${idx}-${Date.now()}`,
-          name: it.name,
-          quantity: it.quantity,
-          unit: it.unit
-        }))
+        initialItems.map((it, idx) => {
+          const matched = it.insumoId
+            ? linkedPantryItems.find(p => p.id === it.insumoId)
+            : linkedPantryItems.find(
+                p => p.name.trim().toLowerCase() === it.name.trim().toLowerCase()
+              );
+          const pres = !it.presentationId && matched ? pickPreferredPresentation(matched) : undefined;
+          return {
+            id: `init-${idx}-${Date.now()}`,
+            insumoId: it.insumoId || matched?.id,
+            name: it.name,
+            quantity: it.quantity,
+            unit: pres ? formatPackagingLabel(pres.packagingType, it.quantity !== 1) : it.unit,
+            presentationId: it.presentationId || pres?.id,
+            presentationName: it.presentationName || pres?.name,
+            packagingType: it.packagingType || pres?.packagingType,
+            contentQty: it.contentQty ?? pres?.contentQty,
+            contentUnit: it.contentUnit || pres?.contentUnit,
+            brand: it.brand || pres?.brand
+          };
+        })
       );
     } else {
-      // Pre-cargar automáticamente insumos de este proveedor que estén en stock bajo, si existen
       const lowStockLinked = linkedPantryItems.filter(p => p.quantity <= p.minStock);
       if (lowStockLinked.length > 0) {
         setOrderItems(
           lowStockLinked.map((p, idx) => {
             const suggestedQty = Math.max(1, Math.ceil((p.minStock || 1) * 2 - p.quantity));
+            const pres = pickPreferredPresentation(p);
             return {
               id: `low-${idx}-${p.id}`,
+              insumoId: p.id,
               name: p.name,
               quantity: suggestedQty,
-              unit: p.unit || 'kg'
+              unit: pres ? formatPackagingLabel(pres.packagingType, suggestedQty !== 1) : getEffectiveBaseUnit(p),
+              ...(pres
+                ? {
+                    presentationId: pres.id,
+                    presentationName: pres.name,
+                    packagingType: pres.packagingType,
+                    contentQty: pres.contentQty,
+                    contentUnit: pres.contentUnit,
+                    brand: pres.brand
+                  }
+                : {})
             };
           })
         );
@@ -152,12 +202,19 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
     }
   }, [isOpen, supplier?.id, resolvedRegisteredName, resolvedRegisteredAddress]);
 
-  // Catálogo rápido combinado: lo que provee el proveedor + sus insumos vinculados en despensa
   const supplierCatalog = useMemo(() => {
     if (!supplier) return [];
     const map = new Map<
       string,
-      { name: string; defaultUnit: string; isLowStock: boolean; currentStockText?: string; suggestedQty: number }
+      {
+        insumoId?: string;
+        name: string;
+        defaultUnit: string;
+        isLowStock: boolean;
+        currentStockText?: string;
+        suggestedQty: number;
+        preferredPresentation?: InsumoPresentation;
+      }
     >();
 
     linkedPantryItems.forEach((p) => {
@@ -167,12 +224,17 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
       const suggested = isLow
         ? Math.max(1, Math.ceil((p.minStock || 1) * 2 - p.quantity))
         : Math.max(1, p.minStock || 2);
+      const preferred = pickPreferredPresentation(p);
       map.set(key, {
+        insumoId: p.id,
         name: p.name.trim(),
-        defaultUnit: p.unit || 'kg',
+        defaultUnit: preferred
+          ? formatPackagingLabel(preferred.packagingType, suggested !== 1)
+          : getEffectiveBaseUnit(p),
         isLowStock: isLow,
         currentStockText: `${p.quantity} ${p.unit}`,
-        suggestedQty: suggested
+        suggestedQty: suggested,
+        preferredPresentation: preferred
       });
     });
 
@@ -196,27 +258,45 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
     return Array.from(map.values());
   }, [supplier, linkedPantryItems]);
 
-  const addOrIncrementCatalogItem = (
-    itemName: string,
-    defaultUnit = 'unidades',
-    suggestedQty = 1
-  ) => {
-    const clean = itemName.trim();
+  const addOrIncrementCatalogItem = (cat: {
+    insumoId?: string;
+    name: string;
+    defaultUnit: string;
+    suggestedQty: number;
+    preferredPresentation?: InsumoPresentation;
+  }) => {
+    const clean = cat.name.trim();
     if (!clean) return;
     setOrderItems(prev => {
-      const idx = prev.findIndex(it => it.name.toLowerCase() === clean.toLowerCase());
+      const idx = prev.findIndex(
+        it =>
+          (cat.insumoId && it.insumoId === cat.insumoId) ||
+          it.name.toLowerCase() === clean.toLowerCase()
+      );
       if (idx > -1) {
         return prev.map((it, i) =>
           i === idx ? { ...it, quantity: addQuantities(it.quantity, 1) } : it
         );
       }
+      const pres = cat.preferredPresentation;
       return [
         ...prev,
         {
           id: `ord-sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          ...(cat.insumoId ? { insumoId: cat.insumoId } : {}),
           name: clean,
-          quantity: normalizeNonNegativeQuantity(suggestedQty),
-          unit: defaultUnit
+          quantity: normalizeNonNegativeQuantity(cat.suggestedQty),
+          unit: cat.defaultUnit,
+          ...(pres
+            ? {
+                presentationId: pres.id,
+                presentationName: pres.name,
+                packagingType: pres.packagingType,
+                contentQty: pres.contentQty,
+                contentUnit: pres.contentUnit,
+                brand: pres.brand
+              }
+            : {})
         }
       ];
     });
@@ -263,14 +343,59 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
   };
 
   const updateItemUnit = (id: string, nextUnit: string) => {
-    setOrderItems(prev => prev.map(it => (it.id === id ? { ...it, unit: nextUnit } : it)));
+    setOrderItems(prev =>
+      prev.map(it =>
+        it.id === id
+          ? {
+              ...it,
+              unit: nextUnit,
+              presentationId: undefined,
+              presentationName: undefined,
+              packagingType: undefined,
+              contentQty: undefined,
+              contentUnit: undefined
+            }
+          : it
+      )
+    );
+  };
+
+  const updateItemPresentation = (id: string, presId: string) => {
+    setOrderItems(prev =>
+      prev.map(it => {
+        if (it.id !== id) return it;
+        const pantry = it.insumoId ? linkedPantryItems.find(p => p.id === it.insumoId) : undefined;
+        if (!presId) {
+          return {
+            ...it,
+            presentationId: undefined,
+            presentationName: undefined,
+            packagingType: undefined,
+            contentQty: undefined,
+            contentUnit: undefined,
+            unit: pantry ? getEffectiveBaseUnit(pantry) : it.unit
+          };
+        }
+        const pres = (pantry?.presentations || []).find(pr => pr.id === presId);
+        if (!pres) return it;
+        return {
+          ...it,
+          presentationId: pres.id,
+          presentationName: pres.name,
+          packagingType: pres.packagingType,
+          contentQty: pres.contentQty,
+          contentUnit: pres.contentUnit,
+          brand: pres.brand,
+          unit: formatPackagingLabel(pres.packagingType, it.quantity !== 1)
+        };
+      })
+    );
   };
 
   const removeItem = (id: string) => {
     setOrderItems(prev => prev.filter(it => it.id !== id));
   };
 
-  // Si el usuario dejó escrito un producto en la caja manual sin pulsar "+ Agregar", incluirlo también
   const effectiveItems: OrderLineItem[] = useMemo(() => {
     const base = [...orderItems];
     if (customProductName.trim()) {
@@ -289,28 +414,13 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
 
   const whatsappMessage = useMemo(() => {
     if (!supplier) return '';
-    const lines: string[] = [
-      `Hola *${supplier.name}*, te compartimos el pedido de insumos:`,
-      '',
-      `*Local:* ${cleanLocalName}`,
-      `*Dirección de entrega:* ${cleanLocalAddress || 'Por confirmar'}`
-    ];
-
-    lines.push('', '*Listado de productos:*');
-    if (effectiveItems.length === 0) {
-      lines.push('• (Agrega productos al listado)');
-    } else {
-      effectiveItems.forEach((it) => {
-        lines.push(`• ${formatQuantity(it.quantity)} ${it.unit} - ${it.name}`);
-      });
-    }
-
-    if (deliveryNotes.trim()) {
-      lines.push('', `*Observaciones:* ${deliveryNotes.trim()}`);
-    }
-
-    lines.push('', 'Quedamos atentos a confirmación. ¡Gracias!');
-    return lines.join('\n');
+    return buildSupplierWhatsappMessage({
+      supplierName: supplier.name,
+      localName: cleanLocalName,
+      localAddress: cleanLocalAddress,
+      items: effectiveItems,
+      notes: deliveryNotes
+    });
   }, [supplier, cleanLocalName, cleanLocalAddress, effectiveItems, deliveryNotes]);
 
   if (!isOpen || !supplier) return null;
@@ -360,9 +470,16 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
       businessAddress: cleanLocalAddress || undefined,
       items: effectiveItems.map((it, idx) => ({
         id: it.id === 'pending-inline-item' ? `soi-${Date.now()}-${idx}` : it.id,
+        ...(it.insumoId ? { insumoId: it.insumoId } : {}),
         name: it.name,
         quantity: it.quantity,
         unit: it.unit,
+        ...(it.presentationId ? { presentationId: it.presentationId } : {}),
+        ...(it.presentationName ? { presentationName: it.presentationName } : {}),
+        ...(it.packagingType ? { packagingType: it.packagingType } : {}),
+        ...(it.contentQty !== undefined ? { contentQty: it.contentQty } : {}),
+        ...(it.contentUnit ? { contentUnit: it.contentUnit } : {}),
+        ...(it.brand ? { brand: it.brand } : {}),
         received: false,
         receivedQuantity: it.quantity
       })),
@@ -405,7 +522,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
 
         {/* Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1 text-xs">
-          {/* 1. Datos registrados del local (Nombre y Dirección de entrega) */}
+          {/* 1. Datos registrados del local */}
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -508,19 +625,15 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
               <div className="flex flex-wrap gap-1.5">
                 {supplierCatalog.map((catItem) => {
                   const inOrder = orderItems.find(
-                    it => it.name.toLowerCase() === catItem.name.toLowerCase()
+                    it =>
+                      (catItem.insumoId && it.insumoId === catItem.insumoId) ||
+                      it.name.toLowerCase() === catItem.name.toLowerCase()
                   );
                   return (
                     <button
-                      key={catItem.name}
+                      key={`${catItem.insumoId || 'sup'}-${catItem.name}`}
                       type="button"
-                      onClick={() =>
-                        addOrIncrementCatalogItem(
-                          catItem.name,
-                          catItem.defaultUnit,
-                          catItem.suggestedQty
-                        )
-                      }
+                      onClick={() => addOrIncrementCatalogItem(catItem)}
                       className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
                         inOrder
                           ? 'bg-emerald-600 text-white border-emerald-600'
@@ -605,7 +718,6 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
               </button>
             </div>
 
-            {/* Listado de ítems agregados */}
             {orderItems.length > 0 ? (
               <div className="pt-2 space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400 px-1">
@@ -620,66 +732,103 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
                 </div>
 
                 <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900 overflow-hidden">
-                  {orderItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="px-3 py-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2"
-                    >
-                      <span className="font-bold text-slate-900 dark:text-white truncate min-w-0 flex-1">
-                        {item.name}
-                      </span>
+                  {orderItems.map((item) => {
+                    const linkedPantry = item.insumoId
+                      ? linkedPantryItems.find(p => p.id === item.insumoId)
+                      : undefined;
+                    const itemPresentations = (linkedPantry?.presentations || []).filter(
+                      pr => pr.active !== false
+                    );
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => updateItemQty(item.id, subtractQuantities(item.quantity, 1, true))}
-                          className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
-                        >
-                          <Minus className="w-3 h-3" />
-                        </button>
+                    return (
+                      <div
+                        key={item.id}
+                        className="px-3 py-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-bold text-slate-900 dark:text-white truncate block">
+                            {item.name}
+                          </span>
+                          {item.contentQty && item.contentUnit && (
+                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold block">
+                              {item.presentationName || formatPackagingLabel(item.packagingType)} · x
+                              {formatQuantity(item.contentQty)} {item.contentUnit}
+                            </span>
+                          )}
+                        </div>
 
-                        <input
-                          type="number"
-                          min="0.000001"
-                          step="any"
-                          value={item.quantity}
-                          onChange={(e) =>
-                            updateItemQty(item.id, parseFloat(e.target.value) || 0)
-                          }
-                          className="w-16 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-mono font-bold text-slate-900 dark:text-white"
-                        />
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => updateItemQty(item.id, subtractQuantities(item.quantity, 1, true))}
+                            className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => updateItemQty(item.id, addQuantities(item.quantity, 1))}
-                          className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
+                          <input
+                            type="number"
+                            min="0.000001"
+                            step="any"
+                            value={item.quantity}
+                            onChange={(e) =>
+                              updateItemQty(item.id, parseFloat(e.target.value) || 0)
+                            }
+                            className="w-16 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-mono font-bold text-slate-900 dark:text-white"
+                          />
 
-                        <select
-                          value={item.unit}
-                          onChange={(e) => updateItemUnit(item.id, e.target.value)}
-                          className="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
-                        >
-                          {ORDER_UNITS.map((u) => (
-                            <option key={u} value={u}>
-                              {u}
-                            </option>
-                          ))}
-                        </select>
+                          <button
+                            type="button"
+                            onClick={() => updateItemQty(item.id, addQuantities(item.quantity, 1))}
+                            className="w-7 h-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => removeItem(item.id)}
-                          title="Quitar producto"
-                          className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                          {itemPresentations.length > 0 ? (
+                            <select
+                              value={item.presentationId || ''}
+                              onChange={(e) => updateItemPresentation(item.id, e.target.value)}
+                              className="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer max-w-[155px]"
+                            >
+                              <option value="">
+                                {linkedPantry ? getEffectiveBaseUnit(linkedPantry) : item.unit} (base)
+                              </option>
+                              {itemPresentations.map(pr => (
+                                <option key={pr.id} value={pr.id}>
+                                  {pr.name || formatPackagingLabel(pr.packagingType)} (x{formatQuantity(pr.contentQty)} {pr.contentUnit})
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <select
+                              value={item.unit}
+                              onChange={(e) => updateItemUnit(item.id, e.target.value)}
+                              className="px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
+                            >
+                              {!ORDER_UNITS.includes(item.unit) && (
+                                <option value={item.unit}>{item.unit}</option>
+                              )}
+                              {ORDER_UNITS.map((u) => (
+                                <option key={u} value={u}>
+                                  {u}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            title="Quitar producto"
+                            className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -691,7 +840,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
             )}
           </div>
 
-          {/* 4. Nota opcional y Vista previa del mensaje */}
+          {/* 4. Nota opcional y Vista previa */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
@@ -736,7 +885,7 @@ export const SupplierWhatsappOrderModal: React.FC<SupplierWhatsappOrderModalProp
           </div>
         </div>
 
-        {/* Footer: Envío en 1 solo clic y registro automático con fecha y hora */}
+        {/* Footer */}
         <div className="px-5 sm:px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
           <div className="text-[11px] text-slate-500 dark:text-slate-400">
             {loggedOrderId ? (

@@ -5,6 +5,8 @@
  * contra la API oficial de ePayco y el webhook de confirmación del backend.
  */
 
+import { auth } from '../firebase';
+
 export interface EpaycoValidationData {
   x_cust_id_cliente?: string;
   x_ref_payco: string;
@@ -132,87 +134,253 @@ export function getEpaycoTestMode(): boolean {
 
 export interface SubscriptionVerificationResult {
   verified: boolean;
-  status: 'approved' | 'pending' | 'rejected' | 'invalid_amount' | 'error';
+  status: 'approved' | 'pending' | 'rejected' | 'invalid_amount' | 'amount_mismatch' | 'currency_mismatch' | 'test_tx_in_live_mode' | 'forbidden' | 'not_found' | 'error';
   message?: string;
   error?: string;
   alreadyProcessed?: boolean;
   planId?: string;
   billedAmount?: number;
   refPayco?: string;
+  transactionId?: string;
+  planExpiresAt?: string;
   isTest?: boolean;
+}
+
+export interface EpaycoIntentResponse {
+  invoice: string;
+  planId: 'monthly' | 'quarterly' | 'annual';
+  expectedAmount: number;
+  currency: string;
+  mode: 'test' | 'live';
+}
+
+export interface BackendCapabilities {
+  adminConfigured: boolean;
+  epaycoSignatureConfigured: boolean;
+  epaycoMode: 'test' | 'live';
+  degradationEnabled: boolean;
+}
+
+export interface ServerSubscriptionStatusResponse {
+  serverNowMs: number;
+  serverIso: string;
+  authenticated: boolean;
+  uid?: string;
+  capabilities: BackendCapabilities;
+  subscription?: {
+    plan: 'free' | 'pro';
+    rawPlan: string;
+    status: 'free' | 'pro_active' | 'pro_grace' | 'free_over_limit';
+    planExpiresAt: string | null;
+    graceEndsAt: string | null;
+    cancelAtPeriodEnd: boolean;
+  };
+}
+
+async function getCurrentFirebaseIdToken(explicitToken?: string): Promise<string> {
+  if (explicitToken) return explicitToken;
+  try {
+    if (auth.currentUser) {
+      return await auth.currentUser.getIdToken();
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
+export async function createEpaycoSubscriptionIntent(
+  planId: 'monthly' | 'quarterly' | 'annual',
+  email?: string,
+  explicitToken?: string
+): Promise<EpaycoIntentResponse> {
+  const baseUrl = getBackendBaseUrl();
+  const token = await getCurrentFirebaseIdToken(explicitToken);
+  if (!token) {
+    throw new Error('Debes iniciar sesión para iniciar el pago de tu suscripción.');
+  }
+
+  const res = await fetch(`${baseUrl}/api/epayco/create-intent`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ planId, email }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || 'No se pudo inicializar el intento de pago en el servidor.');
+  }
+  return data as EpaycoIntentResponse;
 }
 
 export async function verifySubscriptionWithBackend(params: {
   refPayco: string;
+  invoice?: string;
   planId: string;
   userEmail?: string;
   userId?: string;
   codResponse?: number;
   responseText?: string;
+  idToken?: string;
 }): Promise<SubscriptionVerificationResult> {
   const baseUrl = getBackendBaseUrl();
-  try {
-    const res = await fetch(`${baseUrl}/api/epayco/verify-subscription`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
-    });
+  const token = await getCurrentFirebaseIdToken(params.idToken);
 
-    if (res.ok) {
-      const data = await res.json();
-      return data as SubscriptionVerificationResult;
-    }
-  } catch (err) {
-    console.error('Error llamando a verify-subscription en backend:', err);
-  }
-
-  // Fallback a validación directa si el backend de verificación fallara
-  const txData = await validateEpaycoReference(params.refPayco);
-  const isTestMode = getEpaycoTestMode();
-  if (txData) {
-    const cod = Number(txData.x_cod_response);
-    const isTest = Boolean(
-      (txData as any).x_test_request === 'TRUE' ||
-      (txData as any).x_test_request === true ||
-      (txData as any).x_test_request === '1' ||
-      isTestMode
-    );
-    if (isEpaycoApproved(cod, txData.x_response)) {
-      return {
-        verified: true,
-        status: 'approved',
-        planId: params.planId,
-        billedAmount: Number(txData.x_amount) || 89000,
-        refPayco: txData.x_ref_payco || params.refPayco,
-        isTest
-      };
-    }
-    if (isEpaycoPending(cod, txData.x_response)) {
-      return {
-        verified: false,
-        status: 'pending',
-        message: 'La transacción (PSE) se encuentra en proceso de verificación bancaria.'
-      };
-    }
-  }
-
-  // Fallback adicional para referencias de prueba generadas en entorno de desarrollo/sandbox
-  if (isTestMode && params.refPayco) {
+  if (!token) {
     return {
-      verified: true,
-      status: 'approved',
-      planId: params.planId,
-      billedAmount: 89000,
-      refPayco: params.refPayco,
-      isTest: true
+      verified: false,
+      status: 'error',
+      error: 'Debes iniciar sesión en Chinmi App para verificar y activar tu suscripción.',
+      message: 'Sesión no autenticada al verificar el pago.',
     };
   }
 
-  return {
-    verified: false,
-    status: 'rejected',
-    message: 'No se pudo verificar la transacción con ePayco.'
-  };
+  try {
+    const res = await fetch(`${baseUrl}/api/epayco/verify-subscription`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        refPayco: params.refPayco,
+        invoice: params.invoice,
+        planId: params.planId,
+        userEmail: params.userEmail,
+        userId: params.userId,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok || data?.status) {
+      return {
+        verified: Boolean(data?.verified),
+        status: data?.status || (res.ok ? 'approved' : 'error'),
+        message: data?.message || data?.error,
+        error: data?.error,
+        alreadyProcessed: Boolean(data?.alreadyProcessed),
+        planId: data?.planId,
+        billedAmount: data?.billedAmount,
+        refPayco: data?.refPayco || params.refPayco,
+        transactionId: data?.transactionId,
+        planExpiresAt: data?.planExpiresAt,
+        isTest: data?.isTest,
+      };
+    }
+
+    return {
+      verified: false,
+      status: 'error',
+      error: data?.error || 'No se pudo verificar el pago en el servidor.',
+      message: data?.message || data?.error || 'Error verificando la transacción.',
+    };
+  } catch (err) {
+    console.error('Error llamando a verify-subscription en backend:', err);
+    return {
+      verified: false,
+      status: 'error',
+      message: 'No pudimos conectar con el servidor para validar el pago. Intenta nuevamente en unos segundos.',
+    };
+  }
+}
+
+export async function fetchServerSubscriptionStatus(
+  explicitToken?: string
+): Promise<ServerSubscriptionStatusResponse | null> {
+  const baseUrl = getBackendBaseUrl();
+  const token = await getCurrentFirebaseIdToken(explicitToken);
+  try {
+    const res = await fetch(`${baseUrl}/api/subscription/status`, {
+      method: 'GET',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ServerSubscriptionStatusResponse;
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelSubscriptionOnBackend(
+  explicitToken?: string
+): Promise<{ success: boolean; error?: string; cancelAtPeriodEnd?: boolean; planExpiresAt?: string | null }> {
+  const baseUrl = getBackendBaseUrl();
+  const token = await getCurrentFirebaseIdToken(explicitToken);
+  if (!token) return { success: false, error: 'Sesión no autenticada.' };
+
+  try {
+    const res = await fetch(`${baseUrl}/api/subscription/cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data?.error || 'No se pudo cancelar la renovación.' };
+    }
+    return { success: true, ...data };
+  } catch {
+    return { success: false, error: 'Error de conexión al cancelar la suscripción.' };
+  }
+}
+
+export async function redeemPromoCodeOnBackend(
+  code: string,
+  explicitToken?: string
+): Promise<{ success: boolean; dias?: number; planExpiresAt?: string; error?: string }> {
+  const baseUrl = getBackendBaseUrl();
+  const token = await getCurrentFirebaseIdToken(explicitToken);
+  if (!token) return { success: false, error: 'Debes iniciar sesión para canjear un código.' };
+
+  try {
+    const res = await fetch(`${baseUrl}/api/subscription/redeem-code`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data?.error || 'No fue posible canjear el código.' };
+    }
+    return { success: true, dias: data?.dias, planExpiresAt: data?.planExpiresAt };
+  } catch {
+    return { success: false, error: 'Error de conexión al validar el código promocional.' };
+  }
+}
+
+export async function saveOverLimitSelectionOnBackend(
+  selection: { activeTableIds: string[]; activeProductIds: string[] },
+  explicitToken?: string
+): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = getBackendBaseUrl();
+  const token = await getCurrentFirebaseIdToken(explicitToken);
+  if (!token) return { success: false, error: 'Sesión no autenticada.' };
+
+  try {
+    const res = await fetch(`${baseUrl}/api/subscription/selection`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(selection),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data?.error || 'No se pudo guardar la selección.' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Error de conexión guardando la selección.' };
+  }
 }
 
 /**

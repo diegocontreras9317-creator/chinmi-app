@@ -41,6 +41,8 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
     latestReceipt,
     setLatestReceipt,
     canAddTable,
+    isTableOperational,
+    subscriptionState,
     setCustomerViewTableId,
     dismissWaiterCall
   } = useApp();
@@ -53,6 +55,7 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [checkoutSubaccountIds, setCheckoutSubaccountIds] = useState<string[] | undefined>(undefined);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+  const [pausedNotice, setPausedNotice] = useState<string | null>(null);
 
   // Card size state: 'sm' (Pequeño), 'md' (Mediano), 'lg' (Grande)
   const [cardSize, setCardSize] = useState<'sm' | 'md' | 'lg'>(() => {
@@ -185,8 +188,37 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
     }
   };
 
+  const handleOpenTableCard = (table: Table) => {
+    if (!isTableOperational(table)) {
+      setPausedNotice(
+        `La mesa "${table.name}" está pausada por el límite de ${config.freemiumLimits.freeMaxTables} mesas activas del Plan Gratis. Actualiza a PRO o selecciona tus mesas activas.`
+      );
+      setTimeout(() => setPausedNotice(null), 6000);
+      return;
+    }
+    setPausedNotice(null);
+    setSelectedTableId(table.id);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8 py-3 sm:py-6 space-y-3 sm:space-y-6 w-full max-w-full overflow-x-hidden">
+      {pausedNotice && (
+        <div className="p-3 sm:p-4 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-2 font-semibold">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>{pausedNotice}</span>
+          </div>
+          {isGerente && (
+            <button
+              type="button"
+              onClick={onOpenSubscription}
+              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] shrink-0 cursor-pointer"
+            >
+              Ver plan PRO
+            </button>
+          )}
+        </div>
+      )}
       
       {/* Friendly Guide Banner with Role Context */}
       <div className="p-3 sm:p-4 rounded-md bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3">
@@ -522,6 +554,7 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
           {filteredTables.map((table) => {
             const items = table.order?.items || (table.order as any)?.productos || [];
             const hasOrder = !!table.order && items.length > 0;
+            const isOperational = isTableOperational(table);
             const itemsCount = (items || []).reduce((sum: number, it: any) => sum + (Number(it?.quantity ?? it?.cantidad ?? 0) || 0), 0);
             
             // Calculate active total
@@ -560,8 +593,12 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                 <div
                   key={table.id}
                   id={`table-card-${table.id}`}
-                  onClick={() => setSelectedTableId(table.id)}
-                  className={`group relative p-3 rounded-xl border-2 ${statusConfig.border} transition-all duration-150 cursor-pointer flex flex-col justify-between hover:shadow-md active:scale-[0.99]`}
+                  onClick={() => handleOpenTableCard(table)}
+                  className={`group relative p-3 rounded-xl border-2 ${
+                    isOperational
+                      ? `${statusConfig.border} cursor-pointer hover:shadow-md active:scale-[0.99]`
+                      : 'border-dashed border-amber-300 dark:border-amber-800/70 bg-slate-50 dark:bg-slate-900/60 opacity-75 cursor-not-allowed'
+                  } transition-all duration-150 flex flex-col justify-between`}
                 >
                   <div>
                     {/* Header Compacto */}
@@ -580,10 +617,16 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                         </div>
                       </div>
 
-                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${statusConfig.badgeBg}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
-                        <span className="hidden sm:inline">{statusConfig.label}</span>
-                      </span>
+                      {!isOperational ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 shrink-0">
+                          Pausada
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${statusConfig.badgeBg}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
+                          <span className="hidden sm:inline">{statusConfig.label}</span>
+                        </span>
+                      )}
                     </div>
 
                     {/* Body Compacto */}
@@ -632,8 +675,8 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                     <span className="text-[10px] text-slate-400">
                       {table.seats} pl.
                     </span>
-                    <span className="font-bold text-[11px] text-orange-600 dark:text-orange-400 group-hover:underline">
-                      {hasOrder ? 'Ver →' : 'Abrir →'}
+                    <span className={`font-bold text-[11px] ${isOperational ? 'text-orange-600 dark:text-orange-400 group-hover:underline' : 'text-amber-700 dark:text-amber-300'}`}>
+                      {!isOperational ? 'Pausada' : hasOrder ? 'Ver →' : 'Abrir →'}
                     </span>
                   </div>
                 </div>
@@ -646,8 +689,12 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                 <div
                   key={table.id}
                   id={`table-card-${table.id}`}
-                  onClick={() => setSelectedTableId(table.id)}
-                  className={`group relative p-5 sm:p-6 rounded-3xl border-2 ${statusConfig.border} transition-all duration-150 cursor-pointer flex flex-col justify-between hover:shadow-xl active:scale-[0.99]`}
+                  onClick={() => handleOpenTableCard(table)}
+                  className={`group relative p-5 sm:p-6 rounded-3xl border-2 ${
+                    isOperational
+                      ? `${statusConfig.border} cursor-pointer hover:shadow-xl active:scale-[0.99]`
+                      : 'border-dashed border-amber-300 dark:border-amber-800/70 bg-slate-50 dark:bg-slate-900/60 opacity-75 cursor-not-allowed'
+                  } transition-all duration-150 flex flex-col justify-between`}
                 >
                   <div>
                     {/* Header Grande */}
@@ -666,10 +713,16 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                         </div>
                       </div>
 
-                      <span className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black shadow-xs ${statusConfig.badgeBg}`}>
-                        <span className={`w-2.5 h-2.5 rounded-full ${statusConfig.dot}`} />
-                        {statusConfig.label}
-                      </span>
+                      {!isOperational ? (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                          Pausada (Plan Gratis)
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black shadow-xs ${statusConfig.badgeBg}`}>
+                          <span className={`w-2.5 h-2.5 rounded-full ${statusConfig.dot}`} />
+                          {statusConfig.label}
+                        </span>
+                      )}
                     </div>
 
                     {/* Body Grande */}
@@ -810,15 +863,17 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                       </button>
                     </div>
 
-                    <span className="font-black text-sm text-orange-600 dark:text-orange-400 group-hover:underline flex items-center gap-1.5">
+                    <span className={`font-black text-sm flex items-center gap-1.5 ${isOperational ? 'text-orange-600 dark:text-orange-400 group-hover:underline' : 'text-amber-700 dark:text-amber-300'}`}>
                       <span>
-                        {hasOrder
+                        {!isOperational
+                          ? 'Pausada (Plan Gratis)'
+                          : hasOrder
                           ? activeRole === 'cajero'
                             ? 'Cobrar / Ver Cuenta'
                             : 'Ver Comanda'
                           : 'Abrir Mesa'}
                       </span>
-                      <span className="text-base">→</span>
+                      {isOperational && <span className="text-base">→</span>}
                     </span>
                   </div>
                 </div>
@@ -830,8 +885,12 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
               <div
                 key={table.id}
                 id={`table-card-${table.id}`}
-                onClick={() => setSelectedTableId(table.id)}
-                className={`group relative p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border-2 ${statusConfig.border} transition-all duration-150 cursor-pointer flex flex-col justify-between hover:shadow-lg active:scale-[0.99]`}
+                onClick={() => handleOpenTableCard(table)}
+                className={`group relative p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border-2 ${
+                  isOperational
+                    ? `${statusConfig.border} cursor-pointer hover:shadow-lg active:scale-[0.99]`
+                    : 'border-dashed border-amber-300 dark:border-amber-800/70 bg-slate-50 dark:bg-slate-900/60 opacity-75 cursor-not-allowed'
+                } transition-all duration-150 flex flex-col justify-between`}
               >
                 <div>
                   {/* Card Header */}
@@ -851,10 +910,16 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                     </div>
 
                     {/* Status Pill */}
-                    <span className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold shrink-0 ${statusConfig.badgeBg}`}>
-                      <span className={`w-1.5 sm:w-2 h-1.5 sm:h-2 rounded-full ${statusConfig.dot}`} />
-                      {statusConfig.label}
-                    </span>
+                    {!isOperational ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
+                        Pausada
+                      </span>
+                    ) : (
+                      <span className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold shrink-0 ${statusConfig.badgeBg}`}>
+                        <span className={`w-1.5 sm:w-2 h-1.5 sm:h-2 rounded-full ${statusConfig.dot}`} />
+                        {statusConfig.label}
+                      </span>
+                    )}
                   </div>
 
                   {/* Body Info */}
@@ -975,15 +1040,17 @@ export const TablesModule: React.FC<TablesModuleProps> = ({ onOpenSubscription }
                     </button>
                   </div>
 
-                  <span className="font-semibold text-orange-600 dark:text-orange-400 group-hover:underline flex items-center gap-1 text-[11px] sm:text-xs">
+                  <span className={`font-semibold flex items-center gap-1 text-[11px] sm:text-xs ${isOperational ? 'text-orange-600 dark:text-orange-400 group-hover:underline' : 'text-amber-700 dark:text-amber-300'}`}>
                     <span>
-                      {hasOrder
+                      {!isOperational
+                        ? 'Pausada'
+                        : hasOrder
                         ? activeRole === 'cajero'
                           ? 'Cobrar'
                           : 'Ver Comanda'
                         : 'Abrir Mesa'}
                     </span>
-                    <span>→</span>
+                    {isOperational && <span>→</span>}
                   </span>
                 </div>
               </div>

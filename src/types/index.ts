@@ -67,6 +67,15 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissionConfig> = {
   },
 };
 
+export type SubscriptionStatus = 'free' | 'pro_active' | 'pro_grace' | 'free_over_limit';
+export type PlanMode = 'test' | 'live' | 'promo' | 'admin';
+
+export interface SubscriptionSelection {
+  activeTableIds: string[];
+  activeProductIds: string[];
+  updatedAt: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -74,9 +83,18 @@ export interface User {
   role: UserRole;
   avatar: string;
   plan: PlanType;
+  subscriptionStatus?: SubscriptionStatus;
   billingFrequency?: BillingFrequency;
   planExpiresAt?: string | null;
+  graceEndsAt?: string | null;
+  cancelAtPeriodEnd?: boolean;
+  cancelledAt?: string | null;
+  subscriptionId?: string | null;
+  lastPaymentRef?: string | null;
+  planMode?: PlanMode;
   isTestSubscription?: boolean;
+  subscriptionSelection?: SubscriptionSelection | null;
+  lastQuotaReconciliationAt?: string | null;
   businessName: string;
   businessAddress?: string;
   createdAt: string;
@@ -156,6 +174,8 @@ export interface OrderItem {
   isShared?: boolean;
   allocations?: ItemAllocation[];
   inventoryDeducted?: boolean;
+  inventoryStatus?: 'deducted' | 'pending_reconciliation' | 'partial' | 'not_applicable';
+  pendingReconciliationIds?: string[];
   paidAmount?: number;
   paidQuantity?: number;
 }
@@ -253,6 +273,8 @@ export interface Table {
   waiterCall?: WaiterCallNotification | null;
   updatedAt?: string;
   userId?: string;
+  active?: boolean;
+  inactivatedReason?: 'free_over_limit' | 'manual' | null;
 }
 
 export interface RecipeIngredient {
@@ -261,6 +283,7 @@ export interface RecipeIngredient {
   cantidad: number;
   unidad: string;
   costoUnitario?: number;
+  equivalenceMissing?: boolean;
 }
 
 export interface Product {
@@ -279,6 +302,8 @@ export interface Product {
   tipoInventario?: 'directo' | 'receta';
   receta?: RecipeIngredient[];
   displayOrder?: number;      // Orden personalizado para mostrar platos en el menú
+  active?: boolean;
+  inactivatedReason?: 'free_over_limit' | 'manual' | null;
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'bizum';
@@ -389,6 +414,76 @@ export type MeasurementUnit = 'kg' | 'g' | 'litros' | 'ml' | 'unidades' | 'atado
 
 export type ExpiryStatus = 'expired' | 'expires_today' | 'expiring_soon' | 'fresh';
 
+export type PackagingType =
+  | 'unidad'
+  | 'paquete'
+  | 'caja'
+  | 'bolsa'
+  | 'bloque'
+  | 'bandeja'
+  | 'atado'
+  | 'canasta'
+  | 'botella'
+  | 'galon'
+  | 'saco'
+  | 'bulto'
+  | 'personalizada';
+
+export type CostStatus = 'exact' | 'provisional' | 'pending_valuation';
+
+export interface InsumoPresentation {
+  id: string;
+  name: string;
+  packagingType: PackagingType;
+  contentQty: number;
+  contentUnit: string;
+  supplierId?: string;
+  supplierName?: string;
+  brand?: string;
+  referencePrice?: number;
+  isDefault?: boolean;
+  active?: boolean;
+}
+
+export interface UnitEquivalence {
+  id: string;
+  unit: string;
+  quantityInBaseUnit: number;
+  baseUnitLabel?: string;
+  note?: string;
+}
+
+export interface PerishableLot {
+  id: string;
+  batchNumber?: string;
+  quantity: number;
+  entryDate: string;
+  expiryDate: string;
+  supplierId?: string;
+  unitCost?: number;
+  receptionEventId?: string;
+  createdAt?: string;
+}
+
+export interface PendingConsumptionReconciliation {
+  id: string;
+  saleId: string;
+  paymentId?: string;
+  orderItemId?: string;
+  productId: string;
+  productName: string;
+  soldQty: number;
+  recipeQty: number;
+  recipeUnit: string;
+  insumoId: string;
+  insumoName: string;
+  createdAt: string;
+  status: 'pending' | 'resolved';
+  resolvedAt?: string;
+  deductedBaseQty?: number;
+  note?: string;
+}
+
 export interface Supplier {
   id: string;
   name: string;
@@ -405,11 +500,61 @@ export type SupplierOrderChannel = 'whatsapp' | 'llamada' | 'manual';
 
 export interface SupplierOrderItem {
   id: string;
+  insumoId?: string;
   name: string;
   quantity: number;
   unit: string;
+  presentationId?: string;
+  presentationName?: string;
+  packagingType?: PackagingType;
+  contentQty?: number;
+  contentUnit?: string;
+  brand?: string;
+  unitPrice?: number;
+  totalPrice?: number;
   received?: boolean;
   receivedQuantity?: number;
+  cumulativeReceivedQty?: number;
+  receivedBaseQuantity?: number;
+  valuationStatus?: 'valued' | 'pending_valuation';
+}
+
+export interface SupplierReceptionEventItem {
+  orderItemId: string;
+  insumoId?: string;
+  insumoName: string;
+  presentationId?: string;
+  presentationName?: string;
+  packagingType?: PackagingType;
+  contentQty?: number;
+  contentUnit?: string;
+  receivedPresentationQty: number;
+  convertedBaseQty: number;
+  baseUnit: string;
+  unitPrice?: number;
+  totalPrice?: number;
+  valuationStatus: 'valued' | 'pending_valuation';
+  previousStockQty?: number;
+  previousAvgCost?: number;
+  previousCostStatus?: CostStatus;
+  newAvgCostAfterEvent?: number;
+  lotId?: string;
+  expiryDate?: string;
+  valuedAt?: string;
+  valuedBy?: string;
+}
+
+export interface SupplierReceptionEvent {
+  id: string;
+  orderId: string;
+  receivedAt: string;
+  receivedBy: string;
+  arrivedComplete: boolean;
+  notes?: string;
+  restockPantry: boolean;
+  items: SupplierReceptionEventItem[];
+  hasPendingValuation?: boolean;
+  totalAmount?: number;
 }
 
 export interface SupplierOrder {
@@ -430,6 +575,9 @@ export interface SupplierOrder {
   confirmedBy?: string; // Persona que confirmó la recepción
   receptionNotes?: string; // Notas de recepción o faltantes
   stockUpdated?: boolean; // Si ya se sumó al inventario de despensa
+  receptionEvents?: SupplierReceptionEvent[];
+  hasPendingValuation?: boolean;
+  totalAmount?: number;
 }
 
 export interface PerishableItem {
@@ -438,6 +586,7 @@ export interface PerishableItem {
   category: PerishableCategory;
   quantity: number;
   unit: MeasurementUnit;
+  baseUnit?: MeasurementUnit;
   minStock: number;
   entryDate: string; // YYYY-MM-DD
   expiryDate: string; // YYYY-MM-DD
@@ -447,6 +596,15 @@ export interface PerishableItem {
   supplierPhone?: string;
   batchNumber?: string;
   costPerUnit?: number;
+  costStatus?: CostStatus;
+  pendingValuationCount?: number;
+  lastCostUpdatedAt?: string;
+  presentations?: InsumoPresentation[];
+  equivalences?: UnitEquivalence[];
+  secondaryDisplayUnit?: string;
+  secondaryPresentationId?: string;
+  lots?: PerishableLot[];
+  pendingReconciliations?: PendingConsumptionReconciliation[];
   imageUrl?: string;
   notes?: string;
   alarmDaysBeforeExpiry: number; // e.g. 3 days before

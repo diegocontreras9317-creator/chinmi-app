@@ -1,7 +1,42 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Calendar, AlertTriangle, Package, MapPin, Truck, Phone, PackageCheck, Hash, DollarSign, Image as ImageIcon, Camera, MessageCircle } from 'lucide-react';
-import { PerishableItem, PerishableCategory, MeasurementUnit, Supplier } from '../../types';
-import { PERISHABLE_CATEGORIES, MEASUREMENT_UNITS, STORAGE_LOCATIONS, calculateDaysRemaining } from '../../utils/perishableUtils';
+import {
+  X,
+  Calendar,
+  AlertTriangle,
+  Package,
+  MapPin,
+  Truck,
+  Phone,
+  PackageCheck,
+  Hash,
+  DollarSign,
+  Image as ImageIcon,
+  Camera,
+  MessageCircle,
+  Plus,
+  Trash2,
+  ArrowRightLeft,
+  Layers
+} from 'lucide-react';
+import {
+  PerishableItem,
+  PerishableCategory,
+  MeasurementUnit,
+  Supplier,
+  InsumoPresentation,
+  UnitEquivalence,
+  PackagingType
+} from '../../types';
+import {
+  PERISHABLE_CATEGORIES,
+  BASE_MEASUREMENT_UNITS,
+  PACKAGING_TYPES,
+  STORAGE_LOCATIONS,
+  calculateDaysRemaining,
+  isAmbiguousLegacyUnit,
+  formatPresentationSummary
+} from '../../utils/perishableUtils';
+import { convertPerishableBaseUnit } from '../../utils/inventoryCosting';
 import { compressImageFile } from '../../utils/imageCompressor';
 import {
   formatQuantity,
@@ -71,6 +106,33 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
   const [alarmDaysBeforeExpiry, setAlarmDaysBeforeExpiry] = useState<number>(3);
   const [error, setError] = useState<string | null>(null);
 
+  // Presentaciones comerciales, equivalencias y visualización secundaria
+  const [presentations, setPresentations] = useState<InsumoPresentation[]>([]);
+  const [equivalences, setEquivalences] = useState<UnitEquivalence[]>([]);
+  const [secondaryDisplayUnit, setSecondaryDisplayUnit] = useState<string>('');
+
+  // Form inline para nueva presentación
+  const [newPresName, setNewPresName] = useState('');
+  const [newPresType, setNewPresType] = useState<PackagingType>('paquete');
+  const [newPresQty, setNewPresQty] = useState<string>('6');
+  const [newPresUnit, setNewPresUnit] = useState<string>('unidades');
+  const [newPresBrand, setNewPresBrand] = useState('');
+  const [newPresRefPrice, setNewPresRefPrice] = useState<string>('');
+
+  // Form inline para nueva equivalencia / divisor de bloque
+  const [newEqUnit, setNewEqUnit] = useState('tajada');
+  const [newEqQty, setNewEqQty] = useState<string>('25');
+  const [newEqBaseUnit, setNewEqBaseUnit] = useState<string>('g');
+  const [showBlockSplitter, setShowBlockSplitter] = useState(false);
+  const [splitTotalQty, setSplitTotalQty] = useState<string>('2.5');
+  const [splitTotalUnit, setSplitTotalUnit] = useState<string>('kg');
+  const [splitPortionCount, setSplitPortionCount] = useState<string>('100');
+  const [splitPortionName, setSplitPortionName] = useState<string>('tajada');
+
+  // Migración asistida de unidad ambigua legacy (ej. paquetes -> unidades)
+  const [migrateNewUnit, setMigrateNewUnit] = useState<string>('unidades');
+  const [migrateFactor, setMigrateFactor] = useState<string>('6');
+
   // Custom Category and Custom Location states
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
@@ -93,7 +155,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       }
 
       setQuantity(formatQuantity(editingItem.quantity ?? editingItem.cantidadActual ?? 0));
-      setUnit(editingItem.unit);
+      setUnit(editingItem.baseUnit || editingItem.unit);
       setMinStock(formatQuantity(editingItem.minStock ?? editingItem.alertaStockMinimo ?? 0));
       setEntryDate(editingItem.entryDate);
       setExpiryDate(editingItem.expiryDate);
@@ -134,6 +196,11 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setImageUrl(editingItem.imageUrl || '');
       setNotes(editingItem.notes || '');
       setAlarmDaysBeforeExpiry(editingItem.alarmDaysBeforeExpiry || 3);
+      setPresentations(editingItem.presentations || []);
+      setEquivalences(editingItem.equivalences || []);
+      setSecondaryDisplayUnit(editingItem.secondaryDisplayUnit || '');
+      setNewPresUnit(editingItem.baseUnit || editingItem.unit || 'unidades');
+      setNewEqBaseUnit(editingItem.baseUnit || editingItem.unit || 'g');
     } else {
       setName('');
       setCategory('Verduras & Hortalizas');
@@ -173,7 +240,13 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setImageUrl('');
       setNotes('');
       setAlarmDaysBeforeExpiry(3);
+      setPresentations([]);
+      setEquivalences([]);
+      setSecondaryDisplayUnit('');
+      setNewPresUnit('unidades');
+      setNewEqBaseUnit('g');
     }
+    setShowBlockSplitter(false);
     setError(null);
   }, [editingItem, isOpen, preselectedSupplierId, suppliers]);
 
@@ -206,6 +279,124 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
   if (!isOpen) return null;
 
   const daysRemaining = calculateDaysRemaining(expiryDate);
+  const showLegacyMigrationBox = isAmbiguousLegacyUnit(unit) && Boolean(editingItem);
+
+  const handleApplyLegacyMigration = () => {
+    const factor = parseQuantityInput(migrateFactor, 0);
+    if (!factor || factor <= 0 || !migrateNewUnit) {
+      setError('Ingresa un factor de conversión válido mayor a 0.');
+      return;
+    }
+    const simulatedItem: PerishableItem = {
+      ...(editingItem || {
+        id: 'temp',
+        name: name || 'Insumo',
+        category,
+        quantity: parseQuantityInput(quantity, 0),
+        unit,
+        minStock: parseQuantityInput(minStock, 0),
+        entryDate,
+        expiryDate,
+        location,
+        alarmDaysBeforeExpiry
+      }),
+      quantity: parseQuantityInput(quantity, 0),
+      minStock: parseQuantityInput(minStock, 0),
+      unit,
+      costPerUnit: Number(costPerUnit) || 0
+    };
+    const converted = convertPerishableBaseUnit({
+      item: simulatedItem,
+      newBaseUnit: migrateNewUnit,
+      unitsPerOldUnit: factor
+    });
+    setUnit(converted.unit);
+    setQuantity(formatQuantity(converted.quantity));
+    setMinStock(formatQuantity(converted.minStock));
+    setCostPerUnit(converted.costPerUnit || 0);
+    setError(null);
+  };
+
+  const handleAddPresentation = () => {
+    const qty = parseQuantityInput(newPresQty, 0);
+    if (qty <= 0) {
+      setError('La cantidad contenida de la presentación debe ser mayor a 0.');
+      return;
+    }
+    const labelName =
+      newPresName.trim() ||
+      `${newPresType.charAt(0).toUpperCase() + newPresType.slice(1)} x ${formatQuantity(qty)} ${newPresUnit}`;
+    const nextPres: InsumoPresentation = {
+      id: `pres-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: labelName,
+      packagingType: newPresType,
+      contentQty: qty,
+      contentUnit: newPresUnit,
+      ...(newPresBrand.trim() ? { brand: newPresBrand.trim() } : {}),
+      ...(parseFloat(newPresRefPrice) > 0 ? { referencePrice: parseFloat(newPresRefPrice) } : {}),
+      isDefault: presentations.length === 0,
+      active: true
+    };
+    setPresentations(prev => [...prev, nextPres]);
+    setNewPresName('');
+    setNewPresBrand('');
+    setNewPresRefPrice('');
+    setError(null);
+  };
+
+  const handleAddEquivalence = () => {
+    const cleanEqUnit = newEqUnit.trim().toLowerCase();
+    const qty = parseQuantityInput(newEqQty, 0);
+    if (!cleanEqUnit || qty <= 0) {
+      setError('Especifica el nombre de la unidad equivalente y una cantidad mayor a 0.');
+      return;
+    }
+    const eq: UnitEquivalence = {
+      id: `eq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      unit: cleanEqUnit,
+      quantityInBaseUnit: qty,
+      baseUnitLabel: newEqBaseUnit
+    };
+    setEquivalences(prev => {
+      const filtered = prev.filter(e => e.unit.toLowerCase() !== cleanEqUnit);
+      return [...filtered, eq];
+    });
+    if (!secondaryDisplayUnit) {
+      setSecondaryDisplayUnit(cleanEqUnit);
+    }
+    setError(null);
+  };
+
+  const handleApplyBlockSplit = () => {
+    const totalQty = parseQuantityInput(splitTotalQty, 0);
+    const portionCount = parseQuantityInput(splitPortionCount, 0);
+    const cleanName = splitPortionName.trim().toLowerCase();
+    if (totalQty <= 0 || portionCount <= 0 || !cleanName) {
+      setError('Completa el peso/cantidad total del bloque y la cantidad de porciones.');
+      return;
+    }
+    let perPortionQty = totalQty / portionCount;
+    let outUnit = splitTotalUnit;
+    // Convertir kg -> g o litros -> ml si resulta menor a 1 para legibilidad limpia
+    if (splitTotalUnit === 'kg' && perPortionQty < 1) {
+      perPortionQty = perPortionQty * 1000;
+      outUnit = 'g';
+    } else if (splitTotalUnit === 'litros' && perPortionQty < 1) {
+      perPortionQty = perPortionQty * 1000;
+      outUnit = 'ml';
+    }
+    const cleanPerPortion = Math.round(perPortionQty * 10000) / 10000;
+    const eq: UnitEquivalence = {
+      id: `eq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      unit: cleanName,
+      quantityInBaseUnit: cleanPerPortion,
+      baseUnitLabel: outUnit
+    };
+    setEquivalences(prev => [...prev.filter(e => e.unit.toLowerCase() !== cleanName), eq]);
+    setSecondaryDisplayUnit(cleanName);
+    setShowBlockSplitter(false);
+    setError(null);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -255,7 +446,6 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
         }
       }
     } else if (finalSupplierName && saveToSupplierDirectory && onSaveNewSupplier) {
-      // Check if supplier with same name already exists
       const duplicate = suppliers.find(
         s => s.name.trim().toLowerCase() === finalSupplierName!.toLowerCase()
       );
@@ -281,12 +471,22 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
 
     const cleanQuantity = normalizeNonNegativeQuantity(parseQuantityInput(quantity, 0));
     const cleanMinStock = normalizeNonNegativeQuantity(parseQuantityInput(minStock, 0));
+    const numericCost = Number(costPerUnit) || 0;
 
     onSave({
+      ...(editingItem?.lots ? { lots: editingItem.lots } : {}),
+      ...(editingItem?.pendingReconciliations
+        ? { pendingReconciliations: editingItem.pendingReconciliations }
+        : {}),
+      ...(editingItem?.pendingValuationCount !== undefined
+        ? { pendingValuationCount: editingItem.pendingValuationCount }
+        : {}),
+      ...(editingItem?.lastCostUpdatedAt ? { lastCostUpdatedAt: editingItem.lastCostUpdatedAt } : {}),
       name: name.trim(),
       category: finalCategory,
       quantity: cleanQuantity,
       unit,
+      baseUnit: unit,
       minStock: cleanMinStock,
       cantidadActual: cleanQuantity,
       alertaStockMinimo: cleanMinStock,
@@ -297,7 +497,13 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       supplier: finalSupplierName,
       supplierPhone: finalSupplierPhone,
       batchNumber: batchNumber.trim() || undefined,
-      costPerUnit: Number(costPerUnit) || 0,
+      costPerUnit: numericCost,
+      costStatus:
+        editingItem?.costStatus ||
+        (numericCost > 0 ? 'exact' : 'pending_valuation'),
+      presentations,
+      equivalences,
+      ...(secondaryDisplayUnit ? { secondaryDisplayUnit } : {}),
       imageUrl: imageUrl.trim() || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=400&q=80',
       notes: notes.trim() || undefined,
       alarmDaysBeforeExpiry: Number(alarmDaysBeforeExpiry) || 3
@@ -305,6 +511,11 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
 
     onClose();
   };
+
+  // Opciones disponibles para unidad base (si edita legacy ambigua, conservar opción actual en el dropdown)
+  const unitOptions = isAmbiguousLegacyUnit(unit)
+    ? [...BASE_MEASUREMENT_UNITS, { value: unit, label: `${unit} (Unidad legacy actual)` }]
+    : BASE_MEASUREMENT_UNITS;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
@@ -321,7 +532,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 {editingItem ? 'Editar Insumo Perecedero' : 'Registrar Verdura, Fruta o Insumo de Bar'}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Control de lote, fecha de ingreso, caducidad y alarma de stock
+                Control de lote, presentaciones de compra, equivalencias y costo promedio
               </p>
             </div>
           </div>
@@ -355,7 +566,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ej. Limón Tahití, Tomate Chonto, Hierbabuena..."
+                placeholder="Ej. Limón Tahití, Pan de hamburguesa, Queso..."
                 className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
               />
             </div>
@@ -388,12 +599,9 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                     required
                     value={customCategory}
                     onChange={(e) => setCustomCategory(e.target.value)}
-                    placeholder="Escribe la categoría (Ej. Panadería, Especias, Pastelería...)"
+                    placeholder="Escribe la categoría (Ej. Panadería, Especias...)"
                     className="w-full px-3 py-2 rounded-md border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
                   />
-                  <p className="text-[10px] text-slate-400">
-                    💡 Categoría personalizada para este insumo.
-                  </p>
                 </div>
               ) : (
                 <select
@@ -420,11 +628,11 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
             </div>
           </div>
 
-          {/* Quantity, Unit & Min Stock */}
+          {/* Quantity, Base Unit & Min Stock */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800">
             <div>
               <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Cantidad Actual *
+                Stock Actual ({unit}) *
               </label>
               <input
                 type="number"
@@ -439,14 +647,14 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
 
             <div>
               <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Unidad de Medida *
+                Unidad Base Inventario *
               </label>
               <select
                 value={unit}
                 onChange={(e) => setUnit(e.target.value as MeasurementUnit)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
               >
-                {MEASUREMENT_UNITS.map((u) => (
+                {unitOptions.map((u) => (
                   <option key={u.value} value={u.value}>
                     {u.label}
                   </option>
@@ -466,6 +674,328 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 onChange={(e) => setMinStock(e.target.value)}
                 className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
               />
+            </div>
+          </div>
+
+          {/* Asistente de Migración de Unidad Legacy Ambigua */}
+          {showLegacyMigrationBox && (
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-2.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-amber-900 dark:text-amber-200 block">
+                    Unidad de empaque legacy detectada (&quot;{unit}&quot;)
+                  </span>
+                  <span className="text-[11px] text-amber-800 dark:text-amber-300 block mt-0.5">
+                    Para descontar recetas con precisión y aceptar empaques variables de proveedores, te recomendamos migrar el stock a su unidad base real (ej. unidades, gramos o kg) conservando tu valor de inventario.
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  1 {unit} contiene:
+                </span>
+                <input
+                  type="number"
+                  min="0.0001"
+                  step="any"
+                  value={migrateFactor}
+                  onChange={e => setMigrateFactor(e.target.value)}
+                  className="w-20 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 font-mono font-bold text-slate-900 dark:text-white"
+                />
+                <select
+                  value={migrateNewUnit}
+                  onChange={e => setMigrateNewUnit(e.target.value)}
+                  className="px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white"
+                >
+                  {BASE_MEASUREMENT_UNITS.map(u => (
+                    <option key={u.value} value={u.value}>
+                      {u.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleApplyLegacyMigration}
+                  className="px-3 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer transition"
+                >
+                  Aplicar conversión ahora
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Presentaciones Comerciales de Proveedores */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                <span className="font-bold text-slate-900 dark:text-white">
+                  Presentaciones Comerciales (Empaques de Proveedor)
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-500">Ej: Paquete x 6 und, Caja x 10 und, Bloque x 2.5 kg</span>
+            </div>
+
+            {presentations.length > 0 && (
+              <div className="space-y-1.5">
+                {presentations.map(pres => (
+                  <div
+                    key={pres.id}
+                    className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {pres.name}
+                      </span>
+                      <span className="text-[11px] text-slate-500 ml-2 font-mono">
+                        ({formatPresentationSummary(pres)})
+                      </span>
+                      {pres.brand && (
+                        <span className="text-[10px] text-slate-400 ml-2">· {pres.brand}</span>
+                      )}
+                      {pres.isDefault && (
+                        <span className="ml-2 px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                          Por defecto
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {!pres.isDefault && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPresentations(prev =>
+                              prev.map(p => ({ ...p, isDefault: p.id === pres.id }))
+                            )
+                          }
+                          className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline px-1.5 cursor-pointer"
+                        >
+                          Usar x defecto
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPresentations(prev => prev.filter(p => p.id !== pres.id))
+                        }
+                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
+              <select
+                value={newPresType}
+                onChange={e => setNewPresType(e.target.value as PackagingType)}
+                className="sm:col-span-3 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+              >
+                {PACKAGING_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="number"
+                step="any"
+                min="0.0001"
+                value={newPresQty}
+                onChange={e => setNewPresQty(e.target.value)}
+                placeholder="Cant."
+                className="sm:col-span-2 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-center text-slate-900 dark:text-white"
+              />
+
+              <select
+                value={newPresUnit}
+                onChange={e => setNewPresUnit(e.target.value)}
+                className="sm:col-span-2 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+              >
+                {BASE_MEASUREMENT_UNITS.map(u => (
+                  <option key={u.value} value={u.value}>
+                    {u.value}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                value={newPresName}
+                onChange={e => setNewPresName(e.target.value)}
+                placeholder="Nombre (opcional, ej. Paquete Bimbo x 6)"
+                className="sm:col-span-3 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+              />
+
+              <button
+                type="button"
+                onClick={handleAddPresentation}
+                className="sm:col-span-2 px-2.5 py-1.5 rounded-md bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Añadir</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Equivalencias Personalizadas y Visualización Dual */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <ArrowRightLeft className="w-4 h-4 text-rose-900 dark:text-rose-400" />
+                <span className="font-bold text-slate-900 dark:text-white">
+                  Equivalencias de Receta &amp; Visualización Dual
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBlockSplitter(s => !s)}
+                className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer"
+              >
+                {showBlockSplitter ? 'Cerrar calculadora de porciones' : '✨ Calcular por bloque / porciones'}
+              </button>
+            </div>
+
+            {showBlockSplitter && (
+              <div className="p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2">
+                <span className="font-bold text-slate-700 dark:text-slate-200 block">
+                  Calculadora rápida (Ej: 1 bloque de 2.5 kg = 100 tajadas → 25 g por tajada)
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>1 bloque/empaque de</span>
+                  <input
+                    type="number"
+                    step="any"
+                    value={splitTotalQty}
+                    onChange={e => setSplitTotalQty(e.target.value)}
+                    className="w-20 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-white"
+                  />
+                  <select
+                    value={splitTotalUnit}
+                    onChange={e => setSplitTotalUnit(e.target.value)}
+                    className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
+                  >
+                    {BASE_MEASUREMENT_UNITS.map(u => (
+                      <option key={u.value} value={u.value}>{u.value}</option>
+                    ))}
+                  </select>
+                  <span>trae</span>
+                  <input
+                    type="number"
+                    step="any"
+                    value={splitPortionCount}
+                    onChange={e => setSplitPortionCount(e.target.value)}
+                    className="w-20 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-white"
+                  />
+                  <input
+                    type="text"
+                    value={splitPortionName}
+                    onChange={e => setSplitPortionName(e.target.value)}
+                    placeholder="tajada / porcion"
+                    className="w-28 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyBlockSplit}
+                    className="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                  >
+                    Calcular y agregar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {equivalences.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {equivalences.map(eq => (
+                  <div
+                    key={eq.id}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                  >
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      1 {eq.unit} = {formatQuantity(eq.quantityInBaseUnit)} {eq.baseUnitLabel || unit}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEquivalences(prev => prev.filter(x => x.id !== eq.id))
+                      }
+                      className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+              <div className="sm:col-span-4 flex items-center gap-1.5">
+                <span className="font-bold text-slate-600 dark:text-slate-300 shrink-0">1</span>
+                <input
+                  type="text"
+                  value={newEqUnit}
+                  onChange={e => setNewEqUnit(e.target.value)}
+                  placeholder="tajada / porcion / taza"
+                  className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div className="sm:col-span-3 flex items-center gap-1.5">
+                <span className="font-bold text-slate-600 dark:text-slate-300 shrink-0">=</span>
+                <input
+                  type="number"
+                  step="any"
+                  min="0.0001"
+                  value={newEqQty}
+                  onChange={e => setNewEqQty(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-center text-slate-900 dark:text-white"
+                />
+              </div>
+              <select
+                value={newEqBaseUnit}
+                onChange={e => setNewEqBaseUnit(e.target.value)}
+                className="sm:col-span-3 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+              >
+                {BASE_MEASUREMENT_UNITS.map(u => (
+                  <option key={u.value} value={u.value}>{u.value}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleAddEquivalence}
+                className="sm:col-span-2 px-2.5 py-1.5 rounded-md bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Guardar</span>
+              </button>
+            </div>
+
+            <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/70 dark:border-slate-800">
+              <label className="font-semibold text-slate-600 dark:text-slate-300">
+                Mostrar equivalencia secundaria en inventario (ej. = 100 tajadas):
+              </label>
+              <select
+                value={secondaryDisplayUnit}
+                onChange={e => setSecondaryDisplayUnit(e.target.value)}
+                className="px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+              >
+                <option value="">Automático (si hay empaque/equivalencia)</option>
+                {equivalences.map(eq => (
+                  <option key={eq.id} value={eq.unit}>
+                    Equivalente en {eq.unit}
+                  </option>
+                ))}
+                {presentations.map(p => (
+                  <option key={p.id} value={p.packagingType}>
+                    Empaque: {p.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -492,9 +1022,6 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 onChange={(e) => setEntryDate(e.target.value)}
                 className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
               />
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">
-                Día que llegó al restaurante o bar.
-              </span>
             </div>
 
             <div>
@@ -524,9 +1051,6 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 onChange={(e) => setExpiryDate(e.target.value)}
                 className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
               />
-              <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 block">
-                Fecha límite de consumo sugerida.
-              </span>
             </div>
           </div>
 
@@ -571,20 +1095,15 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
               </div>
 
               {isCustomLocation ? (
-                <div className="space-y-1">
-                  <input
-                    type="text"
-                    autoFocus
-                    required
-                    value={customLocation}
-                    onChange={(e) => setCustomLocation(e.target.value)}
-                    placeholder="Escribe la ubicación (Ej. Nevera de Postres, Barra Terraza...)"
-                    className="w-full px-3 py-2 rounded-md border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
-                  />
-                  <p className="text-[10px] text-slate-400">
-                    💡 Ubicación personalizada de almacenamiento.
-                  </p>
-                </div>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  value={customLocation}
+                  onChange={(e) => setCustomLocation(e.target.value)}
+                  placeholder="Escribe la ubicación (Ej. Nevera de Postres...)"
+                  className="w-full px-3 py-2 rounded-md border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
+                />
               ) : (
                 <select
                   value={location}
@@ -725,7 +1244,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                         type="text"
                         value={manualSupplierProducts}
                         onChange={(e) => setManualSupplierProducts(e.target.value)}
-                        placeholder={name.trim() ? `Ej. ${name.trim()}, frutas cítricas, hierbas...` : 'Ej. Verduras, frutas, pulpas, hielo...'}
+                        placeholder={name.trim() ? `Ej. ${name.trim()}, frutas cítricas...` : 'Ej. Verduras, frutas, pulpas...'}
                         className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                       />
                     </div>
@@ -779,17 +1298,34 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1">
-                <DollarSign className="w-3.5 h-3.5 text-slate-400" />
-                <span>Costo Unitario (COP)</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  <DollarSign className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Costo por {unit} (COP)</span>
+                </label>
+                {editingItem?.costStatus && (
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    editingItem.costStatus === 'exact'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                      : editingItem.costStatus === 'provisional'
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                  }`}>
+                    {editingItem.costStatus === 'exact'
+                      ? 'Promedio exacto'
+                      : editingItem.costStatus === 'provisional'
+                      ? 'Provisional'
+                      : 'Sin valorar'}
+                  </span>
+                )}
+              </div>
               <input
                 type="number"
                 min="0"
-                step="100"
+                step="any"
                 value={costPerUnit}
                 onChange={(e) => setCostPerUnit(parseFloat(e.target.value) || 0)}
-                placeholder="0"
+                placeholder="0 (opcional si se valora al recibir)"
                 className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
               />
             </div>
@@ -881,7 +1417,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ej. Mantener con hielo, lavar antes de cortar, usar prioritariamente para cócteles de la carta de noche..."
+              placeholder="Ej. Mantener con hielo, lavar antes de cortar..."
               className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
             />
           </div>

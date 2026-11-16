@@ -9,7 +9,8 @@ import {
   PackageCheck,
   UserCheck,
   DollarSign,
-  Layers
+  Layers,
+  ChevronDown
 } from 'lucide-react';
 import { SupplierOrder, PerishableItem } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -18,8 +19,17 @@ import {
   ReceptionLineInput,
   resolveTargetPantryForOrderLine
 } from '../../utils/supplierReception';
-import { convertPresentationQtyToBaseScaled, resolveUnitConversion } from '../../utils/recipeUnits';
-import { formatPackagingLabel, getEffectiveBaseUnit } from '../../utils/perishableUtils';
+import {
+  convertPresentationQtyToBaseScaled,
+  getSuspectPresentationWarning,
+  resolveUnitConversion
+} from '../../utils/recipeUnits';
+import {
+  formatPackagingLabel,
+  formatPresentationSummary,
+  formatSpanishNumber,
+  getEffectiveBaseUnit
+} from '../../utils/perishableUtils';
 
 interface SupplierOrderConfirmModalProps {
   isOpen: boolean;
@@ -46,6 +56,7 @@ interface EditableReceptionLine extends ReceptionLineInput {
   priceInputMode: 'unit' | 'total';
   priceRaw: string;
   showOverridePack: boolean;
+  showOptionalDetails: boolean;
 }
 
 function getLocalDateString(date = new Date()): string {
@@ -113,7 +124,8 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
         receivedQuantity: initialNow,
         priceInputMode: 'unit',
         priceRaw: !hasPreviousEvents && it.unitPrice && it.unitPrice > 0 ? String(it.unitPrice) : '',
-        showOverridePack: false
+        showOverridePack: false,
+        showOptionalDetails: false
       };
     });
 
@@ -250,6 +262,7 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
         priceInputMode: _pm,
         priceRaw: _pr,
         showOverridePack: _sp,
+        showOptionalDetails: _sod,
         unitPrice: _oldUp,
         totalPrice: _oldTp,
         ...baseLine
@@ -414,10 +427,27 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
                 const presObj = effPresId
                   ? presentations.find(pr => pr.id === effPresId)
                   : undefined;
+                const effPackagingType = presObj?.packagingType || item.packagingType;
                 const effContentQty =
                   item.overrideContentQty ?? presObj?.contentQty ?? item.contentQty;
                 const effContentUnit =
                   item.overrideContentUnit || presObj?.contentUnit || item.contentUnit;
+                const effPresName = presObj?.name || item.presentationName || '';
+
+                const cleanPresLabel =
+                  effContentQty && effContentUnit
+                    ? formatPresentationSummary({
+                        name: effPresName,
+                        packagingType: effPackagingType || 'personalizada',
+                        contentQty: effContentQty,
+                        contentUnit: effContentUnit
+                      })
+                    : item.unit;
+
+                const suspectPackWarning =
+                  effContentQty && effContentUnit
+                    ? getSuspectPresentationWarning(effContentQty, effContentUnit)
+                    : null;
 
                 let basePreviewText = '';
                 let conversionWarning = '';
@@ -433,7 +463,7 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
                       equivalences: matchedPantry.equivalences
                     });
                     if (conv.compatible) {
-                      basePreviewText = `→ Ingresa +${formatQuantity(conv.baseQty)} ${baseUnit}`;
+                      basePreviewText = `${formatSpanishNumber(conv.baseQty)} ${baseUnit}`;
                     } else {
                       conversionWarning = conv.reason || 'Presentación incompatible';
                     }
@@ -445,21 +475,38 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
                     });
                     if (conv.compatible) {
                       const baseQty = Math.round(qtyNow * conv.factor * 10000) / 10000;
-                      basePreviewText = `→ Ingresa +${formatQuantity(baseQty)} ${baseUnit}`;
+                      basePreviewText = `${formatSpanishNumber(baseQty)} ${baseUnit}`;
                     } else {
                       conversionWarning = conv.reason || `No se puede convertir ${item.unit} a ${baseUnit}`;
                     }
                   }
                 }
 
+                const receivedPackLabel = effPackagingType
+                  ? formatPackagingLabel(effPackagingType, qtyNow !== 1)
+                  : item.unit;
+
+                const optionalSummaryParts: string[] = [];
+                if (item.priceRaw && parseFloat(item.priceRaw) > 0) {
+                  optionalSummaryParts.push(`$${formatSpanishNumber(item.priceRaw)}`);
+                } else {
+                  optionalSummaryParts.push('Valorar luego');
+                }
+                if (item.batchNumber?.trim()) {
+                  optionalSummaryParts.push(`Lote ${item.batchNumber.trim()}`);
+                }
+                if (item.expiryDate) {
+                  optionalSummaryParts.push(`Vence ${item.expiryDate}`);
+                }
+
                 return (
                   <div key={item.id} className="p-3.5 space-y-2.5">
-                    {/* Fila principal: checkbox, nombre, cantidad recibida hoy */}
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    {/* Fila principal: checkbox + nombre + cantidad recibida */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5">
                       <button
                         type="button"
                         onClick={() => toggleItemReceived(item.id)}
-                        className="flex items-center gap-2.5 text-left min-w-0 flex-1 cursor-pointer"
+                        className="flex items-center gap-2.5 text-left min-w-0 flex-1 min-h-[44px] cursor-pointer"
                       >
                         <span
                           className={`w-5 h-5 rounded-md flex items-center justify-center border shrink-0 transition ${
@@ -472,7 +519,7 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
                         </span>
                         <div className="min-w-0">
                           <span
-                            className={`font-bold block truncate ${
+                            className={`font-bold text-sm block truncate ${
                               item.received
                                 ? 'text-slate-900 dark:text-white'
                                 : 'text-slate-400 line-through'
@@ -480,17 +527,19 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
                           >
                             {item.name}
                           </span>
-                          <span className="text-[11px] text-slate-500 font-mono tabular-nums block">
-                            Pedido: {formatQuantity(item.quantity)} {item.unit}
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                            {effContentQty && effContentUnit
+                              ? cleanPresLabel
+                              : `Pedido: ${formatSpanishNumber(item.quantity)} ${item.unit}`}
                             {item.alreadyReceived > 0
-                              ? ` · Prev: ${formatQuantity(item.alreadyReceived)} · Rest: ${formatQuantity(item.remainingQty)}`
+                              ? ` · Faltan ${formatSpanishNumber(item.remainingQty)}`
                               : ''}
                           </span>
                         </div>
                       </button>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[11px] text-slate-500">Recibido hoy:</span>
+                        <span className="text-[11px] text-slate-500 font-semibold">Recibido:</span>
                         <input
                           type="number"
                           min="0"
@@ -499,176 +548,246 @@ export const SupplierOrderConfirmModal: React.FC<SupplierOrderConfirmModalProps>
                           onChange={e =>
                             updateReceivedNowQty(item.id, parseFloat(e.target.value) || 0)
                           }
-                          className="w-16 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-mono tabular-nums font-bold text-slate-900 dark:text-white"
+                          className="w-18 min-h-[40px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center font-mono tabular-nums font-bold text-slate-900 dark:text-white"
                         />
-                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 truncate max-w-[75px]">
-                          {presObj
-                            ? formatPackagingLabel(presObj.packagingType, qtyNow !== 1)
-                            : item.unit}
+                        <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[90px]">
+                          {receivedPackLabel}
                         </span>
                       </div>
                     </div>
 
-                    {/* Desambiguación explícita si hay insumos con mismo nombre */}
-                    {res?.status === 'ambiguous' && res.candidates && restockPantry && item.received && qtyNow > 0 && (
-                      <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-1">
-                        <span className="text-[11px] font-bold text-amber-800 dark:text-amber-200 block">
-                          Hay {res.candidates.length} insumos llamados "{item.name}". Elige cuál actualizar:
-                        </span>
-                        <select
-                          value={item.overrideInsumoId || ''}
-                          onChange={e =>
-                            updateLineField(item.id, { overrideInsumoId: e.target.value })
-                          }
-                          className="w-full px-2 py-1 rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-xs font-semibold"
-                        >
-                          <option value="">-- Seleccionar insumo exacto --</option>
-                          {res.candidates.map(cand => (
-                            <option key={cand.id} value={cand.id}>
-                              {cand.name} · {cand.location} ({formatQuantity(cand.quantity)}{' '}
-                              {getEffectiveBaseUnit(cand)})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* Controles de presentación / cambio de empaque + precio opcional + lote/caducidad */}
+                    {/* Equivalente claro que entrará al inventario */}
                     {item.received && qtyNow > 0 && (
                       <div className="pl-7 space-y-2">
-                        {/* Selección de presentación o cambio de contenido entregado */}
-                        {matchedPantry && (
-                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                            {presentations.length > 0 && (
-                              <select
-                                value={effPresId || ''}
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  const pr = presentations.find(x => x.id === val);
+                        {basePreviewText && (
+                          <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex flex-wrap items-center gap-1.5">
+                            <span>
+                              {effContentQty && effContentUnit
+                                ? `${formatSpanishNumber(qtyNow)} ${receivedPackLabel} de ${formatSpanishNumber(effContentQty)} ${effContentUnit}`
+                                : `${formatSpanishNumber(qtyNow)} ${item.unit}`}
+                            </span>
+                            <span aria-hidden="true">=</span>
+                            <strong className="font-mono tabular-nums">
+                              Entra al inventario: {basePreviewText}
+                            </strong>
+                          </div>
+                        )}
+
+                        {suspectPackWarning && (
+                          <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200 flex flex-wrap items-center justify-between gap-2">
+                            <span>{suspectPackWarning.message}</span>
+                            {suspectPackWarning.suggestedUnit && (
+                              <button
+                                type="button"
+                                onClick={() =>
                                   updateLineField(item.id, {
-                                    overridePresentationId: val || undefined,
-                                    overrideContentQty: pr?.contentQty,
-                                    overrideContentUnit: pr?.contentUnit
-                                  });
-                                }}
-                                className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200"
+                                    overrideContentUnit: suspectPackWarning.suggestedUnit
+                                  })
+                                }
+                                className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer shrink-0"
                               >
-                                <option value="">
-                                  Unidad directa ({item.unit})
-                                </option>
-                                {presentations.map(pr => (
-                                  <option key={pr.id} value={pr.id}>
-                                    {pr.name || formatPackagingLabel(pr.packagingType)} (x{formatQuantity(pr.contentQty)} {pr.contentUnit})
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateLineField(item.id, {
-                                  showOverridePack: !item.showOverridePack
-                                })
-                              }
-                              className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"
-                            >
-                              <Layers className="w-3 h-3" />
-                              <span>
-                                {item.showOverridePack ? 'Ocultar ajuste empaque' : 'Ajustar contenido por empaque'}
-                              </span>
-                            </button>
-
-                            {basePreviewText && (
-                              <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                                {basePreviewText}
-                              </span>
+                                Cambiar a {suspectPackWarning.suggestedUnit}
+                              </button>
                             )}
                           </div>
                         )}
 
                         {conversionWarning && (
-                          <div className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
-                            ⚠️ {conversionWarning}. Usa "Ajustar contenido por empaque" arriba.
-                          </div>
-                        )}
-
-                        {item.showOverridePack && (
-                          <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px]">
-                            <span className="text-slate-500 font-semibold">1 {item.unit} trae:</span>
-                            <input
-                              type="number"
-                              min="0.001"
-                              step="any"
-                              value={effContentQty ?? ''}
-                              onChange={e =>
+                          <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 text-[11px] font-semibold text-rose-700 dark:text-rose-300 flex flex-wrap items-center justify-between gap-2">
+                            <span>⚠️ {conversionWarning}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
                                 updateLineField(item.id, {
-                                  overrideContentQty: parseFloat(e.target.value) || undefined
+                                  showOptionalDetails: true,
+                                  showOverridePack: true
                                 })
                               }
-                              placeholder="Ej. 10"
-                              className="w-16 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono font-bold"
-                            />
-                            <input
-                              type="text"
-                              value={effContentUnit || ''}
-                              onChange={e =>
-                                updateLineField(item.id, {
-                                  overrideContentUnit: e.target.value
-                                })
-                              }
-                              placeholder={matchedPantry ? getEffectiveBaseUnit(matchedPantry) : 'unidades'}
-                              className="w-24 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-semibold"
-                            />
-                          </div>
-                        )}
-
-                        {/* Precio opcional + Lote/Caducidad */}
-                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-1.5 items-center">
-                          <div className="sm:col-span-6 flex items-center gap-1">
-                            <DollarSign className="w-3 h-3 text-slate-400 shrink-0" />
-                            <select
-                              value={item.priceInputMode}
-                              onChange={e =>
-                                updateLineField(item.id, {
-                                  priceInputMode: e.target.value as 'unit' | 'total'
-                                })
-                              }
-                              className="px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[10px] font-bold"
+                              className="underline font-bold cursor-pointer"
                             >
-                              <option value="unit">Unit. COP</option>
-                              <option value="total">Total COP</option>
+                              Ajustar empaque
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Desambiguación explícita si hay insumos con mismo nombre */}
+                        {res?.status === 'ambiguous' && res.candidates && restockPantry && (
+                          <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-1">
+                            <span className="text-[11px] font-bold text-amber-800 dark:text-amber-200 block">
+                              Hay {res.candidates.length} insumos llamados &quot;{item.name}&quot;. Elige cuál actualizar:
+                            </span>
+                            <select
+                              value={item.overrideInsumoId || ''}
+                              onChange={e =>
+                                updateLineField(item.id, { overrideInsumoId: e.target.value })
+                              }
+                              className="w-full min-h-[38px] px-2 py-1 rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-xs font-semibold"
+                            >
+                              <option value="">-- Seleccionar insumo exacto --</option>
+                              {res.candidates.map(cand => (
+                                <option key={cand.id} value={cand.id}>
+                                  {cand.name} · {cand.location} ({formatQuantity(cand.quantity)}{' '}
+                                  {getEffectiveBaseUnit(cand)})
+                                </option>
+                              ))}
                             </select>
-                            <input
-                              type="number"
-                              min="0"
-                              step="any"
-                              value={item.priceRaw}
-                              onChange={e => updateLineField(item.id, { priceRaw: e.target.value })}
-                              placeholder="Valorar luego"
-                              className="w-full px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
-                            />
                           </div>
+                        )}
 
-                          <div className="sm:col-span-3">
-                            <input
-                              type="text"
-                              value={item.batchNumber || ''}
-                              onChange={e => updateLineField(item.id, { batchNumber: e.target.value })}
-                              placeholder="Lote (opc.)"
-                              className="w-full px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] font-mono"
-                            />
+                        {/* Selector rápido de presentación si hay varias registradas */}
+                        {matchedPantry && presentations.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                            <span className="text-slate-500">Presentación:</span>
+                            <select
+                              value={effPresId || ''}
+                              onChange={e => {
+                                const val = e.target.value;
+                                const pr = presentations.find(x => x.id === val);
+                                updateLineField(item.id, {
+                                  overridePresentationId: val || undefined,
+                                  overrideContentQty: pr?.contentQty,
+                                  overrideContentUnit: pr?.contentUnit
+                                });
+                              }}
+                              className="min-h-[36px] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-700 dark:text-slate-200"
+                            >
+                              <option value="">
+                                Unidad directa ({item.unit})
+                              </option>
+                              {presentations.map(pr => (
+                                <option key={pr.id} value={pr.id}>
+                                  {formatPresentationSummary(pr)}
+                                </option>
+                              ))}
+                            </select>
                           </div>
+                        )}
 
-                          <div className="sm:col-span-3">
-                            <input
-                              type="date"
-                              value={item.expiryDate || ''}
-                              onChange={e => updateLineField(item.id, { expiryDate: e.target.value })}
-                              title="Fecha de caducidad de este lote (opcional)"
-                              className="w-full px-1.5 py-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[10px] font-mono"
-                            />
-                          </div>
+                        {/* Sección desplegable opcional: Precio, Lote, Vencimiento, Empaque */}
+                        <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-850 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateLineField(item.id, {
+                                showOptionalDetails: !item.showOptionalDetails
+                              })
+                            }
+                            className="w-full min-h-[40px] px-3 py-1.5 flex items-center justify-between gap-2 text-left text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition cursor-pointer"
+                          >
+                            <span className="truncate">
+                              Precio, lote, vencimiento o empaque (opcional)
+                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0 text-[10px] text-slate-400">
+                              <span>{optionalSummaryParts.join(' · ')}</span>
+                              <ChevronDown
+                                className={`w-3.5 h-3.5 transition-transform ${
+                                  item.showOptionalDetails ? 'rotate-180' : ''
+                                }`}
+                              />
+                            </div>
+                          </button>
+
+                          {item.showOptionalDetails && (
+                            <div className="p-2.5 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+                              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                                <div className="sm:col-span-6 flex items-center gap-1">
+                                  <DollarSign className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <select
+                                    value={item.priceInputMode}
+                                    onChange={e =>
+                                      updateLineField(item.id, {
+                                        priceInputMode: e.target.value as 'unit' | 'total'
+                                      })
+                                    }
+                                    className="min-h-[36px] px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[10px] font-bold"
+                                  >
+                                    <option value="unit">Unit. COP</option>
+                                    <option value="total">Total COP</option>
+                                  </select>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={item.priceRaw}
+                                    onChange={e => updateLineField(item.id, { priceRaw: e.target.value })}
+                                    placeholder="Valorar luego"
+                                    className="w-full min-h-[36px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
+                                  />
+                                </div>
+
+                                <div className="sm:col-span-3">
+                                  <input
+                                    type="text"
+                                    value={item.batchNumber || ''}
+                                    onChange={e => updateLineField(item.id, { batchNumber: e.target.value })}
+                                    placeholder="Lote (opc.)"
+                                    className="w-full min-h-[36px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] font-mono"
+                                  />
+                                </div>
+
+                                <div className="sm:col-span-3">
+                                  <input
+                                    type="date"
+                                    value={item.expiryDate || ''}
+                                    onChange={e => updateLineField(item.id, { expiryDate: e.target.value })}
+                                    title="Fecha de caducidad de este lote (opcional)"
+                                    className="w-full min-h-[36px] px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[10px] font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              {matchedPantry && (
+                                <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      updateLineField(item.id, {
+                                        showOverridePack: !item.showOverridePack
+                                      })
+                                    }
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:underline cursor-pointer"
+                                  >
+                                    <Layers className="w-3.5 h-3.5" />
+                                    <span>
+                                      {item.showOverridePack
+                                        ? 'Ocultar ajuste de contenido por empaque'
+                                        : 'Ajustar contenido por empaque'}
+                                    </span>
+                                  </button>
+
+                                  {item.showOverridePack && (
+                                    <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px]">
+                                      <span className="text-slate-500 font-semibold">1 {receivedPackLabel} trae:</span>
+                                      <input
+                                        type="number"
+                                        min="0.001"
+                                        step="any"
+                                        value={effContentQty ?? ''}
+                                        onChange={e =>
+                                          updateLineField(item.id, {
+                                            overrideContentQty: parseFloat(e.target.value) || undefined
+                                          })
+                                        }
+                                        placeholder="Ej. 10"
+                                        className="w-16 min-h-[34px] px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={effContentUnit || ''}
+                                        onChange={e =>
+                                          updateLineField(item.id, {
+                                            overrideContentUnit: e.target.value
+                                          })
+                                        }
+                                        placeholder={matchedPantry ? getEffectiveBaseUnit(matchedPantry) : 'unidades'}
+                                        className="w-24 min-h-[34px] px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

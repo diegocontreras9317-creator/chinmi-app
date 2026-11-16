@@ -31,10 +31,13 @@ import {
   PERISHABLE_CATEGORIES,
   calculateDaysRemaining,
   getExpiryStatus,
-  getExpiryBadgeConfig,
-  needsLegacyMigrationNotice
+  getExpiryBadgeConfig
 } from '../../utils/perishableUtils';
 import { computeSecondaryDisplay } from '../../utils/inventoryCosting';
+import {
+  detectUnitIncompatibilityIssue,
+  UnitIncompatibilityIssue
+} from '../../utils/recipeUnits';
 import { playExpiryAlarm } from '../../utils/audioAlert';
 import { formatCOP } from '../../utils/currency';
 import {
@@ -49,6 +52,7 @@ import { SupplierWhatsappOrderModal, normalizeWhatsappPhone } from './SupplierWh
 import { SupplierOrdersSection } from './SupplierOrdersSection';
 import { NewSupplierOrderModal } from './NewSupplierOrderModal';
 import { SupplierOrderConfirmModal } from './SupplierOrderConfirmModal';
+import { UnitCorrectionModal } from './UnitCorrectionModal';
 
 interface PerishablesModuleProps {
   onOpenSubscription?: () => void;
@@ -60,6 +64,7 @@ type ModuleSection = 'insumos' | 'proveedores' | 'pedidos';
 export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
   const {
     perishables,
+    products,
     suppliers,
     supplierOrders,
     addPerishable,
@@ -124,7 +129,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [whatsappOrderSupplier, setWhatsappOrderSupplier] = useState<Supplier | null>(null);
   const [whatsappInitialItems, setWhatsappInitialItems] = useState<
-    Array<{ name: string; quantity: number; unit: string }>
+    Array<{ insumoId?: string; name: string; quantity: number; unit: string }>
   >([]);
   const [confirmDeleteSupplierId, setConfirmDeleteSupplierId] = useState<string | null>(null);
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
@@ -135,6 +140,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
   const [orderModalSupplierId, setOrderModalSupplierId] = useState<string | null>(null);
   const [confirmingOrder, setConfirmingOrder] = useState<SupplierOrder | null>(null);
   const [reconciliationFeedback, setReconciliationFeedback] = useState<string | null>(null);
+  const [correctingUnitIssue, setCorrectingUnitIssue] = useState<UnitIncompatibilityIssue | null>(null);
 
   const pendingOrdersCount = useMemo(
     () => supplierOrders.filter(o => o.status === 'pendiente').length,
@@ -149,9 +155,11 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
     );
   }, [perishables]);
 
-  const legacyAmbiguousItems = useMemo(() => {
-    return perishables.filter((item) => needsLegacyMigrationNotice(item));
-  }, [perishables]);
+  const unitIssues = useMemo(() => {
+    return perishables
+      .map((item) => detectUnitIncompatibilityIssue(item, products))
+      .filter((issue): issue is UnitIncompatibilityIssue => Boolean(issue));
+  }, [perishables, products]);
 
   const resolveItemSupplier = (item: PerishableItem) => {
     const matched =
@@ -196,6 +204,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
 
     setWhatsappInitialItems([
       {
+        insumoId: item.id,
         name: item.name,
         quantity: suggestedQty,
         unit: item.unit || 'kg'
@@ -917,8 +926,8 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         </div>
       )}
 
-      {/* BANNER DE CONSUMOS PENDIENTES DE CONCILIACIÓN O UNIDADES LEGACY AMBIGUAS */}
-      {(pendingReconciliationItems.length > 0 || legacyAmbiguousItems.length > 0) && (
+      {/* BANNER DE CONSUMOS PENDIENTES DE CONCILIACIÓN O UNIDADES INCOMPATIBLES */}
+      {(pendingReconciliationItems.length > 0 || unitIssues.length > 0) && (
         <div className="space-y-2.5">
           {pendingReconciliationItems.length > 0 && (
             <div className="p-3.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 space-y-2 text-xs">
@@ -981,23 +990,24 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             </div>
           )}
 
-          {legacyAmbiguousItems.length > 0 && (
-            <div className="p-3 rounded-2xl bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="text-blue-900 dark:text-blue-200">
-                <strong>Aviso de unidad legacy:</strong> {legacyAmbiguousItems.length} insumo(s) (
-                {legacyAmbiguousItems.slice(0, 3).map(i => i.name).join(', ')}
-                {legacyAmbiguousItems.length > 3 ? '...' : ''}) están medidos en empaques sin presentación ni equivalencia.
+          {unitIssues.length > 0 && (
+            <div className="p-3.5 rounded-2xl bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 space-y-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-blue-900 dark:text-blue-200">
+                  <strong>Ajuste recomendado de unidades:</strong>{' '}
+                  {unitIssues[0].questionText}
+                  {unitIssues.length > 1
+                    ? ` (y ${unitIssues.length - 1} ingrediente${unitIssues.length - 1 === 1 ? '' : 's'} más)`
+                    : ''}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCorrectingUnitIssue(unitIssues[0])}
+                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer shrink-0"
+                >
+                  Revisar y corregir ({unitIssues[0].item.name})
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingItem(legacyAmbiguousItems[0]);
-                  setIsNewModalOpen(true);
-                }}
-                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer"
-              >
-                Configurar / Migrar ({legacyAmbiguousItems[0].name})
-              </button>
             </div>
           )}
         </div>
@@ -1334,6 +1344,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
             const status = getExpiryStatus(item.expiryDate, item.alarmDaysBeforeExpiry);
             const badge = getExpiryBadgeConfig(status, daysRemaining);
             const isLowStock = compareQuantities(item.quantity, item.minStock) <= 0;
+            const itemUnitIssue = unitIssues.find((u) => u.item.id === item.id);
 
             {/* === DESPENSA TAMAÑO PEQUEÑO (COMPACTA) === */}
             if (cardSize === 'sm') {
@@ -1423,6 +1434,16 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                           </span>
                         ) : null;
                       })()}
+                      {itemUnitIssue && (
+                        <button
+                          type="button"
+                          onClick={() => setCorrectingUnitIssue(itemUnitIssue)}
+                          className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 text-[10px] font-bold hover:bg-blue-200 dark:hover:bg-blue-900/70 transition cursor-pointer"
+                        >
+                          <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                          <span>Ajustar unidad</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1584,6 +1605,16 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                             <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
                               {item.lots.length} lotes FEFO activos
                             </span>
+                          )}
+                          {itemUnitIssue && (
+                            <button
+                              type="button"
+                              onClick={() => setCorrectingUnitIssue(itemUnitIssue)}
+                              className="mt-1.5 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 text-[11px] font-bold hover:bg-blue-200 dark:hover:bg-blue-900/70 transition cursor-pointer"
+                            >
+                              <AlertTriangle className="w-3 h-3 shrink-0" />
+                              <span>Ajustar unidad</span>
+                            </button>
                           )}
                         </div>
 
@@ -1806,6 +1837,16 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                             {item.lots.length} lotes FEFO
                           </span>
                         )}
+                        {itemUnitIssue && (
+                          <button
+                            type="button"
+                            onClick={() => setCorrectingUnitIssue(itemUnitIssue)}
+                            className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 text-[10px] font-bold hover:bg-blue-200 dark:hover:bg-blue-900/70 transition cursor-pointer"
+                          >
+                            <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                            <span>Ajustar unidad</span>
+                          </button>
+                        )}
                       </div>
 
                       <div className="text-right shrink-0">
@@ -2000,6 +2041,7 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                   const status = getExpiryStatus(item.expiryDate, item.alarmDaysBeforeExpiry);
                   const badge = getExpiryBadgeConfig(status, daysRemaining);
                   const isLowStock = compareQuantities(item.quantity, item.minStock) <= 0;
+                  const itemUnitIssue = unitIssues.find((u) => u.item.id === item.id);
 
                   return (
                     <tr
@@ -2105,6 +2147,16 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
                           <span className="block text-[10px] text-blue-600 font-bold">
                             Min: {formatQuantity(item.minStock)}
                           </span>
+                        )}
+                        {itemUnitIssue && (
+                          <button
+                            type="button"
+                            onClick={() => setCorrectingUnitIssue(itemUnitIssue)}
+                            className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 text-[10px] font-bold hover:bg-blue-200 transition cursor-pointer"
+                          >
+                            <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                            <span>Ajustar unidad</span>
+                          </button>
                         )}
                       </td>
 
@@ -2251,6 +2303,16 @@ export const PerishablesModule: React.FC<PerishablesModuleProps> = () => {
         order={confirmingOrder}
         perishables={perishables}
         onConfirm={(orderId, payload) => confirmSupplierOrderDelivery(orderId, payload)}
+      />
+
+      <UnitCorrectionModal
+        isOpen={!!correctingUnitIssue}
+        onClose={() => setCorrectingUnitIssue(null)}
+        issue={correctingUnitIssue}
+        products={products}
+        onApplyItemUpdate={(itemId, updatedItem) => {
+          updatePerishable(itemId, updatedItem);
+        }}
       />
 
     </div>

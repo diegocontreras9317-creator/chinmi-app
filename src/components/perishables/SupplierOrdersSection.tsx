@@ -16,7 +16,7 @@ import {
 import { SupplierOrder, SupplierOrderStatus } from '../../types';
 import { compareQuantities, formatQuantity } from '../../utils/quantityPrecision';
 import { formatCOP } from '../../utils/currency';
-import { formatPackagingLabel } from '../../utils/perishableUtils';
+import { formatPresentationSummary } from '../../utils/perishableUtils';
 
 interface SupplierOrdersSectionProps {
   orders: SupplierOrder[];
@@ -471,9 +471,13 @@ export const SupplierOrdersSection: React.FC<SupplierOrdersSectionProps> = ({
                                     {it.name}
                                   </span>
                                   {it.contentQty && it.contentUnit && (
-                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block">
-                                      {it.presentationName || formatPackagingLabel(it.packagingType)} (x
-                                      {formatQuantity(it.contentQty)} {it.contentUnit})
+                                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                                      {formatPresentationSummary({
+                                        name: it.presentationName || '',
+                                        packagingType: it.packagingType || 'personalizada',
+                                        contentQty: it.contentQty,
+                                        contentUnit: it.contentUnit
+                                      })}
                                     </span>
                                   )}
                                 </div>

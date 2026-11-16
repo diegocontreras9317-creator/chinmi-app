@@ -1087,3 +1087,338 @@ export function resolveSinglePendingReconciliation(params: {
     deductedBaseQty: deductQty
   };
 }
+
+export interface SuspectPresentationWarning {
+  isSuspect: boolean;
+  message: string;
+  suggestedUnit?: 'g' | 'ml';
+}
+
+/**
+ * Detecta posibles errores comunes de digitación en presentaciones (ej. "500 libra" en vez de "500 g",
+ * o "500 kg" en vez de "500 g", o "500 litros" en vez de "500 ml").
+ */
+export function getSuspectPresentationWarning(
+  contentQty: number | string | null | undefined,
+  contentUnit: string | null | undefined
+): SuspectPresentationWarning | null {
+  const qty = scaledToNumber(toScaledQuantity(contentQty));
+  const canon = normalizeCanonicalUnit(contentUnit);
+  if (!(qty > 0) || !canon) return null;
+
+  if ((canon === 'libra' || canon === 'kg') && qty >= 100) {
+    const kgTotal = canon === 'libra' ? qty * 0.5 : qty;
+    return {
+      isSuspect: true,
+      suggestedUnit: 'g',
+      message: `¿Seguro que cada empaque pesa ${qty} ${contentUnit} (${kgTotal} kg)? Si son ${qty} gramos, cámbialo a "g".`
+    };
+  }
+
+  if (canon === 'litros' && qty >= 50) {
+    return {
+      isSuspect: true,
+      suggestedUnit: 'ml',
+      message: `¿Seguro que cada empaque trae ${qty} litros? Si son ${qty} mililitros, cámbialo a "ml".`
+    };
+  }
+
+  return null;
+}
+
+export interface AffectedRecipePreview {
+  productId: string;
+  productName: string;
+  recipeQty: number;
+  recipeUnit: string;
+  compatibleBefore: boolean;
+  compatibleAfter: boolean;
+}
+
+export interface UnitIncompatibilityIssue {
+  item: PerishableItem;
+  kind: 'presentation_mismatch' | 'legacy_unit' | 'recipe_mismatch' | 'suspect_presentation';
+  currentBaseUnit: string;
+  suggestedBaseUnits: string[];
+  preferredDimension: 'mass' | 'volume' | 'count' | 'mixed';
+  questionText: string;
+  affectedRecipes: Array<{
+    productId: string;
+    productName: string;
+    recipeQty: number;
+    recipeUnit: string;
+    compatible: boolean;
+  }>;
+  suspectPresentation?: InsumoPresentation;
+}
+
+/**
+ * Analiza un insumo y las recetas vinculadas para detectar de forma clara incompatibilidades
+ * entre unidad base de despensa, presentaciones comerciales de compra, recetas y empaques legacy.
+ */
+export function detectUnitIncompatibilityIssue(
+  item: PerishableItem,
+  productsCatalog: Product[] = []
+): UnitIncompatibilityIssue | null {
+  const currentBaseUnit = getEffectiveBaseUnit(item);
+  const currentCanon = normalizeCanonicalUnit(currentBaseUnit);
+  const activePresentations = (item.presentations || []).filter((p) => p.active !== false);
+
+  const affectedRecipes: UnitIncompatibilityIssue['affectedRecipes'] = [];
+  for (const prod of productsCatalog) {
+    if (prod.tipoInventario !== 'receta' || !Array.isArray(prod.receta)) continue;
+    for (const ing of prod.receta) {
+      if (ing.insumoId !== item.id) continue;
+      const conv = resolveUnitConversion({
+        fromUnit: ing.unidad,
+        toUnit: currentBaseUnit,
+        pantryItem: item
+      });
+      affectedRecipes.push({
+        productId: prod.id,
+        productName: prod.name,
+        recipeQty: ing.cantidad,
+        recipeUnit: ing.unidad,
+        compatible: conv.compatible
+      });
+    }
+  }
+
+  // 1. Presentación con unidad incompatible frente a la unidad base (ej. inventario en "unidades", compra en "kg")
+  const incompatiblePres = activePresentations.find((pres) => {
+    const conv = resolveUnitConversion({
+      fromUnit: pres.contentUnit,
+      toUnit: currentBaseUnit,
+      equivalences: item.equivalences
+    });
+    return !conv.compatible;
+  });
+
+  if (incompatiblePres) {
+    const presCanon = normalizeCanonicalUnit(incompatiblePres.contentUnit);
+    const isMass = Boolean(MASS_GRAMS[presCanon]);
+    const isVolume = Boolean(VOLUME_ML[presCanon]);
+    const suggested = isMass
+      ? ['kg', 'g', 'libra']
+      : isVolume
+      ? ['litros', 'ml']
+      : ['unidades'];
+
+    const questionText = isMass
+      ? `Compras ${item.name} por peso (${incompatiblePres.contentQty} ${incompatiblePres.contentUnit}), pero tu inventario está en "${currentBaseUnit}". ¿Quieres controlar su inventario en kg o gramos?`
+      : isVolume
+      ? `Compras ${item.name} por volumen (${incompatiblePres.contentQty} ${incompatiblePres.contentUnit}), pero tu inventario está en "${currentBaseUnit}". ¿Quieres controlar su inventario en litros o ml?`
+      : `Compras ${item.name} en "${incompatiblePres.contentUnit}", pero tu inventario está en "${currentBaseUnit}". ¿Quieres ajustar la unidad del inventario?`;
+
+    return {
+      item,
+      kind: 'presentation_mismatch',
+      currentBaseUnit,
+      suggestedBaseUnits: suggested,
+      preferredDimension: isMass ? 'mass' : isVolume ? 'volume' : 'count',
+      questionText,
+      affectedRecipes
+    };
+  }
+
+  // 2. Unidad legacy ambigua (paquetes, cajas, bolsas...) sin presentaciones/equivalencias
+  const legacyAmbiguousSet = new Set([
+    'paquete', 'caja', 'bolsa', 'bloque', 'bandeja', 'atado', 'canasta', 'botella', 'galon', 'saco', 'bulto'
+  ]);
+  if (legacyAmbiguousSet.has(currentCanon) && activePresentations.length === 0 && !(item.equivalences?.length)) {
+    return {
+      item,
+      kind: 'legacy_unit',
+      currentBaseUnit,
+      suggestedBaseUnits: ['unidades', 'kg', 'g', 'litros'],
+      preferredDimension: 'mixed',
+      questionText: `${item.name} está medido en "${currentBaseUnit}". Para evitar errores en recetas y compras, indícanos en qué unidad real quieres controlarlo.`,
+      affectedRecipes
+    };
+  }
+
+  // 3. Presentación sospechosa (ej. tocineta x500 libra)
+  const suspectPres = activePresentations.find((p) =>
+    Boolean(getSuspectPresentationWarning(p.contentQty, p.contentUnit))
+  );
+  if (suspectPres) {
+    const warn = getSuspectPresentationWarning(suspectPres.contentQty, suspectPres.contentUnit)!;
+    return {
+      item,
+      kind: 'suspect_presentation',
+      currentBaseUnit,
+      suggestedBaseUnits: ['kg', 'g', 'litros', 'ml', 'unidades'],
+      preferredDimension: MASS_GRAMS[normalizeCanonicalUnit(suspectPres.contentUnit)] ? 'mass' : 'volume',
+      questionText: warn.message,
+      affectedRecipes,
+      suspectPresentation: suspectPres
+    };
+  }
+
+  // 4. Recetas con unidad incompatible frente al inventario actual
+  const hasBadRecipe = affectedRecipes.some((r) => !r.compatible);
+  if (hasBadRecipe) {
+    const bad = affectedRecipes.find((r) => !r.compatible)!;
+    const badCanon = normalizeCanonicalUnit(bad.recipeUnit);
+    const isMass = Boolean(MASS_GRAMS[badCanon]);
+    const isVolume = Boolean(VOLUME_ML[badCanon]);
+    return {
+      item,
+      kind: 'recipe_mismatch',
+      currentBaseUnit,
+      suggestedBaseUnits: isMass ? ['kg', 'g'] : isVolume ? ['litros', 'ml'] : ['unidades', 'kg', 'g'],
+      preferredDimension: isMass ? 'mass' : isVolume ? 'volume' : 'count',
+      questionText: `La receta de "${bad.productName}" usa "${bad.recipeUnit}", pero ${item.name} está en "${currentBaseUnit}".`,
+      affectedRecipes
+    };
+  }
+
+  return null;
+}
+
+export interface UnitCorrectionPreview {
+  compatibleStandard: boolean;
+  requiresExplicitInput: boolean;
+  canApply: boolean;
+  targetBaseUnit: string;
+  factorApplied: number;
+  prevQty: number;
+  nextQty: number;
+  prevMinStock: number;
+  nextMinStock: number;
+  prevCostPerUnit: number;
+  nextCostPerUnit: number;
+  affectedRecipes: AffectedRecipePreview[];
+  nextItem: PerishableItem;
+  summaryText: string;
+}
+
+/**
+ * Calcula una vista previa segura y sin efectos secundarios antes de corregir la unidad base
+ * de un ingrediente. Nunca inventa conversiones silenciosas entre dimensiones distintas.
+ */
+export function previewUnitCorrection(params: {
+  item: PerishableItem;
+  targetBaseUnit: string;
+  productsCatalog?: Product[];
+  manualFactorPerCurrentUnit?: number;
+  keepNumbersWithoutFactor?: boolean;
+}): UnitCorrectionPreview {
+  const {
+    item,
+    targetBaseUnit,
+    productsCatalog = [],
+    manualFactorPerCurrentUnit,
+    keepNumbersWithoutFactor = false
+  } = params;
+
+  const currentBase = getEffectiveBaseUnit(item);
+  const prevQty = normalizeNonNegativeQuantity(item.quantity ?? item.cantidadActual ?? 0);
+  const prevMinStock = normalizeNonNegativeQuantity(item.minStock ?? item.alertaStockMinimo ?? 0);
+  const prevCostPerUnit = Number(item.costPerUnit) || 0;
+
+  const std = getStandardConversionRatio(currentBase, targetBaseUnit);
+  const hasValidManualFactor =
+    manualFactorPerCurrentUnit !== undefined &&
+    Number.isFinite(manualFactorPerCurrentUnit) &&
+    manualFactorPerCurrentUnit > 0;
+
+  let factor = 1;
+  let canApply = false;
+  let requiresExplicitInput = false;
+
+  if (std) {
+    factor = Number(std.num) / Number(std.den);
+    canApply = true;
+  } else if (hasValidManualFactor) {
+    factor = manualFactorPerCurrentUnit!;
+    canApply = true;
+  } else if (keepNumbersWithoutFactor) {
+    factor = 1;
+    canApply = true;
+  } else {
+    requiresExplicitInput = true;
+    canApply = false;
+  }
+
+  const nextQty = canApply ? normalizeNonNegativeQuantity(prevQty * factor) : prevQty;
+  const nextMinStock = canApply ? normalizeNonNegativeQuantity(prevMinStock * factor) : prevMinStock;
+  const nextCostPerUnit =
+    canApply && prevCostPerUnit > 0 && factor > 0
+      ? Math.round((prevCostPerUnit / factor) * 10000) / 10000
+      : prevCostPerUnit;
+
+  const nextLots = Array.isArray(item.lots)
+    ? item.lots.map((l) => ({
+        ...l,
+        quantity: canApply ? normalizeNonNegativeQuantity(l.quantity * factor) : l.quantity,
+        ...(l.unitCost && l.unitCost > 0 && canApply && factor > 0
+          ? { unitCost: Math.round((l.unitCost / factor) * 10000) / 10000 }
+          : {})
+      }))
+    : undefined;
+
+  const nextItem: PerishableItem = {
+    ...item,
+    unit: targetBaseUnit,
+    baseUnit: targetBaseUnit,
+    quantity: nextQty,
+    cantidadActual: nextQty,
+    minStock: nextMinStock,
+    alertaStockMinimo: nextMinStock,
+    ...(prevCostPerUnit > 0 ? { costPerUnit: nextCostPerUnit } : {}),
+    ...(nextLots !== undefined ? { lots: nextLots } : {})
+  };
+
+  const affectedRecipes: AffectedRecipePreview[] = [];
+  for (const prod of productsCatalog) {
+    if (prod.tipoInventario !== 'receta' || !Array.isArray(prod.receta)) continue;
+    for (const ing of prod.receta) {
+      if (ing.insumoId !== item.id) continue;
+      const beforeConv = resolveUnitConversion({
+        fromUnit: ing.unidad,
+        toUnit: currentBase,
+        pantryItem: item
+      });
+      const afterConv = resolveUnitConversion({
+        fromUnit: ing.unidad,
+        toUnit: targetBaseUnit,
+        pantryItem: nextItem
+      });
+      affectedRecipes.push({
+        productId: prod.id,
+        productName: prod.name,
+        recipeQty: ing.cantidad,
+        recipeUnit: ing.unidad,
+        compatibleBefore: beforeConv.compatible,
+        compatibleAfter: afterConv.compatible
+      });
+    }
+  }
+
+  const summaryText = std
+    ? `Conversión exacta: ${prevQty} ${currentBase} → ${nextQty} ${targetBaseUnit}`
+    : hasValidManualFactor
+    ? `Conversión indicada (1 ${currentBase} = ${factor} ${targetBaseUnit}): ${prevQty} ${currentBase} → ${nextQty} ${targetBaseUnit}`
+    : keepNumbersWithoutFactor
+    ? `Cambio directo confirmado: ${prevQty} ${currentBase} pasa a ${nextQty} ${targetBaseUnit}`
+    : `Indica cuánto equivale 1 ${currentBase} en ${targetBaseUnit} o confirma si deseas cambiar solo el nombre de la unidad.`;
+
+  return {
+    compatibleStandard: Boolean(std),
+    requiresExplicitInput,
+    canApply,
+    targetBaseUnit,
+    factorApplied: factor,
+    prevQty,
+    nextQty,
+    prevMinStock,
+    nextMinStock,
+    prevCostPerUnit,
+    nextCostPerUnit,
+    affectedRecipes,
+    nextItem,
+    summaryText
+  };
+}
+

@@ -15,7 +15,12 @@ import {
   convertRecipeQtyToPantryScaled,
   resolveUnitConversion
 } from './recipeUnits';
-import { formatPackagingLabel, getEffectiveBaseUnit } from './perishableUtils';
+import {
+  formatPackagingLabel,
+  formatPresentationSummary,
+  formatSpanishNumber,
+  getEffectiveBaseUnit
+} from './perishableUtils';
 
 /**
  * Redondea el costo unitario en base manteniendo hasta 4 decimales para unidades pequeñas (ej. $/gramo o $/ml)
@@ -226,7 +231,7 @@ export function computeSecondaryDisplay(item: PerishableItem): SecondaryDisplayI
         const packLabel = formatPackagingLabel(pres.packagingType, cleanPacks !== 1);
         const isMixed = activePresentations.length > 1;
         return {
-          text: `${isMixed ? '≈' : '='} ${formatQuantity(cleanPacks)} ${packLabel} (${pres.name})`,
+          text: `${isMixed ? '≈' : '='} ${formatQuantity(cleanPacks)} ${packLabel} (${formatPresentationSummary(pres)})`,
           quantity: cleanPacks,
           unitLabel: packLabel,
           exact: !isMixed,
@@ -277,7 +282,7 @@ export function computeSecondaryDisplay(item: PerishableItem): SecondaryDisplayI
     }
   }
 
-  // 4. Sugerencia automática: si tiene exactamente 1 presentación activa (ej. Paquete x 6 unidades)
+  // 4. Sugerencia automática: si tiene exactamente 1 presentación activa (ej. Paquete de 6 unidades)
   if (activePresentations.length === 1) {
     const pres = activePresentations[0];
     const onePresInBase = convertRecipeQtyToPantryScaled(pres.contentQty, pres.contentUnit, item, 1);
@@ -287,7 +292,7 @@ export function computeSecondaryDisplay(item: PerishableItem): SecondaryDisplayI
       const cleanPacks = Math.round(packsNum * 100) / 100;
       const packLabel = formatPackagingLabel(pres.packagingType, cleanPacks !== 1);
       return {
-        text: `= ${formatQuantity(cleanPacks)} ${packLabel} x ${formatQuantity(pres.contentQty)} ${pres.contentUnit}`,
+        text: `= ${formatQuantity(cleanPacks)} ${packLabel} de ${formatSpanishNumber(pres.contentQty)} ${pres.contentUnit}`,
         quantity: cleanPacks,
         unitLabel: packLabel,
         exact: true,

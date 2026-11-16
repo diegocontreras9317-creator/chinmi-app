@@ -16,7 +16,9 @@ import {
   Plus,
   Trash2,
   ArrowRightLeft,
-  Layers
+  Layers,
+  ChevronDown,
+  SlidersHorizontal
 } from 'lucide-react';
 import {
   PerishableItem,
@@ -34,7 +36,10 @@ import {
   STORAGE_LOCATIONS,
   calculateDaysRemaining,
   isAmbiguousLegacyUnit,
-  formatPresentationSummary
+  formatPackagingLabel,
+  formatPresentationSummary,
+  formatSpanishNumber,
+  buildDefaultPresentationName
 } from '../../utils/perishableUtils';
 import { convertPerishableBaseUnit } from '../../utils/inventoryCosting';
 import { compressImageFile } from '../../utils/imageCompressor';
@@ -43,6 +48,7 @@ import {
   normalizeNonNegativeQuantity,
   parseQuantityInput
 } from '../../utils/quantityPrecision';
+import { getSuspectPresentationWarning, resolveUnitConversion } from '../../utils/recipeUnits';
 
 interface NewPerishableModalProps {
   isOpen: boolean;
@@ -106,12 +112,19 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
   const [alarmDaysBeforeExpiry, setAlarmDaysBeforeExpiry] = useState<number>(3);
   const [error, setError] = useState<string | null>(null);
 
+  // Secciones desplegables
+  const [openPresentations, setOpenPresentations] = useState(false);
+  const [openEquivalences, setOpenEquivalences] = useState(false);
+  const [openSupplier, setOpenSupplier] = useState(false);
+  const [openAdvanced, setOpenAdvanced] = useState(false);
+  const [showPresExtraDetails, setShowPresExtraDetails] = useState(false);
+
   // Presentaciones comerciales, equivalencias y visualización secundaria
   const [presentations, setPresentations] = useState<InsumoPresentation[]>([]);
   const [equivalences, setEquivalences] = useState<UnitEquivalence[]>([]);
   const [secondaryDisplayUnit, setSecondaryDisplayUnit] = useState<string>('');
 
-  // Form inline para nueva presentación
+  // Form inline guiado para nueva presentación
   const [newPresName, setNewPresName] = useState('');
   const [newPresType, setNewPresType] = useState<PackagingType>('paquete');
   const [newPresQty, setNewPresQty] = useState<string>('6');
@@ -155,7 +168,8 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       }
 
       setQuantity(formatQuantity(editingItem.quantity ?? editingItem.cantidadActual ?? 0));
-      setUnit(editingItem.baseUnit || editingItem.unit);
+      const resolvedBase = editingItem.baseUnit || editingItem.unit;
+      setUnit(resolvedBase);
       setMinStock(formatQuantity(editingItem.minStock ?? editingItem.alertaStockMinimo ?? 0));
       setEntryDate(editingItem.entryDate);
       setExpiryDate(editingItem.expiryDate);
@@ -199,8 +213,8 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setPresentations(editingItem.presentations || []);
       setEquivalences(editingItem.equivalences || []);
       setSecondaryDisplayUnit(editingItem.secondaryDisplayUnit || '');
-      setNewPresUnit(editingItem.baseUnit || editingItem.unit || 'unidades');
-      setNewEqBaseUnit(editingItem.baseUnit || editingItem.unit || 'g');
+      setNewPresUnit(isAmbiguousLegacyUnit(resolvedBase) ? 'unidades' : resolvedBase || 'unidades');
+      setNewEqBaseUnit(isAmbiguousLegacyUnit(resolvedBase) ? 'g' : resolvedBase || 'g');
     } else {
       setName('');
       setCategory('Verduras & Hortalizas');
@@ -243,10 +257,19 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setPresentations([]);
       setEquivalences([]);
       setSecondaryDisplayUnit('');
-      setNewPresUnit('unidades');
+      setNewPresUnit('kg');
       setNewEqBaseUnit('g');
     }
+
+    setNewPresName('');
+    setNewPresBrand('');
+    setNewPresRefPrice('');
+    setShowPresExtraDetails(false);
     setShowBlockSplitter(false);
+    setOpenPresentations(false);
+    setOpenEquivalences(false);
+    setOpenSupplier(Boolean(preselectedSupplierId));
+    setOpenAdvanced(false);
     setError(null);
   }, [editingItem, isOpen, preselectedSupplierId, suppliers]);
 
@@ -280,6 +303,14 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
 
   const daysRemaining = calculateDaysRemaining(expiryDate);
   const showLegacyMigrationBox = isAmbiguousLegacyUnit(unit) && Boolean(editingItem);
+
+  const draftPresQty = parseQuantityInput(newPresQty, 0);
+  const suspectPresWarning = getSuspectPresentationWarning(draftPresQty, newPresUnit);
+  const draftPresCompat = resolveUnitConversion({
+    fromUnit: newPresUnit,
+    toUnit: unit,
+    equivalences
+  });
 
   const handleApplyLegacyMigration = () => {
     const factor = parseQuantityInput(migrateFactor, 0);
@@ -324,8 +355,8 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       return;
     }
     const labelName =
-      newPresName.trim() ||
-      `${newPresType.charAt(0).toUpperCase() + newPresType.slice(1)} x ${formatQuantity(qty)} ${newPresUnit}`;
+      newPresName.trim() || buildDefaultPresentationName(newPresType, qty, newPresUnit);
+
     const nextPres: InsumoPresentation = {
       id: `pres-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: labelName,
@@ -341,6 +372,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
     setNewPresName('');
     setNewPresBrand('');
     setNewPresRefPrice('');
+    setShowPresExtraDetails(false);
     setError(null);
   };
 
@@ -377,7 +409,6 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
     }
     let perPortionQty = totalQty / portionCount;
     let outUnit = splitTotalUnit;
-    // Convertir kg -> g o litros -> ml si resulta menor a 1 para legibilidad limpia
     if (splitTotalUnit === 'kg' && perPortionQty < 1) {
       perPortionQty = perPortionQty * 1000;
       outUnit = 'g';
@@ -409,25 +440,17 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       setError('La cantidad en inventario no puede ser negativa.');
       return;
     }
-    if (!entryDate) {
-      setError('Por favor selecciona la fecha de ingreso.');
-      return;
-    }
     if (!expiryDate) {
-      setError('Por favor selecciona la fecha de caducidad / vencimiento.');
+      setError('Por favor selecciona la fecha de vencimiento.');
       return;
     }
 
+    const finalEntryDate = entryDate || getTodayIso();
     const finalCategory = (isCustomCategory ? customCategory.trim() : category) as PerishableCategory;
-    const finalLocation = isCustomLocation ? customLocation.trim() : location;
+    const finalLocation = (isCustomLocation ? customLocation.trim() : location) || STORAGE_LOCATIONS[0];
 
     if (!finalCategory) {
       setError('Por favor especifica una categoría para el insumo.');
-      return;
-    }
-
-    if (!finalLocation) {
-      setError('Por favor especifica una ubicación de almacenamiento.');
       return;
     }
 
@@ -490,7 +513,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
       minStock: cleanMinStock,
       cantidadActual: cleanQuantity,
       alertaStockMinimo: cleanMinStock,
-      entryDate,
+      entryDate: finalEntryDate,
       expiryDate,
       location: finalLocation,
       supplierId: finalSupplierId,
@@ -512,69 +535,81 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
     onClose();
   };
 
-  // Opciones disponibles para unidad base (si edita legacy ambigua, conservar opción actual en el dropdown)
   const unitOptions = isAmbiguousLegacyUnit(unit)
-    ? [...BASE_MEASUREMENT_UNITS, { value: unit, label: `${unit} (Unidad legacy actual)` }]
+    ? [...BASE_MEASUREMENT_UNITS, { value: unit, label: `${unit} (Actual)` }]
     : BASE_MEASUREMENT_UNITS;
 
+  const hasPresentationMismatch = presentations.some(
+    p =>
+      p.active !== false &&
+      !resolveUnitConversion({ fromUnit: p.contentUnit, toUnit: unit, equivalences }).compatible
+  );
+
+  const selectedPackagingLabel = formatPackagingLabel(newPresType, false);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-lg shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200">
-        
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-stone-50/50 dark:bg-slate-850">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-stone-100 dark:bg-stone-800 text-rose-950 dark:text-rose-300 border border-stone-200 dark:border-stone-700 flex items-center justify-center font-black">
+        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-stone-50/60 dark:bg-slate-850 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-stone-100 dark:bg-stone-800 text-rose-950 dark:text-rose-300 border border-stone-200 dark:border-stone-700 flex items-center justify-center shrink-0">
               <Package className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="font-black text-base text-slate-900 dark:text-white">
-                {editingItem ? 'Editar Insumo Perecedero' : 'Registrar Verdura, Fruta o Insumo de Bar'}
+            <div className="min-w-0">
+              <h3 className="font-black text-base text-slate-900 dark:text-white truncate">
+                {editingItem ? 'Editar ingrediente' : 'Nuevo ingrediente'}
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Control de lote, presentaciones de compra, equivalencias y costo promedio
+              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                Completa los datos básicos; lo demás es opcional
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shrink-0"
+            aria-label="Cerrar"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
-          
+        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
           {error && (
-            <div className="p-3 rounded-md bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 flex items-center gap-2 font-semibold">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          {/* Name & Category */}
+          {/* 1. CAMPOS PRINCIPALES: Nombre & Categoría */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Nombre del Alimento / Insumo *
+                Nombre *
               </label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ej. Limón Tahití, Pan de hamburguesa, Queso..."
-                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
+                placeholder="Ej. Queso cheddar, Pan brioche, Tomate..."
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/40 focus:border-rose-900 outline-hidden"
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="font-bold text-slate-700 dark:text-slate-300">
-                  Categoría de Insumo *
+                  Categoría *
                 </label>
                 <button
                   type="button"
@@ -585,24 +620,22 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                       setCustomCategory('');
                     }
                   }}
-                  className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer flex items-center gap-1"
+                  className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer"
                 >
-                  {isCustomCategory ? '← Elegir de la lista' : '+ Personalizada'}
+                  {isCustomCategory ? '← Elegir de lista' : '+ Otra'}
                 </button>
               </div>
 
               {isCustomCategory ? (
-                <div className="space-y-1">
-                  <input
-                    type="text"
-                    autoFocus
-                    required
-                    value={customCategory}
-                    onChange={(e) => setCustomCategory(e.target.value)}
-                    placeholder="Escribe la categoría (Ej. Panadería, Especias...)"
-                    className="w-full px-3 py-2 rounded-md border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
-                  />
-                </div>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value)}
+                  placeholder="Ej. Panadería, Especias..."
+                  className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium outline-hidden"
+                />
               ) : (
                 <select
                   value={category}
@@ -613,7 +646,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                       setCategory(e.target.value as PerishableCategory);
                     }
                   }}
-                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden cursor-pointer"
+                  className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium outline-hidden cursor-pointer"
                 >
                   {PERISHABLE_CATEGORIES.map((cat) => (
                     <option key={cat} value={cat}>
@@ -621,18 +654,18 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                     </option>
                   ))}
                   <option value="__custom__" className="text-rose-900 font-bold">
-                    ✨ + Añadir categoría personalizada...
+                    + Añadir otra categoría...
                   </option>
                 </select>
               )}
             </div>
           </div>
 
-          {/* Quantity, Base Unit & Min Stock */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800">
+          {/* 2. Cantidad disponible, Unidad, Stock mínimo y Fecha de vencimiento */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800">
             <div>
               <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Stock Actual ({unit}) *
+                Cantidad disponible *
               </label>
               <input
                 type="number"
@@ -641,18 +674,24 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 required
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums font-bold"
               />
             </div>
 
             <div>
               <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Unidad Base Inventario *
+                Unidad *
               </label>
               <select
                 value={unit}
-                onChange={(e) => setUnit(e.target.value as MeasurementUnit)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                onChange={(e) => {
+                  const next = e.target.value as MeasurementUnit;
+                  setUnit(next);
+                  if (!editingItem && presentations.length === 0) {
+                    setNewPresUnit(next);
+                  }
+                }}
+                className="w-full min-h-[44px] px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold cursor-pointer"
               >
                 {unitOptions.map((u) => (
                   <option key={u.value} value={u.value}>
@@ -664,7 +703,7 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
 
             <div>
               <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                Alerta Stock Mínimo
+                Stock mínimo
               </label>
               <input
                 type="number"
@@ -672,22 +711,52 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 min="0"
                 value={minStock}
                 onChange={(e) => setMinStock(e.target.value)}
-                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300 truncate">
+                  Vencimiento *
+                </label>
+                <span
+                  className={`text-[10px] font-bold shrink-0 ${
+                    daysRemaining < 0
+                      ? 'text-rose-600'
+                      : daysRemaining <= 2
+                      ? 'text-amber-600'
+                      : 'text-emerald-700 dark:text-emerald-400'
+                  }`}
+                >
+                  {daysRemaining < 0
+                    ? `-${Math.abs(daysRemaining)}d`
+                    : daysRemaining === 0
+                    ? 'Hoy'
+                    : `${daysRemaining}d`}
+                </span>
+              </div>
+              <input
+                type="date"
+                required
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
+                className="w-full min-h-[44px] px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono tabular-nums font-semibold"
               />
             </div>
           </div>
 
-          {/* Asistente de Migración de Unidad Legacy Ambigua */}
+          {/* Asistente inline si el ítem editado usa unidad legacy ambigua */}
           {showLegacyMigrationBox && (
             <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-2.5">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold text-amber-900 dark:text-amber-200 block">
-                    Unidad de empaque legacy detectada (&quot;{unit}&quot;)
+                    Unidad de empaque (&quot;{unit}&quot;)
                   </span>
                   <span className="text-[11px] text-amber-800 dark:text-amber-300 block mt-0.5">
-                    Para descontar recetas con precisión y aceptar empaques variables de proveedores, te recomendamos migrar el stock a su unidad base real (ej. unidades, gramos o kg) conservando tu valor de inventario.
+                    Cambia este inventario a unidades, kg o gramos para evitar errores al comprar y descontar recetas.
                   </span>
                 </div>
               </div>
@@ -701,12 +770,12 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                   step="any"
                   value={migrateFactor}
                   onChange={e => setMigrateFactor(e.target.value)}
-                  className="w-20 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 font-mono font-bold text-slate-900 dark:text-white"
+                  className="w-20 min-h-[40px] px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 font-mono font-bold text-slate-900 dark:text-white"
                 />
                 <select
                   value={migrateNewUnit}
                   onChange={e => setMigrateNewUnit(e.target.value)}
-                  className="px-2 py-1 rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white"
+                  className="min-h-[40px] px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 font-semibold text-slate-900 dark:text-white"
                 >
                   {BASE_MEASUREMENT_UNITS.map(u => (
                     <option key={u.value} value={u.value}>
@@ -717,709 +786,833 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
                 <button
                   type="button"
                   onClick={handleApplyLegacyMigration}
-                  className="px-3 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer transition"
+                  className="min-h-[40px] px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] cursor-pointer transition"
                 >
-                  Aplicar conversión ahora
+                  Convertir ahora
                 </button>
               </div>
             </div>
           )}
 
-          {/* Presentaciones Comerciales de Proveedores */}
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-rose-900 dark:text-rose-400" />
-                <span className="font-bold text-slate-900 dark:text-white">
-                  Presentaciones Comerciales (Empaques de Proveedor)
-                </span>
-              </div>
-              <span className="text-[10px] text-slate-500">Ej: Paquete x 6 und, Caja x 10 und, Bloque x 2.5 kg</span>
-            </div>
+          {/* SECCIONES DESPLEGABLES */}
+          <div className="space-y-2.5">
+            {/* A. Presentaciones de compra */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/60 dark:bg-slate-850">
+              <button
+                type="button"
+                onClick={() => setOpenPresentations(v => !v)}
+                className="w-full min-h-[44px] px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Layers className="w-4 h-4 text-rose-900 dark:text-rose-400 shrink-0" />
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Presentaciones de compra
+                  </span>
+                  {hasPresentationMismatch && (
+                    <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                      · Revisar unidad
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[160px]">
+                    {presentations.length > 0
+                      ? `${presentations.length} ${presentations.length === 1 ? 'presentación' : 'presentaciones'}`
+                      : 'Opcional'}
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 transition-transform ${
+                      openPresentations ? 'rotate-180' : ''
+                    }`}
+                  />
+                </div>
+              </button>
 
-            {presentations.length > 0 && (
-              <div className="space-y-1.5">
-                {presentations.map(pres => (
-                  <div
-                    key={pres.id}
-                    className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <span className="font-bold text-slate-900 dark:text-white">
-                        {pres.name}
-                      </span>
-                      <span className="text-[11px] text-slate-500 ml-2 font-mono">
-                        ({formatPresentationSummary(pres)})
-                      </span>
-                      {pres.brand && (
-                        <span className="text-[10px] text-slate-400 ml-2">· {pres.brand}</span>
-                      )}
-                      {pres.isDefault && (
-                        <span className="ml-2 px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-                          Por defecto
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {!pres.isDefault && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPresentations(prev =>
-                              prev.map(p => ({ ...p, isDefault: p.id === pres.id }))
-                            )
-                          }
-                          className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline px-1.5 cursor-pointer"
+              {openPresentations && (
+                <div className="px-3.5 pb-3.5 pt-2 border-t border-slate-200/80 dark:border-slate-800 space-y-3 bg-white dark:bg-slate-900/50">
+                  {presentations.length > 0 && (
+                    <div className="space-y-1.5">
+                      {presentations.map(pres => (
+                        <div
+                          key={pres.id}
+                          className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
                         >
-                          Usar x defecto
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPresentations(prev => prev.filter(p => p.id !== pres.id))
-                        }
-                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                          <div className="min-w-0 flex-1">
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {formatPresentationSummary(pres)}
+                            </span>
+                            {pres.isDefault && (
+                              <span className="ml-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                                · Principal
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {!pres.isDefault && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPresentations(prev =>
+                                    prev.map(p => ({ ...p, isDefault: p.id === pres.id }))
+                                  )
+                                }
+                                className="min-h-[36px] text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:underline px-2 cursor-pointer"
+                              >
+                                Principal
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPresentations(prev => prev.filter(p => p.id !== pres.id))
+                              }
+                              className="min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-400 hover:text-rose-600 cursor-pointer"
+                              aria-label="Quitar presentación"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Preguntas guiadas simples */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                        ¿Cómo compras este ingrediente?
+                      </label>
+                      <select
+                        value={newPresType}
+                        onChange={e => setNewPresType(e.target.value as PackagingType)}
+                        className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        {PACKAGING_TYPES.map(t => (
+                          <option key={t.value} value={t.value}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                        ¿Cuánto trae cada {selectedPackagingLabel}?
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0.0001"
+                          value={newPresQty}
+                          onChange={e => setNewPresQty(e.target.value)}
+                          placeholder="Ej. 2.5"
+                          className="w-24 min-h-[44px] px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono tabular-nums font-bold text-center text-slate-900 dark:text-white"
+                        />
+                        <select
+                          value={newPresUnit}
+                          onChange={e => setNewPresUnit(e.target.value)}
+                          className="flex-1 min-h-[44px] px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+                        >
+                          {BASE_MEASUREMENT_UNITS.map(u => (
+                            <option key={u.value} value={u.value}>
+                              {u.value}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 pt-1">
-              <select
-                value={newPresType}
-                onChange={e => setNewPresType(e.target.value as PackagingType)}
-                className="sm:col-span-3 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
-              >
-                {PACKAGING_TYPES.map(t => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
+                  {/* Vista previa clara + validaciones preventivas */}
+                  {draftPresQty > 0 && (
+                    <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                      Vista previa:{' '}
+                      <strong className="text-slate-900 dark:text-white">
+                        {buildDefaultPresentationName(newPresType, draftPresQty, newPresUnit)}
+                      </strong>
+                    </div>
+                  )}
 
-              <input
-                type="number"
-                step="any"
-                min="0.0001"
-                value={newPresQty}
-                onChange={e => setNewPresQty(e.target.value)}
-                placeholder="Cant."
-                className="sm:col-span-2 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-center text-slate-900 dark:text-white"
-              />
+                  {suspectPresWarning && (
+                    <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200 flex flex-wrap items-center justify-between gap-2">
+                      <span>{suspectPresWarning.message}</span>
+                      {suspectPresWarning.suggestedUnit && (
+                        <button
+                          type="button"
+                          onClick={() => setNewPresUnit(suspectPresWarning.suggestedUnit!)}
+                          className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer shrink-0"
+                        >
+                          Cambiar a {formatSpanishNumber(draftPresQty)} {suspectPresWarning.suggestedUnit}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
-              <select
-                value={newPresUnit}
-                onChange={e => setNewPresUnit(e.target.value)}
-                className="sm:col-span-2 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
-              >
-                {BASE_MEASUREMENT_UNITS.map(u => (
-                  <option key={u.value} value={u.value}>
-                    {u.value}
-                  </option>
-                ))}
-              </select>
+                  {draftPresQty > 0 && !draftPresCompat.compatible && (
+                    <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-[11px] text-amber-900 dark:text-amber-200">
+                      Tu inventario está en <strong>{unit}</strong>, pero vas a comprar en{' '}
+                      <strong>{newPresUnit}</strong>. Si lo controlas por peso/volumen, cambia la unidad arriba a{' '}
+                      <strong>{newPresUnit}</strong>.
+                    </div>
+                  )}
 
-              <input
-                type="text"
-                value={newPresName}
-                onChange={e => setNewPresName(e.target.value)}
-                placeholder="Nombre (opcional, ej. Paquete Bimbo x 6)"
-                className="sm:col-span-3 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-              />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowPresExtraDetails(v => !v)}
+                      className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                    >
+                      {showPresExtraDetails
+                        ? 'Ocultar nombre comercial / marca'
+                        : '+ Nombre comercial o marca (opcional)'}
+                    </button>
 
-              <button
-                type="button"
-                onClick={handleAddPresentation}
-                className="sm:col-span-2 px-2.5 py-1.5 rounded-md bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold flex items-center justify-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Añadir</span>
-              </button>
-            </div>
-          </div>
+                    <button
+                      type="button"
+                      onClick={handleAddPresentation}
+                      className="min-h-[44px] px-4 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Agregar presentación</span>
+                    </button>
+                  </div>
 
-          {/* Equivalencias Personalizadas y Visualización Dual */}
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <ArrowRightLeft className="w-4 h-4 text-rose-900 dark:text-rose-400" />
-                <span className="font-bold text-slate-900 dark:text-white">
-                  Equivalencias de Receta &amp; Visualización Dual
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowBlockSplitter(s => !s)}
-                className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer"
-              >
-                {showBlockSplitter ? 'Cerrar calculadora de porciones' : '✨ Calcular por bloque / porciones'}
-              </button>
-            </div>
-
-            {showBlockSplitter && (
-              <div className="p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2">
-                <span className="font-bold text-slate-700 dark:text-slate-200 block">
-                  Calculadora rápida (Ej: 1 bloque de 2.5 kg = 100 tajadas → 25 g por tajada)
-                </span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span>1 bloque/empaque de</span>
-                  <input
-                    type="number"
-                    step="any"
-                    value={splitTotalQty}
-                    onChange={e => setSplitTotalQty(e.target.value)}
-                    className="w-20 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-white"
-                  />
-                  <select
-                    value={splitTotalUnit}
-                    onChange={e => setSplitTotalUnit(e.target.value)}
-                    className="px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
-                  >
-                    {BASE_MEASUREMENT_UNITS.map(u => (
-                      <option key={u.value} value={u.value}>{u.value}</option>
-                    ))}
-                  </select>
-                  <span>trae</span>
-                  <input
-                    type="number"
-                    step="any"
-                    value={splitPortionCount}
-                    onChange={e => setSplitPortionCount(e.target.value)}
-                    className="w-20 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-white"
-                  />
-                  <input
-                    type="text"
-                    value={splitPortionName}
-                    onChange={e => setSplitPortionName(e.target.value)}
-                    placeholder="tajada / porcion"
-                    className="w-28 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleApplyBlockSplit}
-                    className="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
-                  >
-                    Calcular y agregar
-                  </button>
+                  {showPresExtraDetails && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={newPresName}
+                        onChange={e => setNewPresName(e.target.value)}
+                        placeholder="Nombre comercial (opc.)"
+                        className="min-h-[40px] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                      />
+                      <input
+                        type="text"
+                        value={newPresBrand}
+                        onChange={e => setNewPresBrand(e.target.value)}
+                        placeholder="Marca (opc.)"
+                        className="min-h-[40px] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={newPresRefPrice}
+                        onChange={e => setNewPresRefPrice(e.target.value)}
+                        placeholder="Precio ref. COP (opc.)"
+                        className="min-h-[40px] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                      />
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
-            {equivalences.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {equivalences.map(eq => (
-                  <div
-                    key={eq.id}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
-                  >
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      1 {eq.unit} = {formatQuantity(eq.quantityInBaseUnit)} {eq.baseUnitLabel || unit}
+            {/* B. Equivalencias de recetas */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/60 dark:bg-slate-850">
+              <button
+                type="button"
+                onClick={() => setOpenEquivalences(v => !v)}
+                className="w-full min-h-[44px] px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <ArrowRightLeft className="w-4 h-4 text-rose-900 dark:text-rose-400 shrink-0" />
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Equivalencias de recetas
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {equivalences.length > 0
+                      ? `${equivalences.length} ${equivalences.length === 1 ? 'regla' : 'reglas'}`
+                      : 'Ej. tajadas o porciones'}
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 transition-transform ${
+                      openEquivalences ? 'rotate-180' : ''
+                    }`}
+                  />
+                </div>
+              </button>
+
+              {openEquivalences && (
+                <div className="px-3.5 pb-3.5 pt-2 border-t border-slate-200/80 dark:border-slate-800 space-y-3 bg-white dark:bg-slate-900/50">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Si usas porciones en tus recetas (ej. 1 tajada = 25 g)
                     </span>
                     <button
                       type="button"
-                      onClick={() =>
-                        setEquivalences(prev => prev.filter(x => x.id !== eq.id))
-                      }
-                      className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                      onClick={() => setShowBlockSplitter(s => !s)}
+                      className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer shrink-0"
                     >
-                      <X className="w-3 h-3" />
+                      {showBlockSplitter ? 'Cerrar calculadora' : 'Calcular desde un bloque'}
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-              <div className="sm:col-span-4 flex items-center gap-1.5">
-                <span className="font-bold text-slate-600 dark:text-slate-300 shrink-0">1</span>
-                <input
-                  type="text"
-                  value={newEqUnit}
-                  onChange={e => setNewEqUnit(e.target.value)}
-                  placeholder="tajada / porcion / taza"
-                  className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                />
-              </div>
-              <div className="sm:col-span-3 flex items-center gap-1.5">
-                <span className="font-bold text-slate-600 dark:text-slate-300 shrink-0">=</span>
-                <input
-                  type="number"
-                  step="any"
-                  min="0.0001"
-                  value={newEqQty}
-                  onChange={e => setNewEqQty(e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-center text-slate-900 dark:text-white"
-                />
-              </div>
-              <select
-                value={newEqBaseUnit}
-                onChange={e => setNewEqBaseUnit(e.target.value)}
-                className="sm:col-span-3 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
-              >
-                {BASE_MEASUREMENT_UNITS.map(u => (
-                  <option key={u.value} value={u.value}>{u.value}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={handleAddEquivalence}
-                className="sm:col-span-2 px-2.5 py-1.5 rounded-md bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold flex items-center justify-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Guardar</span>
-              </button>
-            </div>
-
-            <div className="pt-1 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/70 dark:border-slate-800">
-              <label className="font-semibold text-slate-600 dark:text-slate-300">
-                Mostrar equivalencia secundaria en inventario (ej. = 100 tajadas):
-              </label>
-              <select
-                value={secondaryDisplayUnit}
-                onChange={e => setSecondaryDisplayUnit(e.target.value)}
-                className="px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
-              >
-                <option value="">Automático (si hay empaque/equivalencia)</option>
-                {equivalences.map(eq => (
-                  <option key={eq.id} value={eq.unit}>
-                    Equivalente en {eq.unit}
-                  </option>
-                ))}
-                {presentations.map(p => (
-                  <option key={p.id} value={p.packagingType}>
-                    Empaque: {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* DATES: Entry date & Expiration date */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-md bg-stone-50 dark:bg-slate-800/40 border border-stone-200 dark:border-slate-700">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-stone-600 dark:text-stone-400" />
-                  <span>Fecha de Ingreso *</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setEntryDate(getTodayIso())}
-                  className="text-[10px] text-rose-900 dark:text-rose-400 font-bold hover:underline cursor-pointer"
-                >
-                  Poner Hoy
-                </button>
-              </div>
-              <input
-                type="date"
-                required
-                value={entryDate}
-                onChange={(e) => setEntryDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                  <span>Fecha de Caducidad / Vence *</span>
-                </label>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                  daysRemaining < 0
-                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                    : daysRemaining <= 2
-                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                }`}>
-                  {daysRemaining < 0
-                    ? `¡Caducado (${Math.abs(daysRemaining)}d)!`
-                    : daysRemaining === 0
-                    ? '¡Vence Hoy!'
-                    : `${daysRemaining} días restantes`}
-                </span>
-              </div>
-              <input
-                type="date"
-                required
-                value={expiryDate}
-                onChange={(e) => setExpiryDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
-              />
-            </div>
-          </div>
-
-          {/* Alarm Configuration & Location */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Anticipación de Alarma (Días antes de vencer)
-              </label>
-              <select
-                value={alarmDaysBeforeExpiry}
-                onChange={(e) => setAlarmDaysBeforeExpiry(parseInt(e.target.value, 10))}
-                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
-              >
-                <option value={1}>1 día antes (Urgente)</option>
-                <option value={2}>2 días antes</option>
-                <option value={3}>3 días antes (Recomendado)</option>
-                <option value={5}>5 días antes</option>
-                <option value={7}>7 días antes (Una semana)</option>
-              </select>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-stone-500" />
-                  <span>Ubicación / Nevera / Bodega</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !isCustomLocation;
-                    setIsCustomLocation(next);
-                    if (next && !customLocation) {
-                      setCustomLocation('');
-                    }
-                  }}
-                  className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer flex items-center gap-1"
-                >
-                  {isCustomLocation ? '← Elegir de la lista' : '+ Personalizada'}
-                </button>
-              </div>
-
-              {isCustomLocation ? (
-                <input
-                  type="text"
-                  autoFocus
-                  required
-                  value={customLocation}
-                  onChange={(e) => setCustomLocation(e.target.value)}
-                  placeholder="Escribe la ubicación (Ej. Nevera de Postres...)"
-                  className="w-full px-3 py-2 rounded-md border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-rose-900/50 focus:border-rose-900 outline-hidden"
-                />
-              ) : (
-                <select
-                  value={location}
-                  onChange={(e) => {
-                    if (e.target.value === '__custom__') {
-                      setIsCustomLocation(true);
-                    } else {
-                      setLocation(e.target.value);
-                    }
-                  }}
-                  className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium cursor-pointer"
-                >
-                  {STORAGE_LOCATIONS.map((loc) => (
-                    <option key={loc} value={loc}>
-                      {loc}
-                    </option>
-                  ))}
-                  <option value="__custom__" className="text-rose-900 font-bold">
-                    ✨ + Añadir ubicación personalizada...
-                  </option>
-                </select>
-              )}
-            </div>
-          </div>
-
-          {/* Proveedor & Contacto Manual o Guardado */}
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Truck className="w-3.5 h-3.5 text-rose-900 dark:text-rose-400" />
-                <span>Proveedor del Insumo</span>
-              </label>
-
-              {suppliers.length > 0 && (
-                <select
-                  value={selectedSupplierId}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSelectedSupplierId(val);
-                    if (val === '__manual__') {
-                      setSupplier('');
-                      setSupplierPhone('');
-                      setManualSupplierProducts('');
-                      setSaveToSupplierDirectory(true);
-                    } else {
-                      const found = suppliers.find(s => s.id === val);
-                      if (found) {
-                        setSupplier(found.name);
-                        setSupplierPhone(found.phone);
-                        setManualSupplierProducts(found.suppliesProvided);
-                        setSaveToSupplierDirectory(false);
-                      }
-                    }
-                  }}
-                  className="px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold text-xs cursor-pointer"
-                >
-                  <option value="__manual__">+ Ingresar proveedor manualmente</option>
-                  {suppliers.map((sup) => (
-                    <option key={sup.id} value={sup.id}>
-                      {sup.name} ({sup.phone})
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            {selectedSupplierId !== '__manual__' ? (
-              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="space-y-0.5">
-                  <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
-                    <span>{supplier}</span>
-                    {supplierPhone && (
-                      <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
-                        Tel: {supplierPhone}
+                  {showBlockSplitter && (
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2">
+                      <span className="font-bold text-slate-700 dark:text-slate-200 block">
+                        Ej: 1 bloque de 2,5 kg trae 100 tajadas → 25 g cada una
                       </span>
-                    )}
-                  </div>
-                  {manualSupplierProducts && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Se consigue: <span className="font-medium text-slate-700 dark:text-slate-300">{manualSupplierProducts}</span>
-                    </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>1 empaque de</span>
+                        <input
+                          type="number"
+                          step="any"
+                          value={splitTotalQty}
+                          onChange={e => setSplitTotalQty(e.target.value)}
+                          className="w-20 min-h-[40px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-white"
+                        />
+                        <select
+                          value={splitTotalUnit}
+                          onChange={e => setSplitTotalUnit(e.target.value)}
+                          className="min-h-[40px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        >
+                          {BASE_MEASUREMENT_UNITS.map(u => (
+                            <option key={u.value} value={u.value}>{u.value}</option>
+                          ))}
+                        </select>
+                        <span>trae</span>
+                        <input
+                          type="number"
+                          step="any"
+                          value={splitPortionCount}
+                          onChange={e => setSplitPortionCount(e.target.value)}
+                          className="w-20 min-h-[40px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-slate-900 dark:text-white"
+                        />
+                        <input
+                          type="text"
+                          value={splitPortionName}
+                          onChange={e => setSplitPortionName(e.target.value)}
+                          placeholder="tajada / porción"
+                          className="w-28 min-h-[40px] px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleApplyBlockSplit}
+                          className="min-h-[40px] px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                        >
+                          Calcular
+                        </button>
+                      </div>
+                    </div>
                   )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedSupplierId('__manual__');
-                    setSupplier('');
-                    setSupplierPhone('');
-                    setManualSupplierProducts('');
-                    setSaveToSupplierDirectory(true);
-                  }}
-                  className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline shrink-0 cursor-pointer self-start sm:self-center"
-                >
-                  Cambiar / Escribir otro
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
-                      <Truck className="w-3 h-3 text-slate-400" />
-                      <span>Nombre del Proveedor</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={supplier}
-                      onChange={(e) => setSupplier(e.target.value)}
-                      placeholder="Ej. Abastos, Fruver del Sol..."
-                      className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                    />
-                  </div>
 
-                  <div>
-                    <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
-                      <Phone className="w-3 h-3 text-slate-400" />
-                      <span>Número Telefónico</span>
-                    </label>
-                    <input
-                      type="tel"
-                      value={supplierPhone}
-                      onChange={(e) => setSupplierPhone(e.target.value)}
-                      placeholder="Ej. 300 123 4567"
-                      className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
-                    />
-                  </div>
-                </div>
+                  {equivalences.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {equivalences.map(eq => (
+                        <div
+                          key={eq.id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                        >
+                          <span className="font-bold text-slate-800 dark:text-slate-200">
+                            1 {eq.unit} = {formatSpanishNumber(eq.quantityInBaseUnit)} {eq.baseUnitLabel || unit}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEquivalences(prev => prev.filter(x => x.id !== eq.id))
+                            }
+                            className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-                {supplier.trim() && (
-                  <div className="pt-1 space-y-2">
-                    <div>
-                      <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
-                        <PackageCheck className="w-3 h-3 text-emerald-600" />
-                        <span>¿Qué se consigue con este proveedor?</span>
-                      </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                    <div className="sm:col-span-4 flex items-center gap-1.5">
+                      <span className="font-bold text-slate-600 dark:text-slate-300 shrink-0">1</span>
                       <input
                         type="text"
-                        value={manualSupplierProducts}
-                        onChange={(e) => setManualSupplierProducts(e.target.value)}
-                        placeholder={name.trim() ? `Ej. ${name.trim()}, frutas cítricas...` : 'Ej. Verduras, frutas, pulpas...'}
-                        className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        value={newEqUnit}
+                        onChange={e => setNewEqUnit(e.target.value)}
+                        placeholder="tajada / porción"
+                        className="w-full min-h-[40px] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div className="sm:col-span-3 flex items-center gap-1.5">
+                      <span className="font-bold text-slate-600 dark:text-slate-300 shrink-0">=</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.0001"
+                        value={newEqQty}
+                        onChange={e => setNewEqQty(e.target.value)}
+                        className="w-full min-h-[40px] px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-mono font-bold text-center text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <select
+                      value={newEqBaseUnit}
+                      onChange={e => setNewEqBaseUnit(e.target.value)}
+                      className="sm:col-span-3 min-h-[40px] px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+                    >
+                      {BASE_MEASUREMENT_UNITS.map(u => (
+                        <option key={u.value} value={u.value}>{u.value}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAddEquivalence}
+                      className="sm:col-span-2 min-h-[40px] px-2.5 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Agregar</span>
+                    </button>
+                  </div>
+
+                  {(equivalences.length > 0 || presentations.length > 0) && (
+                    <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 dark:border-slate-800">
+                      <label className="font-semibold text-slate-600 dark:text-slate-300">
+                        Mostrar también en Despensa como:
+                      </label>
+                      <select
+                        value={secondaryDisplayUnit}
+                        onChange={e => setSecondaryDisplayUnit(e.target.value)}
+                        className="min-h-[38px] px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+                      >
+                        <option value="">Automático</option>
+                        {equivalences.map(eq => (
+                          <option key={eq.id} value={eq.unit}>
+                            {eq.unit}
+                          </option>
+                        ))}
+                        {presentations.map(p => (
+                          <option key={p.id} value={p.packagingType}>
+                            {formatPresentationSummary(p)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* C. Proveedor */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/60 dark:bg-slate-850">
+              <button
+                type="button"
+                onClick={() => setOpenSupplier(v => !v)}
+                className="w-full min-h-[44px] px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Truck className="w-4 h-4 text-rose-900 dark:text-rose-400 shrink-0" />
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Proveedor
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[160px]">
+                    {supplier.trim() ? supplier.trim() : 'Opcional'}
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 transition-transform ${
+                      openSupplier ? 'rotate-180' : ''
+                    }`}
+                  />
+                </div>
+              </button>
+
+              {openSupplier && (
+                <div className="px-3.5 pb-3.5 pt-2 border-t border-slate-200/80 dark:border-slate-800 space-y-3 bg-white dark:bg-slate-900/50">
+                  {suppliers.length > 0 && (
+                    <select
+                      value={selectedSupplierId}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedSupplierId(val);
+                        if (val === '__manual__') {
+                          setSupplier('');
+                          setSupplierPhone('');
+                          setManualSupplierProducts('');
+                          setSaveToSupplierDirectory(true);
+                        } else {
+                          const found = suppliers.find(s => s.id === val);
+                          if (found) {
+                            setSupplier(found.name);
+                            setSupplierPhone(found.phone);
+                            setManualSupplierProducts(found.suppliesProvided);
+                            setSaveToSupplierDirectory(false);
+                          }
+                        }
+                      }}
+                      className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold cursor-pointer"
+                    >
+                      <option value="__manual__">+ Ingresar proveedor manualmente</option>
+                      {suppliers.map((sup) => (
+                        <option key={sup.id} value={sup.id}>
+                          {sup.name} ({sup.phone})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {selectedSupplierId !== '__manual__' ? (
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-slate-900 dark:text-white">
+                          {supplier} {supplierPhone ? `· ${supplierPhone}` : ''}
+                        </div>
+                        {manualSupplierProducts && (
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {manualSupplierProducts}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSupplierId('__manual__');
+                          setSupplier('');
+                          setSupplierPhone('');
+                          setManualSupplierProducts('');
+                          setSaveToSupplierDirectory(true);
+                        }}
+                        className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline shrink-0 cursor-pointer"
+                      >
+                        Cambiar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                            <Truck className="w-3 h-3 text-slate-400" />
+                            <span>Nombre del proveedor</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={supplier}
+                            onChange={(e) => setSupplier(e.target.value)}
+                            placeholder="Ej. Abastos, Fruver del Sol..."
+                            className="w-full min-h-[42px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                            <Phone className="w-3 h-3 text-slate-400" />
+                            <span>Teléfono / WhatsApp</span>
+                          </label>
+                          <input
+                            type="tel"
+                            value={supplierPhone}
+                            onChange={(e) => setSupplierPhone(e.target.value)}
+                            placeholder="Ej. 300 123 4567"
+                            className="w-full min-h-[42px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {supplier.trim() && (
+                        <div className="space-y-2">
+                          <div>
+                            <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                              <PackageCheck className="w-3 h-3 text-emerald-600" />
+                              <span>¿Qué vende este proveedor?</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={manualSupplierProducts}
+                              onChange={(e) => setManualSupplierProducts(e.target.value)}
+                              placeholder={name.trim() ? `Ej. ${name.trim()}...` : 'Ej. Lácteos, carnes...'}
+                              className="w-full min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                            />
+                          </div>
+
+                          {onSaveNewSupplier && (
+                            <div className="flex flex-wrap items-center gap-4">
+                              <label className="inline-flex items-center gap-2 cursor-pointer text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                                <input
+                                  type="checkbox"
+                                  checked={saveToSupplierDirectory}
+                                  onChange={(e) => setSaveToSupplierDirectory(e.target.checked)}
+                                  className="rounded border-slate-300 text-rose-950 focus:ring-rose-900"
+                                />
+                                <span>Guardar en directorio</span>
+                              </label>
+
+                              {saveToSupplierDirectory && supplierPhone.trim() && (
+                                <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                                  <input
+                                    type="checkbox"
+                                    checked={manualSupplierHasWhatsapp}
+                                    onChange={(e) => setManualSupplierHasWhatsapp(e.target.checked)}
+                                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-600"
+                                  />
+                                  <MessageCircle className="w-3.5 h-3.5" />
+                                  <span>Tiene WhatsApp</span>
+                                </label>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* D. Configuración avanzada */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50/60 dark:bg-slate-850">
+              <button
+                type="button"
+                onClick={() => setOpenAdvanced(v => !v)}
+                className="w-full min-h-[44px] px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <SlidersHorizontal className="w-4 h-4 text-slate-500 shrink-0" />
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Configuración avanzada
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[160px]">
+                    Costo, lote, ubicación, foto
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 transition-transform ${
+                      openAdvanced ? 'rotate-180' : ''
+                    }`}
+                  />
+                </div>
+              </button>
+
+              {openAdvanced && (
+                <div className="px-3.5 pb-3.5 pt-2.5 border-t border-slate-200/80 dark:border-slate-800 space-y-3 bg-white dark:bg-slate-900/50">
+                  {/* Costo & Lote */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                          <DollarSign className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Costo por {unit} (COP)</span>
+                        </label>
+                        {editingItem?.costStatus && (
+                          <span className="text-[10px] font-bold text-slate-500">
+                            {editingItem.costStatus === 'exact'
+                              ? 'Promedio exacto'
+                              : editingItem.costStatus === 'provisional'
+                              ? 'Provisional'
+                              : 'Sin valorar'}
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={costPerUnit}
+                        onChange={(e) => setCostPerUnit(parseFloat(e.target.value) || 0)}
+                        placeholder="0 (opcional)"
+                        className="w-full min-h-[42px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
                       />
                     </div>
 
-                    {onSaveNewSupplier && (
-                      <div className="flex flex-wrap items-center gap-4 pt-0.5">
-                        <label className="inline-flex items-center gap-2 cursor-pointer select-none text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                          <input
-                            type="checkbox"
-                            checked={saveToSupplierDirectory}
-                            onChange={(e) => setSaveToSupplierDirectory(e.target.checked)}
-                            className="rounded border-slate-300 text-rose-950 focus:ring-rose-900"
-                          />
-                          <span>Guardar en mi Directorio de Proveedores</span>
-                        </label>
+                    <div>
+                      <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 mb-1">
+                        <Hash className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Lote de compra</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={batchNumber}
+                        onChange={(e) => setBatchNumber(e.target.value)}
+                        placeholder="LOT-2026-X"
+                        className="w-full min-h-[42px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                      />
+                    </div>
+                  </div>
 
-                        {saveToSupplierDirectory && supplierPhone.trim() && (
-                          <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-                            <input
-                              type="checkbox"
-                              checked={manualSupplierHasWhatsapp}
-                              onChange={(e) => setManualSupplierHasWhatsapp(e.target.checked)}
-                              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-600"
-                            />
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>Tiene WhatsApp</span>
-                          </label>
-                        )}
+                  {/* Fecha ingreso, Alarma y Ubicación */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Fecha de ingreso</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setEntryDate(getTodayIso())}
+                          className="text-[10px] text-rose-900 dark:text-rose-400 font-bold hover:underline cursor-pointer"
+                        >
+                          Hoy
+                        </button>
                       </div>
+                      <input
+                        type="date"
+                        value={entryDate}
+                        onChange={(e) => setEntryDate(e.target.value)}
+                        className="w-full min-h-[42px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                        Alarma antes de vencer
+                      </label>
+                      <select
+                        value={alarmDaysBeforeExpiry}
+                        onChange={(e) => setAlarmDaysBeforeExpiry(parseInt(e.target.value, 10))}
+                        className="w-full min-h-[42px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                      >
+                        <option value={1}>1 día antes</option>
+                        <option value={2}>2 días antes</option>
+                        <option value={3}>3 días antes (Recomendado)</option>
+                        <option value={5}>5 días antes</option>
+                        <option value={7}>7 días antes</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5 text-stone-500" />
+                        <span>Ubicación / Nevera / Bodega</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !isCustomLocation;
+                          setIsCustomLocation(next);
+                          if (next && !customLocation) setCustomLocation('');
+                        }}
+                        className="text-[11px] font-bold text-rose-900 dark:text-rose-400 hover:underline cursor-pointer"
+                      >
+                        {isCustomLocation ? '← Elegir de lista' : '+ Otra'}
+                      </button>
+                    </div>
+
+                    {isCustomLocation ? (
+                      <input
+                        type="text"
+                        value={customLocation}
+                        onChange={(e) => setCustomLocation(e.target.value)}
+                        placeholder="Ej. Nevera de Postres..."
+                        className="w-full min-h-[42px] px-3 py-2 rounded-xl border border-stone-400 dark:border-stone-500 bg-stone-50/40 dark:bg-stone-900/20 text-slate-900 dark:text-white font-medium outline-hidden"
+                      />
+                    ) : (
+                      <select
+                        value={location}
+                        onChange={(e) => {
+                          if (e.target.value === '__custom__') {
+                            setIsCustomLocation(true);
+                          } else {
+                            setLocation(e.target.value);
+                          }
+                        }}
+                        className="w-full min-h-[42px] px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium cursor-pointer"
+                      >
+                        {STORAGE_LOCATIONS.map((loc) => (
+                          <option key={loc} value={loc}>
+                            {loc}
+                          </option>
+                        ))}
+                        <option value="__custom__" className="text-rose-900 font-bold">
+                          + Añadir otra ubicación...
+                        </option>
+                      </select>
                     )}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
 
-          {/* Batch & Cost */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1 flex items-center gap-1">
-                <Hash className="w-3.5 h-3.5 text-slate-400" />
-                <span>Lote de Compra</span>
-              </label>
-              <input
-                type="text"
-                value={batchNumber}
-                onChange={(e) => setBatchNumber(e.target.value)}
-                placeholder="LOT-2026-X"
-                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
-              />
-            </div>
+                  {/* Foto */}
+                  <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5 text-stone-500" />
+                        <span>Fotografía (opcional)</span>
+                      </label>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        id="perishable-photo-input"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isCompressing}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs cursor-pointer"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>{imageUrl ? 'Cambiar foto' : 'Subir foto'}</span>
+                      </button>
+                    </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                  <DollarSign className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Costo por {unit} (COP)</span>
-                </label>
-                {editingItem?.costStatus && (
-                  <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                    editingItem.costStatus === 'exact'
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                      : editingItem.costStatus === 'provisional'
-                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                  }`}>
-                    {editingItem.costStatus === 'exact'
-                      ? 'Promedio exacto'
-                      : editingItem.costStatus === 'provisional'
-                      ? 'Provisional'
-                      : 'Sin valorar'}
-                  </span>
-                )}
-              </div>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={costPerUnit}
-                onChange={(e) => setCostPerUnit(parseFloat(e.target.value) || 0)}
-                placeholder="0 (opcional si se valora al recibir)"
-                className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
-              />
-            </div>
-          </div>
+                    {imageUrl && (
+                      <div className="flex items-center gap-3 p-2 rounded-xl bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800">
+                        <img
+                          src={imageUrl}
+                          alt="Vista previa"
+                          className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-slate-700"
+                        />
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex-1 truncate">
+                          Imagen asignada
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setImageUrl('')}
+                          className="text-xs text-rose-500 hover:underline px-2 py-1 font-semibold cursor-pointer"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    )}
 
-          {/* Image & Photo Upload Helper */}
-          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <ImageIcon className="w-3.5 h-3.5 text-stone-500" />
-                <span>Fotografía / Imagen del Insumo</span>
-              </label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-                id="perishable-photo-input"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isCompressing}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs shadow-xs transition cursor-pointer"
-              >
-                <Camera className="w-3.5 h-3.5" />
-                <span>{imageUrl ? 'Cambiar foto' : 'Subir foto'}</span>
-              </button>
-            </div>
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                      {Object.entries(PRESET_IMAGES).map(([label, url]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setImageUrl(url)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition cursor-pointer shrink-0 ${
+                            imageUrl === url
+                              ? 'bg-rose-950 text-white border-rose-900'
+                              : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-stone-700'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
 
-            {imageUrl && (
-              <div className="flex items-center gap-3 p-2 rounded-md bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800">
-                <img
-                  src={imageUrl}
-                  alt="Vista previa"
-                  className="w-12 h-12 rounded-md object-cover border border-slate-200 dark:border-slate-700"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                    Foto asignada al insumo
-                  </p>
-                  <p className="text-[10px] text-slate-400">
-                    Se mostrará en la lista de almacén y mermas.
-                  </p>
+                    <input
+                      type="url"
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      placeholder="O pega un enlace web (https://...)"
+                      className="w-full min-h-[38px] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
+                    />
+                  </div>
+
+                  {/* Notas */}
+                  <div>
+                    <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Notas de uso o conservación
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Ej. Mantener refrigerado, lavar antes de cortar..."
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setImageUrl('')}
-                  className="text-xs text-rose-500 hover:underline px-2 py-1 font-semibold"
-                >
-                  Quitar
-                </button>
-              </div>
-            )}
-            
-            <div className="flex items-center gap-2 overflow-x-auto pb-1.5 pt-1">
-              {Object.entries(PRESET_IMAGES).map(([label, url]) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setImageUrl(url)}
-                  className={`px-2 py-1 rounded-md text-[10px] font-semibold border transition cursor-pointer shrink-0 ${
-                    imageUrl === url
-                      ? 'bg-rose-950 text-white border-rose-900'
-                      : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-stone-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+              )}
             </div>
-
-            <input
-              type="url"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="O pega un enlace web (https://...)"
-              className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white mt-1 text-xs"
-            />
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">
-              Observaciones de Conservación / Uso
-            </label>
-            <textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ej. Mantener con hielo, lavar antes de cortar..."
-              className="w-full px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
-            />
           </div>
 
           {/* Form Actions */}
@@ -1427,15 +1620,15 @@ export const NewPerishableModal: React.FC<NewPerishableModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              className="min-h-[44px] px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="px-6 py-2 rounded-md bg-rose-950 hover:bg-rose-900 text-white font-extrabold shadow-xs transition cursor-pointer"
+              className="min-h-[44px] px-6 py-2 rounded-xl bg-rose-950 hover:bg-rose-900 text-white font-extrabold shadow-xs transition cursor-pointer"
             >
-              {editingItem ? 'Guardar Cambios' : 'Registrar Insumo Fresco'}
+              {editingItem ? 'Guardar cambios' : 'Guardar ingrediente'}
             </button>
           </div>
         </form>

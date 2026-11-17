@@ -1,5 +1,5 @@
-import { BillingFrequency, FREE_PLAN_DETAILS } from '../config/pricingPlans';
-import { Product, SubscriptionStatus, Table, User } from '../types';
+import { FREE_PLAN_DETAILS, type BillingFrequency } from '../config/pricingPlans.ts';
+import type { Product, SubscriptionStatus, Table, User } from '../types/index.ts';
 
 export const MASTER_ADMIN_EMAIL = 'diego.contreras9317@gmail.com';
 export const FREE_MAX_TABLES = FREE_PLAN_DETAILS.maxTables; // 6
